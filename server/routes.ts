@@ -24,6 +24,7 @@ import {
   insertAttachmentSchema,
   insertAppSettingSchema,
 } from "@shared/schema";
+import { PERMISSION_CATALOG } from "@shared/permissions";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -484,19 +485,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
+  app.get("/api/permissions", async (_req, res) => res.json(PERMISSION_CATALOG));
   app.get("/api/fleet-roles", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(await storage.listFleetRoles(fleetId));
+    res.json(await storage.listFleetRolesWithPermissions(fleetId));
   });
   app.post("/api/fleet-roles", async (req, res) => {
-    try { res.json(await storage.createFleetRole(insertFleetRoleSchema.parse(req.body))); }
-    catch (err) { handleError(res, err); }
+    try {
+      const body = insertFleetRoleSchema.extend({ permissions: z.array(z.string()).optional() }).parse(req.body);
+      const { permissions, ...roleInput } = body;
+      const role = await storage.createFleetRole(roleInput);
+      if (permissions) await storage.setFleetRolePermissions(role.id, permissions);
+      res.json({ ...role, permissions: permissions ?? [] });
+    } catch (err) { handleError(res, err); }
   });
   app.patch("/api/fleet-roles/:id", async (req, res) => {
     try {
-      const updated = await storage.updateFleetRole(Number(req.params.id), insertFleetRoleSchema.partial().parse(req.body));
+      const body = insertFleetRoleSchema.partial().extend({ permissions: z.array(z.string()).optional() }).parse(req.body);
+      const { permissions, ...roleInput } = body;
+      const id = Number(req.params.id);
+      const updated = Object.keys(roleInput).length > 0
+        ? await storage.updateFleetRole(id, roleInput)
+        : await storage.getFleetRole(id);
       if (!updated) return res.status(404).json({ error: "not_found" });
-      res.json(updated);
+      if (permissions) await storage.setFleetRolePermissions(updated.id, permissions);
+      res.json(permissions ? { ...updated, permissions } : updated);
     } catch (err) { handleError(res, err); }
   });
   app.delete("/api/fleet-roles/:id", async (req, res) => {

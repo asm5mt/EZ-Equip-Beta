@@ -7,14 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
-import type { Role } from "@/lib/app-context";
-import type { AppSetting, Fleet, User, FleetRole } from "@shared/schema";
+import type { FleetRoleWithPermissions } from "@/lib/app-context";
+import type { AppSetting, Fleet, User } from "@shared/schema";
+import type { PermissionCatalogEntry } from "@shared/permissions";
 import { BADGE_COLORS } from "@/lib/badges";
 import { ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, Tags, ShieldCheck, UserCog, Save, X, Plus, Trash2 } from "lucide-react";
 
@@ -330,24 +332,61 @@ function SelectField({ label, value, onChange, options, testid }: {
   );
 }
 
+function PermissionCheckboxes({ permissions, selected, onToggle, disabled, idPrefix }: {
+  permissions: PermissionCatalogEntry[];
+  selected: string[];
+  onToggle: (key: string, checked: boolean) => void;
+  disabled?: boolean;
+  idPrefix: string;
+}) {
+  const byCategory = new Map<string, PermissionCatalogEntry[]>();
+  for (const p of permissions) {
+    if (!byCategory.has(p.category)) byCategory.set(p.category, []);
+    byCategory.get(p.category)!.push(p);
+  }
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+      {Array.from(byCategory.entries()).map(([category, entries]) => (
+        <div key={category} className="space-y-1.5">
+          <div className="text-xs uppercase tracking-[0.12em] text-muted-foreground">{category}</div>
+          {entries.map(p => (
+            <label key={p.key} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={selected.includes(p.key)}
+                onCheckedChange={checked => onToggle(p.key, checked === true)}
+                disabled={disabled}
+                data-testid={`checkbox-${idPrefix}-${p.key}`}
+              />
+              {p.label}
+            </label>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function FleetRolesDialog({ fleet }: { fleet: Fleet }) {
   const { canAdmin } = useAppContext();
   const { toast } = useToast();
-  const rolesQ = useQuery<FleetRole[]>({ queryKey: ["/api/fleet-roles", { fleetId: fleet.id }] });
+  const rolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles", { fleetId: fleet.id }] });
+  const permissionsQ = useQuery<PermissionCatalogEntry[]>({ queryKey: ["/api/permissions"] });
+  const permissionCatalog = permissionsQ.data ?? [];
   const [name, setName] = useState("");
-  const [permission, setPermission] = useState("viewer");
+  const [newPermissions, setNewPermissions] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const createRole = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/fleet-roles", { fleetId: fleet.id, name: name.toLowerCase(), permission, description: description || null, builtIn: false })).json(),
+    mutationFn: async () => (await apiRequest("POST", "/api/fleet-roles", { fleetId: fleet.id, name: name.toLowerCase(), permissions: newPermissions, description: description || null, builtIn: false })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] });
-      setName(""); setPermission("viewer"); setDescription("");
+      setName(""); setNewPermissions([]); setDescription("");
       toast({ title: "Fleet role added" });
     },
   });
   const updateRole = useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: Partial<FleetRole> }) => (await apiRequest("PATCH", `/api/fleet-roles/${id}`, patch)).json(),
+    mutationFn: async ({ id, patch }: { id: number; patch: Partial<FleetRoleWithPermissions> }) => (await apiRequest("PATCH", `/api/fleet-roles/${id}`, patch)).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] }),
+    onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
   const deleteRole = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/fleet-roles/${id}`)).json(),
@@ -355,6 +394,7 @@ function FleetRolesDialog({ fleet }: { fleet: Fleet }) {
       queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] });
       toast({ title: "Fleet role deleted" });
     },
+    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
   return (
     <Dialog>
@@ -363,30 +403,43 @@ function FleetRolesDialog({ fleet }: { fleet: Fleet }) {
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>{fleet.name} Roles</DialogTitle></DialogHeader>
-        <div className="grid gap-2">
+        <div className="grid gap-3 max-h-[50vh] overflow-y-auto pr-1">
           {(rolesQ.data ?? []).map(role => (
-            <div key={role.id} className="grid grid-cols-1 sm:grid-cols-[130px_130px_1fr_44px] gap-2 rounded-md border border-border p-3 items-center">
-              <Input value={role.name} disabled={!canAdmin || role.builtIn} onChange={e => updateRole.mutate({ id: role.id, patch: { name: e.target.value.toLowerCase() } })} data-testid={`input-fleet-role-name-${role.id}`} />
-              <Select value={role.permission} onValueChange={value => updateRole.mutate({ id: role.id, patch: { permission: value } })} disabled={!canAdmin}>
-                <SelectTrigger data-testid={`select-fleet-role-permission-${role.id}`}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="viewer">viewer</SelectItem>
-                  <SelectItem value="editor">editor</SelectItem>
-                  <SelectItem value="admin">admin</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input value={role.description ?? ""} disabled={!canAdmin} onChange={e => updateRole.mutate({ id: role.id, patch: { description: e.target.value } })} data-testid={`input-fleet-role-description-${role.id}`} />
-              <Button variant="ghost" size="sm" disabled={!canAdmin || role.builtIn || deleteRole.isPending} onClick={() => deleteRole.mutate(role.id)} data-testid={`button-delete-fleet-role-${role.id}`}>
-                <Trash2 className="size-4" />
-              </Button>
+            <div key={role.id} className="rounded-md border border-border p-3 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_44px] gap-2 items-center">
+                <Input value={role.name} disabled={!canAdmin || role.builtIn} onChange={e => updateRole.mutate({ id: role.id, patch: { name: e.target.value.toLowerCase() } })} data-testid={`input-fleet-role-name-${role.id}`} />
+                <Input value={role.description ?? ""} disabled={!canAdmin} onChange={e => updateRole.mutate({ id: role.id, patch: { description: e.target.value } })} data-testid={`input-fleet-role-description-${role.id}`} />
+                <Button variant="ghost" size="sm" disabled={!canAdmin || role.builtIn || deleteRole.isPending} onClick={() => deleteRole.mutate(role.id)} data-testid={`button-delete-fleet-role-${role.id}`}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+              <PermissionCheckboxes
+                permissions={permissionCatalog}
+                selected={role.permissions}
+                disabled={!canAdmin}
+                idPrefix={`role-${role.id}`}
+                onToggle={(key, checked) => {
+                  const next = checked ? [...role.permissions, key] : role.permissions.filter(p => p !== key);
+                  updateRole.mutate({ id: role.id, patch: { permissions: next } });
+                }}
+              />
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[130px_130px_1fr_auto] gap-2 rounded-md bg-muted p-3 items-end">
-          <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="mechanic" data-testid="input-new-fleet-role" /></div>
-          <SelectField label="Permission" value={permission} onChange={setPermission} options={[["viewer", "viewer"], ["editor", "editor"], ["admin", "admin"]]} testid="select-new-fleet-role-permission" />
-          <div><Label>Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} data-testid="input-new-fleet-role-description" /></div>
-          <Button disabled={!canAdmin || !name || createRole.isPending} onClick={() => createRole.mutate()} data-testid="button-create-fleet-role"><Plus className="size-4 mr-1.5" /> Add</Button>
+        <div className="rounded-md bg-muted p-3 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="mechanic" data-testid="input-new-fleet-role" /></div>
+            <div><Label>Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} data-testid="input-new-fleet-role-description" /></div>
+          </div>
+          <PermissionCheckboxes
+            permissions={permissionCatalog}
+            selected={newPermissions}
+            idPrefix="new-role"
+            onToggle={(key, checked) => setNewPermissions(prev => checked ? [...prev, key] : prev.filter(p => p !== key))}
+          />
+          <div className="flex justify-end">
+            <Button disabled={!canAdmin || !name || createRole.isPending} onClick={() => createRole.mutate()} data-testid="button-create-fleet-role"><Plus className="size-4 mr-1.5" /> Add</Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -396,10 +449,10 @@ function FleetRolesDialog({ fleet }: { fleet: Fleet }) {
 function UserRow({ user }: { user: User }) {
   const { fleets, memberships, canAdmin } = useAppContext();
   const { toast } = useToast();
-  const rolesQ = useQuery<FleetRole[]>({ queryKey: ["/api/fleet-roles"] });
+  const rolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles"] });
   const assign = useMutation({
-    mutationFn: async ({ fleetId, role }: { fleetId: number; role: Role }) => {
-      const res = await apiRequest("POST", "/api/fleet-memberships", { fleetId, userId: user.id, role });
+    mutationFn: async ({ fleetId, roleId }: { fleetId: number; roleId: number }) => {
+      const res = await apiRequest("POST", "/api/fleet-memberships", { fleetId, userId: user.id, roleId });
       return res.json();
     },
     onSuccess: () => {
@@ -444,17 +497,17 @@ function UserRow({ user }: { user: User }) {
                   <div key={fleet.id} className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-3 items-center rounded-md border border-border p-3">
                     <div>
                       <div className="font-medium">{fleet.name}</div>
-                      <div className="text-xs text-muted-foreground">Current role: {m?.role ?? "no access"}</div>
+                      <div className="text-xs text-muted-foreground">Current role: {fleetRoles.find(r => r.id === m?.roleId)?.name ?? "no access"}</div>
                     </div>
                     <Select
-                      value={(m?.role as string) ?? "none"}
-                      onValueChange={(role) => role === "none" ? removeAccess.mutate({ fleetId: fleet.id, userId: user.id }) : assign.mutate({ fleetId: fleet.id, role })}
+                      value={m ? String(m.roleId) : "none"}
+                      onValueChange={(value) => value === "none" ? removeAccess.mutate({ fleetId: fleet.id, userId: user.id }) : assign.mutate({ fleetId: fleet.id, roleId: Number(value) })}
                       disabled={!canAdmin}
                     >
                       <SelectTrigger data-testid={`select-user-${user.id}-fleet-${fleet.id}`}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">no access</SelectItem>
-                        {fleetRoles.map(role => <SelectItem key={role.id} value={role.name}>{role.name} ({role.permission})</SelectItem>)}
+                        {fleetRoles.map(role => <SelectItem key={role.id} value={String(role.id)}>{role.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

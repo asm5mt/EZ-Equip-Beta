@@ -6,6 +6,7 @@ import {
   fleetEquipmentTypes,
   fleetFuelTypes,
   fleetRoles,
+  fleetRolePermissions,
   inventoryCategories,
   inventoryCategoryFields,
   assets,
@@ -40,10 +41,11 @@ import type {
   Attachment, InsertAttachment,
   AppSetting, InsertAppSetting,
 } from "@shared/schema";
+import type { PermissionKey } from "@shared/permissions";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import path from "node:path";
 
 if (!process.env.DATABASE_URL) {
@@ -77,20 +79,40 @@ const DEFAULT_FUEL_TYPE_ROWS = [
 ];
 
 const DEFAULT_FLEET_ROLE_ROWS = [
-  { name: "viewer", permission: "viewer", description: "Can view dashboards, assets, service history, meters, inventory, and reports. Cannot edit.", builtIn: true },
-  { name: "editor", permission: "editor", description: "Can add and update assets, meters, services, schedules, and inventory.", builtIn: true },
-  { name: "admin", permission: "admin", description: "Can manage fleet settings, users, memberships, and all editor workflows.", builtIn: true },
+  { name: "viewer", description: "Can view dashboards, assets, service history, meters, inventory, and reports. Cannot edit.", builtIn: true },
+  { name: "editor", description: "Can add and update assets, meters, services, schedules, and inventory.", builtIn: true },
+  { name: "admin", description: "Can manage fleet settings, users, memberships, and all editor workflows.", builtIn: true },
 ];
 
-async function rolePermissionForFleet(fleetId: number, roleName: string): Promise<"viewer" | "editor" | "admin"> {
-  const [configured] = await db.select().from(fleetRoles)
-    .where(and(eq(fleetRoles.fleetId, fleetId), eq(fleetRoles.name, roleName)));
-  const permission = configured?.permission ?? roleName;
-  return permission === "admin" || permission === "editor" || permission === "viewer" ? permission : "viewer";
+const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
+  viewer: ["assets.view", "inventory.view", "data.export"],
+  editor: [
+    "assets.view", "inventory.view", "data.export",
+    "assets.edit", "assets.delete", "meters.log", "meters.edit",
+    "schedules.manage", "service.log", "service.edit", "inventory.manage",
+  ],
+  admin: [
+    "assets.view", "inventory.view", "data.export",
+    "assets.edit", "assets.delete", "meters.log", "meters.edit",
+    "schedules.manage", "service.log", "service.edit", "inventory.manage",
+    "fleets.manage_settings", "users.manage", "roles.manage",
+  ],
+};
+
+// A role is admin-equivalent for the last-fleet-admin safety net iff it can
+// manage roles/access — that's the one thing a fleet can never be left without.
+async function isAdminRoleId(roleId: number): Promise<boolean> {
+  const [row] = await db.select().from(fleetRolePermissions)
+    .where(and(eq(fleetRolePermissions.roleId, roleId), eq(fleetRolePermissions.permissionKey, "roles.manage" satisfies PermissionKey)));
+  return !!row;
 }
 
-async function isAdminRoleForFleet(fleetId: number, roleName: string): Promise<boolean> {
-  return (await rolePermissionForFleet(fleetId, roleName)) === "admin";
+async function adminRoleIdForFleet(fleetId: number): Promise<number | undefined> {
+  const roles = await db.select().from(fleetRoles).where(eq(fleetRoles.fleetId, fleetId));
+  for (const role of roles) {
+    if (await isAdminRoleId(role.id)) return role.id;
+  }
+  return undefined;
 }
 
 async function countFleetAdmins(fleetId: number, excludeMembershipId?: number, excludeUserId?: number): Promise<number> {
@@ -98,7 +120,7 @@ async function countFleetAdmins(fleetId: number, excludeMembershipId?: number, e
   const candidates = memberships.filter(m => m.id !== excludeMembershipId && m.userId !== excludeUserId);
   let count = 0;
   for (const m of candidates) {
-    if (await isAdminRoleForFleet(fleetId, m.role)) count++;
+    if (await isAdminRoleId(m.roleId)) count++;
   }
   return count;
 }
@@ -112,11 +134,13 @@ async function assertFleetKeepsAdmin(fleetId: number, excludeMembershipId?: numb
 async function ensureEveryFleetHasAdmin() {
   for (const fleet of await db.select().from(fleets)) {
     if ((await countFleetAdmins(fleet.id)) > 0) continue;
+    const adminRoleId = await adminRoleIdForFleet(fleet.id);
+    if (adminRoleId == null) continue; // fleet has no admin-equivalent role configured
     const [firstMembership] = await db.select().from(fleetMemberships)
       .where(eq(fleetMemberships.fleetId, fleet.id))
       .orderBy(fleetMemberships.id);
     if (firstMembership) {
-      await db.update(fleetMemberships).set({ role: "admin" })
+      await db.update(fleetMemberships).set({ roleId: adminRoleId })
         .where(eq(fleetMemberships.id, firstMembership.id));
       continue;
     }
@@ -132,7 +156,7 @@ async function ensureEveryFleetHasAdmin() {
       }).returning();
       firstUser = created;
     }
-    await db.insert(fleetMemberships).values({ fleetId: fleet.id, userId: firstUser.id, role: "admin" });
+    await db.insert(fleetMemberships).values({ fleetId: fleet.id, userId: firstUser.id, roleId: adminRoleId });
   }
 }
 
@@ -166,9 +190,12 @@ export interface IStorage {
   updateFleetFuelType(id: number, input: Partial<InsertFleetFuelType>): Promise<FleetFuelType | undefined>;
   deleteFleetFuelType(id: number): Promise<boolean>;
   listFleetRoles(fleetId?: number): Promise<FleetRole[]>;
+  getFleetRole(id: number): Promise<FleetRole | undefined>;
+  listFleetRolesWithPermissions(fleetId?: number): Promise<(FleetRole & { permissions: string[] })[]>;
   createFleetRole(input: InsertFleetRole): Promise<FleetRole>;
   updateFleetRole(id: number, input: Partial<InsertFleetRole>): Promise<FleetRole | undefined>;
   deleteFleetRole(id: number): Promise<boolean>;
+  setFleetRolePermissions(roleId: number, keys: string[]): Promise<void>;
   listInventoryCategories(fleetId?: number): Promise<InventoryCategory[]>;
   createInventoryCategory(input: InsertInventoryCategory): Promise<InventoryCategory>;
   updateInventoryCategory(id: number, input: Partial<InsertInventoryCategory>): Promise<InventoryCategory | undefined>;
@@ -247,13 +274,21 @@ export class DatabaseStorage implements IStorage {
   }
   async createFleet(input: InsertFleet): Promise<Fleet> {
     const [fleet] = await db.insert(fleets).values(input).returning();
-    for (const role of DEFAULT_FLEET_ROLE_ROWS) {
-      await db.insert(fleetRoles).values({ fleetId: fleet.id, ...role });
-    }
+    await this.seedDefaultFleetRoles(fleet.id);
     for (const fuel of DEFAULT_FUEL_TYPE_ROWS) {
       await db.insert(fleetFuelTypes).values({ fleetId: fleet.id, ...fuel });
     }
     return fleet;
+  }
+
+  private async seedDefaultFleetRoles(fleetId: number): Promise<void> {
+    for (const role of DEFAULT_FLEET_ROLE_ROWS) {
+      const [createdRole] = await db.insert(fleetRoles).values({ fleetId, ...role }).returning();
+      const keys = DEFAULT_ROLE_PERMISSIONS[role.name] ?? [];
+      for (const key of keys) {
+        await db.insert(fleetRolePermissions).values({ roleId: createdRole.id, permissionKey: key });
+      }
+    }
   }
 
   async listSites(fleetId: number): Promise<Site[]> {
@@ -275,7 +310,7 @@ export class DatabaseStorage implements IStorage {
   async deleteUser(id: number): Promise<boolean> {
     const memberships = await db.select().from(fleetMemberships).where(eq(fleetMemberships.userId, id));
     for (const membership of memberships) {
-      if (await isAdminRoleForFleet(membership.fleetId, membership.role)) {
+      if (await isAdminRoleId(membership.roleId)) {
         await assertFleetKeepsAdmin(membership.fleetId, undefined, id);
       }
     }
@@ -290,10 +325,10 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await db.select().from(fleetMemberships)
       .where(and(eq(fleetMemberships.fleetId, input.fleetId), eq(fleetMemberships.userId, input.userId)));
     if (existing) {
-      if ((await isAdminRoleForFleet(existing.fleetId, existing.role)) && !(await isAdminRoleForFleet(input.fleetId, input.role))) {
+      if ((await isAdminRoleId(existing.roleId)) && !(await isAdminRoleId(input.roleId))) {
         await assertFleetKeepsAdmin(existing.fleetId, existing.id);
       }
-      const [updated] = await db.update(fleetMemberships).set({ role: input.role })
+      const [updated] = await db.update(fleetMemberships).set({ roleId: input.roleId, grantedBy: input.grantedBy ?? "manual" })
         .where(eq(fleetMemberships.id, existing.id)).returning();
       return updated;
     }
@@ -303,7 +338,7 @@ export class DatabaseStorage implements IStorage {
   async deleteFleetMembership(fleetId: number, userId: number): Promise<boolean> {
     const [existing] = await db.select().from(fleetMemberships)
       .where(and(eq(fleetMemberships.fleetId, fleetId), eq(fleetMemberships.userId, userId)));
-    if (existing && (await isAdminRoleForFleet(fleetId, existing.role))) {
+    if (existing && (await isAdminRoleId(existing.roleId))) {
       await assertFleetKeepsAdmin(fleetId, existing.id);
     }
     const result = await db.delete(fleetMemberships)
@@ -350,57 +385,77 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.id, id));
     return (result.rowCount ?? 0) > 0;
   }
+  async getFleetRole(id: number): Promise<FleetRole | undefined> {
+    const [row] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, id));
+    return row;
+  }
   async listFleetRoles(fleetId?: number): Promise<FleetRole[]> {
     if (fleetId) {
       const existing = await db.select().from(fleetRoles).where(eq(fleetRoles.fleetId, fleetId));
-      if (existing.length === 0) {
-        for (const role of DEFAULT_FLEET_ROLE_ROWS) {
-          await db.insert(fleetRoles).values({ fleetId, ...role });
-        }
-      }
+      if (existing.length === 0) await this.seedDefaultFleetRoles(fleetId);
     }
     const q = db.select().from(fleetRoles).orderBy(fleetRoles.name);
     return fleetId ? await q.where(eq(fleetRoles.fleetId, fleetId)) : await q;
+  }
+  async listFleetRolesWithPermissions(fleetId?: number): Promise<(FleetRole & { permissions: string[] })[]> {
+    const roles = await this.listFleetRoles(fleetId);
+    if (roles.length === 0) return [];
+    const permRows = await db.select().from(fleetRolePermissions)
+      .where(inArray(fleetRolePermissions.roleId, roles.map(r => r.id)));
+    const byRole = new Map<number, string[]>();
+    for (const row of permRows) {
+      if (!byRole.has(row.roleId)) byRole.set(row.roleId, []);
+      byRole.get(row.roleId)!.push(row.permissionKey);
+    }
+    return roles.map(r => ({ ...r, permissions: byRole.get(r.id) ?? [] }));
   }
   async createFleetRole(input: InsertFleetRole): Promise<FleetRole> {
     const [row] = await db.insert(fleetRoles).values(input).returning();
     return row;
   }
   async updateFleetRole(id: number, input: Partial<InsertFleetRole>): Promise<FleetRole | undefined> {
-    const [existing] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, id));
-    if (existing && existing.permission === "admin" && input.permission && input.permission !== "admin") {
-      const adminMembershipsForRole = await db.select().from(fleetMemberships)
-        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), eq(fleetMemberships.role, existing.name)));
-      const otherMemberships = await db.select().from(fleetMemberships)
-        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), ne(fleetMemberships.role, existing.name)));
-      let otherAdminCount = 0;
-      for (const m of otherMemberships) {
-        if (await isAdminRoleForFleet(existing.fleetId, m.role)) otherAdminCount++;
-      }
-      if (adminMembershipsForRole.length > 0 && otherAdminCount === 0) {
-        throw new Error("cannot_remove_last_fleet_admin");
-      }
-    }
     const [row] = await db.update(fleetRoles).set(input).where(eq(fleetRoles.id, id)).returning();
     return row;
   }
   async deleteFleetRole(id: number): Promise<boolean> {
     const [existing] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, id));
-    if (existing && existing.permission === "admin") {
-      const adminMembershipsForRole = await db.select().from(fleetMemberships)
-        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), eq(fleetMemberships.role, existing.name)));
+    if (existing && (await isAdminRoleId(id))) {
       const otherMemberships = await db.select().from(fleetMemberships)
-        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), ne(fleetMemberships.role, existing.name)));
+        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), ne(fleetMemberships.roleId, id)));
+      const membersOfThisRole = await db.select().from(fleetMemberships)
+        .where(and(eq(fleetMemberships.fleetId, existing.fleetId), eq(fleetMemberships.roleId, id)));
       let otherAdminCount = 0;
       for (const m of otherMemberships) {
-        if (await isAdminRoleForFleet(existing.fleetId, m.role)) otherAdminCount++;
+        if (await isAdminRoleId(m.roleId)) otherAdminCount++;
       }
-      if (adminMembershipsForRole.length > 0 && otherAdminCount === 0) {
+      if (membersOfThisRole.length > 0 && otherAdminCount === 0) {
         throw new Error("cannot_remove_last_fleet_admin");
       }
     }
+    await db.delete(fleetRolePermissions).where(eq(fleetRolePermissions.roleId, id));
     const result = await db.delete(fleetRoles).where(eq(fleetRoles.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+  async setFleetRolePermissions(roleId: number, keys: string[]): Promise<void> {
+    const [role] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, roleId));
+    if (!role) throw new Error("fleet_role_not_found");
+    const wasAdmin = await isAdminRoleId(roleId);
+    if (wasAdmin && !keys.includes("roles.manage" satisfies PermissionKey)) {
+      const memberships = await db.select().from(fleetMemberships).where(eq(fleetMemberships.fleetId, role.fleetId));
+      const membersOfThisRole = memberships.filter(m => m.roleId === roleId);
+      const otherMemberships = memberships.filter(m => m.roleId !== roleId);
+      let otherAdminCount = 0;
+      for (const m of otherMemberships) {
+        if (await isAdminRoleId(m.roleId)) otherAdminCount++;
+      }
+      if (membersOfThisRole.length > 0 && otherAdminCount === 0) {
+        throw new Error("cannot_remove_last_fleet_admin");
+      }
+    }
+    await db.delete(fleetRolePermissions).where(eq(fleetRolePermissions.roleId, roleId));
+    for (const key of keys) {
+      await db.insert(fleetRolePermissions).values({ roleId, permissionKey: key });
+    }
   }
 
   async listInventoryCategories(fleetId?: number): Promise<InventoryCategory[]> {
@@ -801,9 +856,11 @@ export async function seedIfEmpty() {
     passwordHash: null,
     systemAdmin: false,
   });
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: owner.id, role: "admin" });
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: tech.id, role: "editor" });
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: viewer.id, role: "viewer" });
+  const seedRoles = await storage.listFleetRoles(fleet.id);
+  const seedRoleIdByName = new Map(seedRoles.map(r => [r.name, r.id]));
+  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: owner.id, roleId: seedRoleIdByName.get("admin")!, grantedBy: "manual" });
+  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: tech.id, roleId: seedRoleIdByName.get("editor")!, grantedBy: "manual" });
+  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: viewer.id, roleId: seedRoleIdByName.get("viewer")!, grantedBy: "manual" });
   for (const type of DEFAULT_EQUIPMENT_TYPE_ROWS) {
     await storage.createFleetEquipmentType({ fleetId: fleet.id, active: true, ...type });
   }

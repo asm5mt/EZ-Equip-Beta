@@ -3,6 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import type { Fleet, User, FleetMembership, FleetRole } from "@shared/schema";
 
 export type Role = string;
+export type FleetRoleWithPermissions = FleetRole & { permissions: string[] };
+
+const EDIT_PERMISSIONS = ["assets.edit", "meters.edit", "schedules.manage", "service.edit", "inventory.manage"];
 
 interface AppContextValue {
   fleet: Fleet | null;
@@ -12,9 +15,8 @@ interface AppContextValue {
   setCurrentUserId: (id: number) => void;
   users: User[];
   memberships: FleetMembership[];
-  fleetRoles: FleetRole[];
+  fleetRoles: FleetRoleWithPermissions[];
   role: Role;
-  permission: "viewer" | "editor" | "admin";
   canEdit: boolean;
   canAdmin: boolean;
   isLoaded: boolean;
@@ -38,7 +40,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const id = fleetId ?? fleets[0]?.id ?? null;
     return id ? fleets.find(f => f.id === id) ?? null : null;
   }, [fleetId, fleets]);
-  const fleetRolesQ = useQuery<FleetRole[]>({ queryKey: ["/api/fleet-roles", { fleetId: fleet?.id }], enabled: !!fleet?.id });
+  const fleetRolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles", { fleetId: fleet?.id }], enabled: !!fleet?.id });
   const fleetRoles = fleetRolesQ.data ?? [];
 
   const currentUser = useMemo(() => {
@@ -46,16 +48,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return id ? users.find(u => u.id === id) ?? null : null;
   }, [currentUserId, users]);
 
-  const role: Role = useMemo(() => {
-    if (!fleet || !currentUser) return "viewer";
+  const currentRole = useMemo<FleetRoleWithPermissions | null>(() => {
+    if (!fleet || !currentUser) return null;
     const m = memberships.find(m => m.fleetId === fleet.id && m.userId === currentUser.id);
-    return ((m?.role as Role) ?? "viewer");
-  }, [fleet, currentUser, memberships]);
+    if (!m) return null;
+    return fleetRoles.find(r => r.id === m.roleId) ?? null;
+  }, [fleet, currentUser, memberships, fleetRoles]);
 
-  const permission = useMemo<"viewer" | "editor" | "admin">(() => {
-    const configured = fleetRoles.find(r => r.name === role);
-    return ((configured?.permission as any) ?? (["viewer", "editor", "admin"].includes(role) ? role : "viewer"));
-  }, [fleetRoles, role]);
+  const role: Role = currentRole?.name ?? "viewer";
+  const permissions = useMemo(() => new Set(currentRole?.permissions ?? []), [currentRole]);
 
   const value: AppContextValue = {
     fleet,
@@ -67,9 +68,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     memberships,
     fleetRoles,
     role,
-    permission,
-    canEdit: permission === "editor" || permission === "admin",
-    canAdmin: permission === "admin",
+    canEdit: EDIT_PERMISSIONS.some(key => permissions.has(key)),
+    canAdmin: permissions.has("roles.manage"),
     isLoaded: fleetsQ.isSuccess && usersQ.isSuccess,
   };
 

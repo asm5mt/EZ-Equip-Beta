@@ -31,14 +31,23 @@ export const users = pgTable("users", {
   // local-auth simulation; AD integration will replace this layer.
   passwordHash: text("password_hash"),
   systemAdmin: boolean("system_admin").notNull().default(false),
+  // 'local' | 'oidc'
+  authProvider: text("auth_provider").notNull().default("local"),
+  // OIDC `sub` claim, unique per provider
+  externalId: text("external_id"),
+  // Break-glass local admin: can always log in with local password even if
+  // system_settings.auth_mode is set to OIDC-only.
+  exemptFromGlobalAuthMode: boolean("exempt_from_global_auth_mode").notNull().default(false),
 });
 
-// Role per (user, fleet). Roles: viewer | editor | admin
+// Role per (user, fleet), via fleet_roles.
 export const fleetMemberships = pgTable("fleet_memberships", {
   id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   userId: integer("user_id").notNull().references(() => users.id),
-  role: text("role").notNull(), // 'viewer' | 'editor' | 'admin'
+  roleId: integer("role_id").notNull().references(() => fleetRoles.id),
+  // 'manual' | 'group' — so OIDC group-sync never silently overwrites a manual grant.
+  grantedBy: text("granted_by").notNull().default("manual"),
 });
 
 export const fleetEquipmentTypes = pgTable("fleet_equipment_types", {
@@ -56,9 +65,37 @@ export const fleetRoles = pgTable("fleet_roles", {
   id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
-  permission: text("permission").notNull().default("viewer"),
   description: text("description"),
   builtIn: boolean("built_in").notNull().default(false),
+});
+
+// Join table: which permission keys (see shared/permissions.ts) a role grants.
+// No DB-level uniqueness — app code replaces a role's rows wholesale
+// (delete-then-insert), matching the maintenance_schedule_assignments convention.
+export const fleetRolePermissions = pgTable("fleet_role_permissions", {
+  id: serial("id").primaryKey(),
+  roleId: integer("role_id").notNull().references(() => fleetRoles.id),
+  permissionKey: text("permission_key").notNull(),
+});
+
+// Maps an OIDC token's `groups` claim entry to a fleet + role. Reconciled on
+// every OIDC login (phase 4); table only for now.
+export const oidcGroupMappings = pgTable("oidc_group_mappings", {
+  id: serial("id").primaryKey(),
+  groupName: text("group_name").notNull().unique(),
+  fleetId: integer("fleet_id").notNull().references(() => fleets.id),
+  roleId: integer("role_id").notNull().references(() => fleetRoles.id),
+});
+
+// Single-row table of global auth settings (auth_mode toggle + OIDC config).
+// Distinct from `app_settings`, which holds arbitrary UI preferences.
+export const systemSettings = pgTable("system_settings", {
+  id: serial("id").primaryKey(),
+  authMode: text("auth_mode").notNull().default("local"), // 'local' | 'oidc'
+  oidcIssuerUrl: text("oidc_issuer_url"),
+  oidcClientId: text("oidc_client_id"),
+  oidcClientSecret: text("oidc_client_secret"),
+  oidcRedirectUri: text("oidc_redirect_uri"),
 });
 
 export const inventoryCategories = pgTable("inventory_categories", {
@@ -303,6 +340,18 @@ export type FleetEquipmentType = typeof fleetEquipmentTypes.$inferSelect;
 export const insertFleetRoleSchema = createInsertSchema(fleetRoles).omit({ id: true });
 export type InsertFleetRole = z.infer<typeof insertFleetRoleSchema>;
 export type FleetRole = typeof fleetRoles.$inferSelect;
+
+export const insertFleetRolePermissionSchema = createInsertSchema(fleetRolePermissions).omit({ id: true });
+export type InsertFleetRolePermission = z.infer<typeof insertFleetRolePermissionSchema>;
+export type FleetRolePermission = typeof fleetRolePermissions.$inferSelect;
+
+export const insertOidcGroupMappingSchema = createInsertSchema(oidcGroupMappings).omit({ id: true });
+export type InsertOidcGroupMapping = z.infer<typeof insertOidcGroupMappingSchema>;
+export type OidcGroupMapping = typeof oidcGroupMappings.$inferSelect;
+
+export const insertSystemSettingsSchema = createInsertSchema(systemSettings).omit({ id: true });
+export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
+export type SystemSettings = typeof systemSettings.$inferSelect;
 
 export const insertInventoryCategorySchema = createInsertSchema(inventoryCategories).omit({ id: true });
 export type InsertInventoryCategory = z.infer<typeof insertInventoryCategorySchema>;
