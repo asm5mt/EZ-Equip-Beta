@@ -1,100 +1,96 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, real, boolean, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // =============================================================================
-// EZ-EQUIP — domain schema
-//
-// The shape is intentionally cloud-agnostic (no SQLite-specific types beyond
-// drivers) so it can be ported to PostgreSQL/.NET later. JSON-shaped fields
-// are stored as `text` and parsed at the application layer.
+// EZ-EQUIP — domain schema (PostgreSQL)
 // =============================================================================
 
 // ----- Fleets / sites / users / memberships --------------------------------
 
-export const fleets = sqliteTable("fleets", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const fleets = pgTable("fleets", {
+  id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   currency: text("currency").notNull().default("USD"),
   notes: text("notes"),
 });
 
-export const sites = sqliteTable("sites", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const sites = pgTable("sites", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   address: text("address"),
 });
 
-export const users = sqliteTable("users", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   displayName: text("display_name").notNull(),
   email: text("email"),
   // local-auth simulation; AD integration will replace this layer.
   passwordHash: text("password_hash"),
-  systemAdmin: integer("system_admin", { mode: "boolean" }).notNull().default(false),
+  systemAdmin: boolean("system_admin").notNull().default(false),
 });
 
 // Role per (user, fleet). Roles: viewer | editor | admin
-export const fleetMemberships = sqliteTable("fleet_memberships", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const fleetMemberships = pgTable("fleet_memberships", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   userId: integer("user_id").notNull().references(() => users.id),
   role: text("role").notNull(), // 'viewer' | 'editor' | 'admin'
 });
 
-export const fleetEquipmentTypes = sqliteTable("fleet_equipment_types", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const fleetEquipmentTypes = pgTable("fleet_equipment_types", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   color: text("color").notNull().default("slate"),
   icon: text("icon").notNull().default("equipment"),
   defaultMeter: text("default_meter").notNull().default("mileage"),
-  enableVinFeatures: integer("enable_vin_features", { mode: "boolean" }).notNull().default(false),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  enableVinFeatures: boolean("enable_vin_features").notNull().default(false),
+  active: boolean("active").notNull().default(true),
 });
 
-export const fleetRoles = sqliteTable("fleet_roles", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const fleetRoles = pgTable("fleet_roles", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   permission: text("permission").notNull().default("viewer"),
   description: text("description"),
-  builtIn: integer("built_in", { mode: "boolean" }).notNull().default(false),
+  builtIn: boolean("built_in").notNull().default(false),
 });
 
-export const inventoryCategories = sqliteTable("inventory_categories", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const inventoryCategories = pgTable("inventory_categories", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   description: text("description"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
 });
 
-export const inventoryCategoryFields = sqliteTable("inventory_category_fields", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const inventoryCategoryFields = pgTable("inventory_category_fields", {
+  id: serial("id").primaryKey(),
   categoryId: integer("category_id").notNull().references(() => inventoryCategories.id),
   name: text("name").notNull(),
   fieldType: text("field_type").notNull().default("text"),
-  required: integer("required", { mode: "boolean" }).notNull().default(false),
+  required: boolean("required").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-export const fleetFuelTypes = sqliteTable("fleet_fuel_types", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const fleetFuelTypes = pgTable("fleet_fuel_types", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   color: text("color").notNull().default("#dc2626"),
   icon: text("icon").notNull().default("fuel"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
 });
 
 // ----- Assets / equipment --------------------------------------------------
 
-export const assets = sqliteTable("assets", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const assets = pgTable("assets", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   siteId: integer("site_id").references(() => sites.id),
 
@@ -122,7 +118,7 @@ export const assets = sqliteTable("assets", {
   gvwr: text("gvwr"),
   bodyType: text("body_type"),
   vinDecodedFields: text("vin_decoded_fields"),
-  acquisitionDate: integer("acquisition_date", { mode: "timestamp" }),
+  acquisitionDate: timestamp("acquisition_date", { mode: "date" }),
 
   // Primary meter for the asset.
   // 'mileage' | 'hours' | 'count' | 'custom'
@@ -130,9 +126,9 @@ export const assets = sqliteTable("assets", {
   // Free-form label when meterType = 'custom'
   meterLabel: text("meter_label"),
   currentMeter: real("current_meter").notNull().default(0),
-  meterAsOf: integer("meter_as_of", { mode: "timestamp" }),
+  meterAsOf: timestamp("meter_as_of", { mode: "date" }),
 
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
   inactiveReason: text("inactive_reason"),
 
   status: text("status").notNull().default("active"), // active | retired
@@ -141,12 +137,12 @@ export const assets = sqliteTable("assets", {
 
 // ----- Meter readings ------------------------------------------------------
 
-export const meterReadings = sqliteTable("meter_readings", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const meterReadings = pgTable("meter_readings", {
+  id: serial("id").primaryKey(),
   assetId: integer("asset_id").notNull().references(() => assets.id),
   readingType: text("reading_type").notNull(), // mileage | hours | count | custom
   value: real("value").notNull(),
-  readingDate: integer("reading_date", { mode: "timestamp" }).notNull(),
+  readingDate: timestamp("reading_date", { mode: "date" }).notNull(),
   notes: text("notes"),
   source: text("source").notNull().default("manual"), // manual | service-event
 });
@@ -157,8 +153,8 @@ export const meterReadings = sqliteTable("meter_readings", {
 //              `maintenance_schedule_assignments`. assetId is NULL.
 //   - 'asset': one-off custom schedule belonging to a single asset. assetId is set.
 
-export const maintenanceSchedules = sqliteTable("maintenance_schedules", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const maintenanceSchedules = pgTable("maintenance_schedules", {
+  id: serial("id").primaryKey(),
   // 'fleet' | 'asset'
   scope: text("scope").notNull().default("asset"),
   // Set for both scopes when fleetId known. Required for fleet scope.
@@ -175,25 +171,25 @@ export const maintenanceSchedules = sqliteTable("maintenance_schedules", {
   // JSON array of asset-type names that this fleet schedule applies to (filter hint). null => all.
   appliesToAssetTypes: text("applies_to_asset_types"),
   notes: text("notes"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
 });
 
 // Assignment of a fleet schedule to a specific asset.
-export const maintenanceScheduleAssignments = sqliteTable("maintenance_schedule_assignments", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const maintenanceScheduleAssignments = pgTable("maintenance_schedule_assignments", {
+  id: serial("id").primaryKey(),
   scheduleId: integer("schedule_id").notNull().references(() => maintenanceSchedules.id),
   assetId: integer("asset_id").notNull().references(() => assets.id),
 });
 
 // ----- Service events ------------------------------------------------------
 
-export const serviceEvents = sqliteTable("service_events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const serviceEvents = pgTable("service_events", {
+  id: serial("id").primaryKey(),
   assetId: integer("asset_id").notNull().references(() => assets.id),
   scheduleId: integer("schedule_id").references(() => maintenanceSchedules.id),
   eventType: text("event_type").notNull().default("scheduled"), // scheduled | repair | unscheduled
   title: text("title").notNull(),
-  performedAt: integer("performed_at", { mode: "timestamp" }).notNull(),
+  performedAt: timestamp("performed_at", { mode: "date" }).notNull(),
   meterAtService: real("meter_at_service"),
   vendor: text("vendor"),
   technician: text("technician"),
@@ -203,8 +199,8 @@ export const serviceEvents = sqliteTable("service_events", {
 
 // ----- Service line items --------------------------------------------------
 
-export const serviceLineItems = sqliteTable("service_line_items", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const serviceLineItems = pgTable("service_line_items", {
+  id: serial("id").primaryKey(),
   serviceEventId: integer("service_event_id").notNull().references(() => serviceEvents.id),
 
   // If an inventory item is consumed, link it. Otherwise leave null and
@@ -223,8 +219,8 @@ export const serviceLineItems = sqliteTable("service_line_items", {
 
 // ----- Inventory -----------------------------------------------------------
 
-export const inventoryItems = sqliteTable("inventory_items", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const inventoryItems = pgTable("inventory_items", {
+  id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
   category: text("category"), // oil | filter | fluid | wiper | spark plug | grease | part | other
@@ -232,35 +228,35 @@ export const inventoryItems = sqliteTable("inventory_items", {
   partNumber: text("part_number"),
   unit: text("unit").notNull().default("each"),
   onHand: real("on_hand").notNull().default(0),
-  lowStockAlert: integer("low_stock_alert", { mode: "boolean" }).notNull().default(true),
+  lowStockAlert: boolean("low_stock_alert").notNull().default(true),
   lowStockQuantity: real("low_stock_quantity"),
-  reorderReminder: integer("reorder_reminder", { mode: "boolean" }).notNull().default(false),
+  reorderReminder: boolean("reorder_reminder").notNull().default(false),
   reorderPoint: real("reorder_point"),
   reorderQuantity: real("reorder_quantity"),
-  costTracking: integer("cost_tracking", { mode: "boolean" }).notNull().default(false),
+  costTracking: boolean("cost_tracking").notNull().default(false),
   // Compatibility flag from the early prototype. New UI uses lowStockAlert/reorderReminder.
-  stocked: integer("stocked", { mode: "boolean" }).notNull().default(true),
+  stocked: boolean("stocked").notNull().default(true),
   unitCost: real("unit_cost"),
   customFields: text("custom_fields"),
   notes: text("notes"),
 });
 
 // Stock movements provide an audit trail for adjustments and consumption.
-export const inventoryMovements = sqliteTable("inventory_movements", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const inventoryMovements = pgTable("inventory_movements", {
+  id: serial("id").primaryKey(),
   inventoryItemId: integer("inventory_item_id").notNull().references(() => inventoryItems.id),
   // 'adjustment' | 'consumption' | 'restock'
   movementType: text("movement_type").notNull(),
   quantity: real("quantity").notNull(), // negative for consumption, positive for restock
   serviceEventId: integer("service_event_id").references(() => serviceEvents.id),
-  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+  occurredAt: timestamp("occurred_at", { mode: "date" }).notNull(),
   notes: text("notes"),
 });
 
 // ----- Attachments ---------------------------------------------------------
 
-export const attachments = sqliteTable("attachments", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const attachments = pgTable("attachments", {
+  id: serial("id").primaryKey(),
   // service-event | inventory-movement | inventory-item
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id").notNull(),
@@ -269,15 +265,15 @@ export const attachments = sqliteTable("attachments", {
   size: integer("size").notNull(),
   dataUrl: text("data_url").notNull(),
   notes: text("notes"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull(),
 });
 
 // ----- App settings --------------------------------------------------------
 
-export const appSettings = sqliteTable("app_settings", {
+export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull(),
 });
 
 // ===========================================================================

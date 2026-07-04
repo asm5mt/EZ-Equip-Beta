@@ -8,7 +8,9 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
-# Native better-sqlite3 needs Python + build tools.
+# better-sqlite3 is a devDependency (used only by the one-off
+# scripts/migrate_sqlite_to_postgres.ts data-migration script) and needs
+# Python + build tools to compile if no prebuilt binary matches this image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ ca-certificates \
   && rm -rf /var/lib/apt/lists/*
@@ -25,22 +27,15 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=5000
-# Persist the SQLite database in a mounted volume.
-ENV EZ_EQUIP_DB_PATH=/data/ez-equip.db
 
-# Runtime needs only production deps. Copy package files first for cache.
+# Runtime needs only production deps (pg is pure JS, no native build tools required).
 COPY package.json package-lock.json* ./
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
   && npm ci --omit=dev \
-  && apt-get purge -y python3 make g++ \
-  && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/dist ./dist
-
-RUN mkdir -p /data
-VOLUME ["/data"]
+COPY --from=build /app/migrations ./migrations
 
 EXPOSE 5000
 

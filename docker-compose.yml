@@ -1,17 +1,34 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ez-equip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ez_equip
+      POSTGRES_PASSWORD: ez_equip
+      POSTGRES_DB: ez_equip
+    volumes:
+      - ez_equip_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ez_equip -d ez_equip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   ez-equip:
     build: .
     image: ez-equip:latest
     container_name: ez-equip
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "5000:5000"
     environment:
       NODE_ENV: production
       PORT: "5000"
-      EZ_EQUIP_DB_PATH: /data/ez-equip.db
-    volumes:
-      - ez_equip_data:/data
+      DATABASE_URL: postgres://ez_equip:ez_equip@postgres:5432/ez_equip
 
 volumes:
-  ez_equip_data:
+  ez_equip_pgdata:

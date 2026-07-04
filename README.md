@@ -6,9 +6,8 @@ either-trigger maintenance schedules, service event logging with line-item
 parts consumption, inventory with low-stock alerts, and a multi-fleet,
 multi-user model with role-based access.
 
-Built as a self-hosted, single-process Node app backed by SQLite — small
-enough to run on a workshop laptop, structured cleanly enough to migrate
-to PostgreSQL and ASP.NET Core when the time comes.
+Built as a self-hosted, single-process Node app backed by PostgreSQL —
+structured cleanly enough to migrate to ASP.NET Core when the time comes.
 
 ---
 
@@ -16,40 +15,48 @@ to PostgreSQL and ASP.NET Core when the time comes.
 
 - **Frontend:** React 18, Vite, TypeScript, Tailwind CSS v3, shadcn/ui, wouter (hash routing), TanStack Query v5
 - **Backend:** Express 4, Drizzle ORM
-- **Database:** SQLite (`better-sqlite3`) — single file, idempotent schema
+- **Database:** PostgreSQL (`pg` + `drizzle-orm/node-postgres`), schema-versioned with drizzle-kit migrations
 - **Bundling:** Single Node process serves the API and the built SPA
-- **Containerization:** Multi-stage Dockerfile + docker-compose
+- **Containerization:** Multi-stage Dockerfile + docker-compose (app + Postgres)
 
 The frontend deliberately uses **no browser storage** (no `localStorage`,
 `sessionStorage`, `indexedDB`, or cookies). All persistent state lives in
-the SQLite database. UI state — current fleet, simulated user, theme — is
+the Postgres database. UI state — current fleet, simulated user, theme — is
 held in React state and rebuilt on each load.
 
 ---
 
 ## Quick start (development)
 
-Requires Node.js 20+.
+Requires Node.js 20+ and a running PostgreSQL instance.
 
 ```bash
+docker run -d --name ez-equip-dev-postgres \
+  -e POSTGRES_USER=ez_equip -e POSTGRES_PASSWORD=ez_equip -e POSTGRES_DB=ez_equip \
+  -p 5433:5432 postgres:16-alpine
+
+echo "DATABASE_URL=postgres://ez_equip:ez_equip@localhost:5433/ez_equip" > .env
+
 npm install
 npm run dev
 ```
 
 The dev server starts on port **5000** and serves both the API and the
-Vite-powered React app on the same port. SQLite is created automatically
-at `data.db` in the project root the first time the server boots, with a
-seeded fleet so you can navigate immediately.
+Vite-powered React app on the same port. On boot the app runs any pending
+drizzle-kit migrations against `DATABASE_URL`, then seeds a demo fleet if
+the database is empty so you can navigate immediately.
 
 Useful scripts:
 
-| Script           | Purpose                                              |
-| ---------------- | ---------------------------------------------------- |
-| `npm run dev`    | Dev server with HMR                                  |
-| `npm run check`  | TypeScript typecheck                                 |
-| `npm run build`  | Production build to `dist/`                          |
-| `npm run start`  | Run the production build (`NODE_ENV=production`)     |
-| `npm run db:push`| Drizzle schema push (rarely needed; see Schema below)|
+| Script                  | Purpose                                                     |
+| ----------------------- | ------------------------------------------------------------ |
+| `npm run dev`           | Dev server with HMR                                          |
+| `npm run check`         | TypeScript typecheck                                         |
+| `npm run build`         | Production build to `dist/`                                  |
+| `npm run start`         | Run the production build (`NODE_ENV=production`)              |
+| `npm run db:generate`   | Generate a new drizzle-kit migration from `shared/schema.ts` |
+| `npm run db:push`       | Drizzle schema push (dev convenience, bypasses migrations)    |
+| `npm run db:migrate-data` | One-off: copy rows from a legacy `data.db` SQLite file into `DATABASE_URL` |
 
 ---
 
@@ -59,33 +66,23 @@ Useful scripts:
 docker compose up --build
 ```
 
-The image:
+`docker-compose.yml` starts two services:
 
-- Builds the React app and the Node bundle in a Debian-slim build stage.
-- Ships only `dist/` and production deps in the runtime stage.
-- Persists `ez-equip.db` in a named volume `ez_equip_data` mounted at `/data`.
-- Exposes port **5000**.
-
-To use a host-mounted directory instead of a named volume, replace the
-volume mapping with a bind mount:
-
-```yaml
-volumes:
-  - ./data:/data
-```
-
-The database path inside the container is controlled by
-`EZ_EQUIP_DB_PATH` (defaults to `/data/ez-equip.db` in the image).
+- **postgres** — PostgreSQL 16, data persisted in the named volume `ez_equip_pgdata`.
+- **ez-equip** — builds the React app and the Node bundle in a Debian-slim
+  build stage, ships only `dist/`, the generated `migrations/`, and
+  production deps in the runtime stage, and connects to `postgres` via
+  `DATABASE_URL`. Exposes port **5000**.
 
 ### Backups
 
-The app writes to a single SQLite file. Back it up with:
+Back up the Postgres volume with `pg_dump`:
 
 ```bash
-docker compose exec ez-equip sqlite3 /data/ez-equip.db ".backup '/data/backup.db'"
+docker compose exec postgres pg_dump -U ez_equip ez_equip > backup.sql
 ```
 
-Then copy `backup.db` out of the volume.
+Restore with `psql -U ez_equip -d ez_equip < backup.sql`.
 
 ---
 
@@ -125,6 +122,9 @@ ez-equip/
 │   └── vite.ts              # Vite middleware (template default)
 ├── shared/
 │   └── schema.ts            # Drizzle tables, Zod insert schemas, shared types
+├── migrations/               # drizzle-kit generated SQL migrations
+├── scripts/
+│   └── migrate_sqlite_to_postgres.ts  # one-off legacy data.db → Postgres import
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
@@ -134,11 +134,11 @@ ez-equip/
 
 ## Schema and storage
 
-The Drizzle schema in `shared/schema.ts` is the source of truth. The
-storage layer (`server/storage.ts`) runs a `CREATE TABLE IF NOT EXISTS`
-pass on boot so the SQLite file is always in sync with the schema —
-**no migration step is required for normal operation**. `npm run db:push`
-remains available if you prefer to drive the schema with drizzle-kit.
+The Drizzle schema in `shared/schema.ts` is the source of truth. Schema
+changes are captured as versioned SQL files in `migrations/` via
+`npm run db:generate`. On boot, `server/storage.ts` runs any pending
+migrations against `DATABASE_URL` (`drizzle-orm/node-postgres/migrator`)
+before serving traffic.
 
 `seedIfEmpty()` runs once when the DB is empty and populates the
 `Sessanna Home Fleet` with three users (`jaimy` / `tech` / `viewer`),
@@ -170,23 +170,23 @@ validated with Zod schemas from `shared/schema.ts`.
 
 ## Migration notes
 
-EZ-EQUIP is intentionally portable. The following migration paths are
-supported by the existing schema and are sketched here for the future:
+EZ-EQUIP is intentionally portable. PostgreSQL is now the primary
+datastore; the following migration paths remain sketched here for the
+future:
 
-### 1. PostgreSQL
+### 1. PostgreSQL — done
 
-`shared/schema.ts` uses Drizzle's `sqliteTable` types. The migration to
-PostgreSQL is a structural rename:
+`shared/schema.ts` uses Drizzle's `pgTable` types, `server/storage.ts`
+connects via `pg` + `drizzle-orm/node-postgres`, and schema changes ship
+as drizzle-kit migrations in `migrations/`. Existing installs still
+running the legacy SQLite `data.db` can move their data over with:
 
-- Replace `drizzle-orm/sqlite-core` imports with `drizzle-orm/pg-core` and
-  swap `sqliteTable` → `pgTable`, `integer({ mode: "boolean" })` → `boolean`,
-  `integer({ mode: "timestamp" })` → `timestamp({ withTimezone: true })`.
-- Replace `better-sqlite3` with `pg` + `drizzle-orm/node-postgres`.
-- Drop the bespoke `CREATE TABLE IF NOT EXISTS` block in `server/storage.ts`
-  and use drizzle-kit migrations against PostgreSQL.
+```bash
+npm run db:migrate-data   # reads ./data.db, writes to $DATABASE_URL
+```
 
-No data shape changes are required — there are no SQLite-specific column
-types in use beyond JSON-as-text fields, which Postgres handles natively.
+Run this once against an empty, freshly-migrated Postgres database —
+it preserves row IDs and resets each table's serial sequence afterward.
 
 ### 2. ASP.NET Core / .NET
 

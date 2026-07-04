@@ -31,7 +31,7 @@ type HistoryFormat = "csv" | "xls" | "pdf";
 type HistoryTable = {
   title: string;
   filenameBase: string;
-  asset: NonNullable<ReturnType<typeof storage.getAsset>>;
+  asset: NonNullable<Awaited<ReturnType<typeof storage.getAsset>>>;
   columns: string[];
   rows: (string | number)[][];
 };
@@ -98,15 +98,15 @@ function assetMetaLines(asset: HistoryTable["asset"]) {
   ].filter(Boolean);
 }
 
-function buildHistoryTable(assetId: number, kind: HistoryKind): HistoryTable | undefined {
-  const asset = storage.getAsset(assetId);
+async function buildHistoryTable(assetId: number, kind: HistoryKind): Promise<HistoryTable | undefined> {
+  const asset = await storage.getAsset(assetId);
   if (!asset) return undefined;
   const meterUnit = meterUnitLabel(asset.meterType, asset.meterLabel);
   const filenameBase = safeFilename(`${asset.friendlyName}_${kind === "service" ? "Service_History" : "Meter_History"}`);
 
   if (kind === "service") {
-    const events = storage.listServiceEvents(assetId).sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime());
-    const allLines = storage.listLineItems();
+    const events = (await storage.listServiceEvents(assetId)).sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime());
+    const allLines = await storage.listLineItems();
     const linesByEvent = new Map<number, typeof allLines>();
     for (const line of allLines) {
       if (!linesByEvent.has(line.serviceEventId)) linesByEvent.set(line.serviceEventId, []);
@@ -137,7 +137,7 @@ function buildHistoryTable(assetId: number, kind: HistoryKind): HistoryTable | u
     };
   }
 
-  const readings = storage.listMeterReadings(assetId).sort((a, b) => new Date(b.readingDate).getTime() - new Date(a.readingDate).getTime());
+  const readings = (await storage.listMeterReadings(assetId)).sort((a, b) => new Date(b.readingDate).getTime() - new Date(a.readingDate).getTime());
   return {
     title: "Meter History",
     filenameBase,
@@ -390,202 +390,202 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Fleets ----------
-  app.get("/api/fleets", (_req, res) => res.json(storage.listFleets()));
-  app.post("/api/fleets", (req, res) => {
+  app.get("/api/fleets", async (_req, res) => res.json(await storage.listFleets()));
+  app.post("/api/fleets", async (req, res) => {
     try {
       const data = insertFleetSchema.parse(req.body);
-      res.json(storage.createFleet(data));
+      res.json(await storage.createFleet(data));
     } catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleets/:id", (req, res) => {
+  app.patch("/api/fleets/:id", async (req, res) => {
     try {
-      const updated = storage.updateFleet(Number(req.params.id), insertFleetSchema.partial().parse(req.body));
+      const updated = await storage.updateFleet(Number(req.params.id), insertFleetSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
 
-  app.get("/api/fleets/:id/sites", (req, res) => {
-    res.json(storage.listSites(Number(req.params.id)));
+  app.get("/api/fleets/:id/sites", async (req, res) => {
+    res.json(await storage.listSites(Number(req.params.id)));
   });
-  app.post("/api/sites", (req, res) => {
-    try { res.json(storage.createSite(insertSiteSchema.parse(req.body))); }
+  app.post("/api/sites", async (req, res) => {
+    try { res.json(await storage.createSite(insertSiteSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- Users / memberships ----------
-  app.get("/api/users", (_req, res) => res.json(storage.listUsers()));
-  app.post("/api/users", (req, res) => {
-    try { res.json(storage.createUser(insertUserSchema.parse(req.body))); }
+  app.get("/api/users", async (_req, res) => res.json(await storage.listUsers()));
+  app.post("/api/users", async (req, res) => {
+    try { res.json(await storage.createUser(insertUserSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.delete("/api/users/:id", (req, res) => {
+  app.delete("/api/users/:id", async (req, res) => {
     try {
-      const ok = storage.deleteUser(Number(req.params.id));
+      const ok = await storage.deleteUser(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-memberships", (_req, res) => res.json(storage.listFleetMemberships()));
-  app.post("/api/fleet-memberships", (req, res) => {
-    try { res.json(storage.upsertFleetMembership(insertFleetMembershipSchema.parse(req.body))); }
+  app.get("/api/fleet-memberships", async (_req, res) => res.json(await storage.listFleetMemberships()));
+  app.post("/api/fleet-memberships", async (req, res) => {
+    try { res.json(await storage.upsertFleetMembership(insertFleetMembershipSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-memberships", (req, res) => {
+  app.delete("/api/fleet-memberships", async (req, res) => {
     try {
       const fleetId = Number(req.query.fleetId);
       const userId = Number(req.query.userId);
-      const ok = storage.deleteFleetMembership(fleetId, userId);
+      const ok = await storage.deleteFleetMembership(fleetId, userId);
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-equipment-types", (req, res) => {
+  app.get("/api/fleet-equipment-types", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listFleetEquipmentTypes(fleetId));
+    res.json(await storage.listFleetEquipmentTypes(fleetId));
   });
-  app.post("/api/fleet-equipment-types", (req, res) => {
-    try { res.json(storage.createFleetEquipmentType(insertFleetEquipmentTypeSchema.parse(req.body))); }
+  app.post("/api/fleet-equipment-types", async (req, res) => {
+    try { res.json(await storage.createFleetEquipmentType(insertFleetEquipmentTypeSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-equipment-types/:id", (req, res) => {
+  app.patch("/api/fleet-equipment-types/:id", async (req, res) => {
     try {
-      const updated = storage.updateFleetEquipmentType(Number(req.params.id), insertFleetEquipmentTypeSchema.partial().parse(req.body));
+      const updated = await storage.updateFleetEquipmentType(Number(req.params.id), insertFleetEquipmentTypeSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-equipment-types/:id", (req, res) => {
+  app.delete("/api/fleet-equipment-types/:id", async (req, res) => {
     try {
-      const ok = storage.deleteFleetEquipmentType(Number(req.params.id));
+      const ok = await storage.deleteFleetEquipmentType(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-fuel-types", (req, res) => {
+  app.get("/api/fleet-fuel-types", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listFleetFuelTypes(fleetId));
+    res.json(await storage.listFleetFuelTypes(fleetId));
   });
-  app.post("/api/fleet-fuel-types", (req, res) => {
-    try { res.json(storage.createFleetFuelType(insertFleetFuelTypeSchema.parse(req.body))); }
+  app.post("/api/fleet-fuel-types", async (req, res) => {
+    try { res.json(await storage.createFleetFuelType(insertFleetFuelTypeSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-fuel-types/:id", (req, res) => {
+  app.patch("/api/fleet-fuel-types/:id", async (req, res) => {
     try {
-      const updated = storage.updateFleetFuelType(Number(req.params.id), insertFleetFuelTypeSchema.partial().parse(req.body));
+      const updated = await storage.updateFleetFuelType(Number(req.params.id), insertFleetFuelTypeSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-fuel-types/:id", (req, res) => {
+  app.delete("/api/fleet-fuel-types/:id", async (req, res) => {
     try {
-      const ok = storage.deleteFleetFuelType(Number(req.params.id));
+      const ok = await storage.deleteFleetFuelType(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-roles", (req, res) => {
+  app.get("/api/fleet-roles", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listFleetRoles(fleetId));
+    res.json(await storage.listFleetRoles(fleetId));
   });
-  app.post("/api/fleet-roles", (req, res) => {
-    try { res.json(storage.createFleetRole(insertFleetRoleSchema.parse(req.body))); }
+  app.post("/api/fleet-roles", async (req, res) => {
+    try { res.json(await storage.createFleetRole(insertFleetRoleSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-roles/:id", (req, res) => {
+  app.patch("/api/fleet-roles/:id", async (req, res) => {
     try {
-      const updated = storage.updateFleetRole(Number(req.params.id), insertFleetRoleSchema.partial().parse(req.body));
+      const updated = await storage.updateFleetRole(Number(req.params.id), insertFleetRoleSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-roles/:id", (req, res) => {
+  app.delete("/api/fleet-roles/:id", async (req, res) => {
     try {
-      const ok = storage.deleteFleetRole(Number(req.params.id));
+      const ok = await storage.deleteFleetRole(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
 
-  app.get("/api/inventory-categories", (req, res) => {
+  app.get("/api/inventory-categories", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listInventoryCategories(fleetId));
+    res.json(await storage.listInventoryCategories(fleetId));
   });
-  app.post("/api/inventory-categories", (req, res) => {
-    try { res.json(storage.createInventoryCategory(insertInventoryCategorySchema.parse(req.body))); }
+  app.post("/api/inventory-categories", async (req, res) => {
+    try { res.json(await storage.createInventoryCategory(insertInventoryCategorySchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-categories/:id", (req, res) => {
+  app.patch("/api/inventory-categories/:id", async (req, res) => {
     try {
-      const updated = storage.updateInventoryCategory(Number(req.params.id), insertInventoryCategorySchema.partial().parse(req.body));
+      const updated = await storage.updateInventoryCategory(Number(req.params.id), insertInventoryCategorySchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-categories/:id", (req, res) => {
+  app.delete("/api/inventory-categories/:id", async (req, res) => {
     try {
-      const ok = storage.deleteInventoryCategory(Number(req.params.id));
+      const ok = await storage.deleteInventoryCategory(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/inventory-category-fields", (req, res) => {
+  app.get("/api/inventory-category-fields", async (req, res) => {
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
-    res.json(storage.listInventoryCategoryFields(categoryId));
+    res.json(await storage.listInventoryCategoryFields(categoryId));
   });
-  app.post("/api/inventory-category-fields", (req, res) => {
-    try { res.json(storage.createInventoryCategoryField(insertInventoryCategoryFieldSchema.parse(req.body))); }
+  app.post("/api/inventory-category-fields", async (req, res) => {
+    try { res.json(await storage.createInventoryCategoryField(insertInventoryCategoryFieldSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-category-fields/:id", (req, res) => {
+  app.patch("/api/inventory-category-fields/:id", async (req, res) => {
     try {
-      const updated = storage.updateInventoryCategoryField(Number(req.params.id), insertInventoryCategoryFieldSchema.partial().parse(req.body));
+      const updated = await storage.updateInventoryCategoryField(Number(req.params.id), insertInventoryCategoryFieldSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-category-fields/:id", (req, res) => {
+  app.delete("/api/inventory-category-fields/:id", async (req, res) => {
     try {
-      const ok = storage.deleteInventoryCategoryField(Number(req.params.id));
+      const ok = await storage.deleteInventoryCategoryField(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
 
   // ---------- Assets ----------
-  app.get("/api/assets", (req, res) => {
+  app.get("/api/assets", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listAssets(fleetId));
+    res.json(await storage.listAssets(fleetId));
   });
-  app.get("/api/assets/:id", (req, res) => {
-    const a = storage.getAsset(Number(req.params.id));
+  app.get("/api/assets/:id", async (req, res) => {
+    const a = await storage.getAsset(Number(req.params.id));
     if (!a) return res.status(404).json({ error: "not_found" });
     res.json(a);
   });
-  app.post("/api/assets", (req, res) => {
-    try { res.json(storage.createAsset(insertAssetSchema.parse(req.body))); }
+  app.post("/api/assets", async (req, res) => {
+    try { res.json(await storage.createAsset(insertAssetSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/assets/:id", (req, res) => {
+  app.patch("/api/assets/:id", async (req, res) => {
     try {
       const partial = insertAssetSchema.partial().parse(req.body);
-      const updated = storage.updateAsset(Number(req.params.id), partial);
+      const updated = await storage.updateAsset(Number(req.params.id), partial);
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/assets/:id", (req, res) => {
-    const ok = storage.deleteAsset(Number(req.params.id));
+  app.delete("/api/assets/:id", async (req, res) => {
+    const ok = await storage.deleteAsset(Number(req.params.id));
     res.json({ ok });
   });
 
-  app.get("/api/assets/:id/history/:kind/export/:format", (req, res) => {
+  app.get("/api/assets/:id/history/:kind/export/:format", async (req, res) => {
     try {
       const kind = String(req.params.kind) as HistoryKind;
       const format = String(req.params.format) as HistoryFormat;
       if (kind !== "service" && kind !== "meter") return res.status(404).json({ error: "not_found" });
       if (format !== "csv" && format !== "xls" && format !== "pdf") return res.status(404).json({ error: "not_found" });
-      const table = buildHistoryTable(Number(req.params.id), kind);
+      const table = await buildHistoryTable(Number(req.params.id), kind);
       if (!table) return res.status(404).json({ error: "not_found" });
 
       if (format === "csv") {
@@ -611,11 +611,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/assets/:id/history/:kind/print", (req, res) => {
+  app.get("/api/assets/:id/history/:kind/print", async (req, res) => {
     try {
       const kind = String(req.params.kind) as HistoryKind;
       if (kind !== "service" && kind !== "meter") return res.status(404).json({ error: "not_found" });
-      const table = buildHistoryTable(Number(req.params.id), kind);
+      const table = await buildHistoryTable(Number(req.params.id), kind);
       if (!table) return res.status(404).json({ error: "not_found" });
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(tableToPrintableHtml(table));
@@ -625,201 +625,206 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Meter readings ----------
-  app.get("/api/meter-readings", (req, res) => {
+  app.get("/api/meter-readings", async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
-    res.json(storage.listMeterReadings(assetId));
+    res.json(await storage.listMeterReadings(assetId));
   });
-  app.post("/api/meter-readings", (req, res) => {
-    try { res.json(storage.createMeterReading(insertMeterReadingSchema.parse(req.body))); }
+  app.post("/api/meter-readings", async (req, res) => {
+    try { res.json(await storage.createMeterReading(insertMeterReadingSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.get("/api/meter-readings/:id", (req, res) => {
-    const r = storage.getMeterReading(Number(req.params.id));
+  app.get("/api/meter-readings/:id", async (req, res) => {
+    const r = await storage.getMeterReading(Number(req.params.id));
     if (!r) return res.status(404).json({ error: "not_found" });
     res.json(r);
   });
-  app.patch("/api/meter-readings/:id", (req, res) => {
+  app.patch("/api/meter-readings/:id", async (req, res) => {
     try {
       const partial = insertMeterReadingSchema.partial().parse(req.body);
-      const updated = storage.updateMeterReading(Number(req.params.id), partial);
+      const updated = await storage.updateMeterReading(Number(req.params.id), partial);
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/meter-readings/:id", (req, res) => {
-    res.json({ ok: storage.deleteMeterReading(Number(req.params.id)) });
+  app.delete("/api/meter-readings/:id", async (req, res) => {
+    res.json({ ok: await storage.deleteMeterReading(Number(req.params.id)) });
   });
 
   // ---------- Maintenance schedules ----------
-  app.get("/api/schedules", (req, res) => {
+  app.get("/api/schedules", async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    if (fleetId != null) return res.json(storage.listAllSchedulesForFleet(fleetId));
-    res.json(storage.listSchedules(assetId));
+    if (fleetId != null) return res.json(await storage.listAllSchedulesForFleet(fleetId));
+    res.json(await storage.listSchedules(assetId));
   });
-  app.get("/api/schedules/:id", (req, res) => {
-    const s = storage.getSchedule(Number(req.params.id));
+  app.get("/api/schedules/:id", async (req, res) => {
+    const s = await storage.getSchedule(Number(req.params.id));
     if (!s) return res.status(404).json({ error: "not_found" });
     res.json(s);
   });
-  app.post("/api/schedules", (req, res) => {
-    try { res.json(storage.createSchedule(insertMaintenanceScheduleSchema.parse(req.body))); }
+  app.post("/api/schedules", async (req, res) => {
+    try { res.json(await storage.createSchedule(insertMaintenanceScheduleSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/schedules/:id", (req, res) => {
+  app.patch("/api/schedules/:id", async (req, res) => {
     try {
       const partial = insertMaintenanceScheduleSchema.partial().parse(req.body);
-      const updated = storage.updateSchedule(Number(req.params.id), partial);
+      const updated = await storage.updateSchedule(Number(req.params.id), partial);
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/schedules/:id", (req, res) => {
-    res.json({ ok: storage.deleteSchedule(Number(req.params.id)) });
+  app.delete("/api/schedules/:id", async (req, res) => {
+    res.json({ ok: await storage.deleteSchedule(Number(req.params.id)) });
   });
   // ---------- Schedule assignments (fleet -> asset) ----------
-  app.get("/api/schedule-assignments", (_req, res) => {
-    res.json(storage.listScheduleAssignments());
+  app.get("/api/schedule-assignments", async (_req, res) => {
+    res.json(await storage.listScheduleAssignments());
   });
-  app.get("/api/schedules/:id/assignments", (req, res) => {
-    res.json(storage.listScheduleAssignments(Number(req.params.id)));
+  app.get("/api/schedules/:id/assignments", async (req, res) => {
+    res.json(await storage.listScheduleAssignments(Number(req.params.id)));
   });
-  app.put("/api/schedules/:id/assignments", (req, res) => {
+  app.put("/api/schedules/:id/assignments", async (req, res) => {
     try {
       const body = z.object({ assetIds: z.array(z.coerce.number().int()) }).parse(req.body);
-      res.json(storage.setScheduleAssignments(Number(req.params.id), body.assetIds));
+      res.json(await storage.setScheduleAssignments(Number(req.params.id), body.assetIds));
     } catch (err) { handleError(res, err); }
   });
-  app.post("/api/schedules/:id/promote", (req, res) => {
+  app.post("/api/schedules/:id/promote", async (req, res) => {
     try {
       const body = z.object({ assetIds: z.array(z.coerce.number().int()).default([]) }).parse(req.body ?? {});
-      res.json(storage.promoteScheduleToFleet(Number(req.params.id), body.assetIds));
+      res.json(await storage.promoteScheduleToFleet(Number(req.params.id), body.assetIds));
     } catch (err) { handleError(res, err); }
   });
 
   // ---------- Service events / line items ----------
-  app.get("/api/service-events", (req, res) => {
+  app.get("/api/service-events", async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
-    res.json(storage.listServiceEvents(assetId));
+    res.json(await storage.listServiceEvents(assetId));
   });
-  app.get("/api/service-events/:id", (req, res) => {
-    const e = storage.getServiceEvent(Number(req.params.id));
+  app.get("/api/service-events/:id", async (req, res) => {
+    const e = await storage.getServiceEvent(Number(req.params.id));
     if (!e) return res.status(404).json({ error: "not_found" });
     res.json(e);
   });
-  app.post("/api/service-events", (req, res) => {
-    try { res.json(storage.createServiceEvent(insertServiceEventSchema.parse(req.body))); }
+  app.post("/api/service-events", async (req, res) => {
+    try { res.json(await storage.createServiceEvent(insertServiceEventSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/service-events/:id", (req, res) => {
+  app.patch("/api/service-events/:id", async (req, res) => {
     try {
       const partial = insertServiceEventSchema.partial().parse(req.body);
-      const updated = storage.updateServiceEvent(Number(req.params.id), partial);
+      const updated = await storage.updateServiceEvent(Number(req.params.id), partial);
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/service-events/:id", (req, res) => {
-    res.json({ ok: storage.deleteServiceEvent(Number(req.params.id)) });
+  app.delete("/api/service-events/:id", async (req, res) => {
+    res.json({ ok: await storage.deleteServiceEvent(Number(req.params.id)) });
   });
-  app.get("/api/service-line-items", (req, res) => {
+  app.get("/api/service-line-items", async (req, res) => {
     const eventId = req.query.serviceEventId ? Number(req.query.serviceEventId) : undefined;
-    res.json(storage.listLineItems(eventId));
+    res.json(await storage.listLineItems(eventId));
   });
-  app.post("/api/service-line-items", (req, res) => {
-    try { res.json(storage.createLineItem(insertServiceLineItemSchema.parse(req.body))); }
+  app.post("/api/service-line-items", async (req, res) => {
+    try { res.json(await storage.createLineItem(insertServiceLineItemSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.put("/api/service-events/:id/line-items", (req, res) => {
+  app.put("/api/service-events/:id/line-items", async (req, res) => {
     try {
       const serviceEventId = Number(req.params.id);
       const lines = z.array(insertServiceLineItemSchema.omit({ serviceEventId: true }).extend({
         serviceEventId: z.number().optional(),
       })).parse(req.body);
-      res.json(storage.replaceLineItems(serviceEventId, lines.map(line => ({ ...line, serviceEventId }))));
+      res.json(await storage.replaceLineItems(serviceEventId, lines.map(line => ({ ...line, serviceEventId }))));
     } catch (err) { handleError(res, err); }
   });
 
   // ---------- Inventory ----------
-  app.get("/api/inventory-items", (req, res) => {
+  app.get("/api/inventory-items", async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(storage.listInventoryItems(fleetId));
+    res.json(await storage.listInventoryItems(fleetId));
   });
-  app.get("/api/inventory-items/:id", (req, res) => {
-    const item = storage.getInventoryItem(Number(req.params.id));
+  app.get("/api/inventory-items/:id", async (req, res) => {
+    const item = await storage.getInventoryItem(Number(req.params.id));
     if (!item) return res.status(404).json({ error: "not_found" });
     res.json(item);
   });
-  app.post("/api/inventory-items", (req, res) => {
-    try { res.json(storage.createInventoryItem(insertInventoryItemSchema.parse(req.body))); }
+  app.post("/api/inventory-items", async (req, res) => {
+    try { res.json(await storage.createInventoryItem(insertInventoryItemSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-items/:id", (req, res) => {
+  app.patch("/api/inventory-items/:id", async (req, res) => {
     try {
       const partial = insertInventoryItemSchema.partial().parse(req.body);
-      const updated = storage.updateInventoryItem(Number(req.params.id), partial);
+      const updated = await storage.updateInventoryItem(Number(req.params.id), partial);
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-items/:id", (req, res) => {
-    res.json({ ok: storage.deleteInventoryItem(Number(req.params.id)) });
+  app.delete("/api/inventory-items/:id", async (req, res) => {
+    res.json({ ok: await storage.deleteInventoryItem(Number(req.params.id)) });
   });
-  app.get("/api/inventory-movements", (req, res) => {
+  app.get("/api/inventory-movements", async (req, res) => {
     const itemId = req.query.itemId ? Number(req.query.itemId) : undefined;
-    res.json(storage.listInventoryMovements(itemId));
+    res.json(await storage.listInventoryMovements(itemId));
   });
-  app.post("/api/inventory-movements", (req, res) => {
-    try { res.json(storage.createInventoryMovement(insertInventoryMovementSchema.parse(req.body))); }
+  app.post("/api/inventory-movements", async (req, res) => {
+    try { res.json(await storage.createInventoryMovement(insertInventoryMovementSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- Attachments ----------
-  app.get("/api/attachments", (req, res) => {
+  app.get("/api/attachments", async (req, res) => {
     const entityType = req.query.entityType ? String(req.query.entityType) : undefined;
     const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
-    res.json(storage.listAttachments(entityType, entityId));
+    res.json(await storage.listAttachments(entityType, entityId));
   });
-  app.post("/api/attachments", (req, res) => {
-    try { res.json(storage.createAttachment(insertAttachmentSchema.parse(req.body))); }
+  app.post("/api/attachments", async (req, res) => {
+    try { res.json(await storage.createAttachment(insertAttachmentSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- App settings ----------
-  app.get("/api/app-settings", (_req, res) => res.json(storage.listAppSettings()));
-  app.patch("/api/app-settings", (req, res) => {
+  app.get("/api/app-settings", async (_req, res) => res.json(await storage.listAppSettings()));
+  app.patch("/api/app-settings", async (req, res) => {
     try {
       const entries = z.record(z.string(), z.string()).parse(req.body);
-      const updated = Object.entries(entries).map(([key, value]) =>
+      const updated = await Promise.all(Object.entries(entries).map(([key, value]) =>
         storage.upsertAppSetting(insertAppSettingSchema.parse({
           key,
           value,
           updatedAt: new Date().toISOString(),
         }))
-      );
+      ));
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
 
   // ---------- Search ----------
-  app.get("/api/search", (req, res) => {
+  app.get("/api/search", async (req, res) => {
     const q = String(req.query.q ?? "").trim().toLowerCase();
     if (!q) return res.json({ assets: [], inventory: [], serviceEvents: [] });
     const matches = (s: string | null | undefined) => !!s && s.toLowerCase().includes(q);
-    const lineItems = storage.listLineItems();
+    const [lineItems, allAssets, allInventory, allServiceEvents] = await Promise.all([
+      storage.listLineItems(),
+      storage.listAssets(),
+      storage.listInventoryItems(),
+      storage.listServiceEvents(),
+    ]);
     const matchingLineEventIds = new Set(lineItems
       .filter(l => matches(l.itemName) || matches(l.partNumber) || matches(l.brand) || matches(l.spec) || matches(l.notes))
       .map(l => l.serviceEventId));
-    const assets = storage.listAssets().filter(a =>
+    const assetResults = allAssets.filter(a =>
       matches(a.friendlyName) || matches(a.make) || matches(a.model) || matches(a.vin) ||
       matches(a.serial) || matches(a.plateNumber) || matches(a.plateJurisdiction) || matches(a.notes) || matches(a.assetType));
-    const inventory = storage.listInventoryItems().filter(i =>
+    const inventory = allInventory.filter(i =>
       matches(i.name) || matches(i.partNumber) || matches(i.sku) || matches(i.category) || matches(i.notes));
-    const serviceEvents = storage.listServiceEvents().filter(s =>
+    const serviceEventResults = allServiceEvents.filter(s =>
       matches(s.title) || matches(s.notes) || matches(s.vendor) || matches(s.technician) || matchingLineEventIds.has(s.id));
     const serviceLineItems = lineItems.filter(l =>
       matches(l.itemName) || matches(l.partNumber) || matches(l.brand) || matches(l.spec) || matches(l.notes));
-    res.json({ assets, inventory, serviceEvents, serviceLineItems });
+    res.json({ assets: assetResults, inventory, serviceEvents: serviceEventResults, serviceLineItems });
   });
 
   // ---------- System status ----------
@@ -829,7 +834,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       frontend: "ready",
       backend: "ready",
       database: "ready",
-      databaseEngine: "SQLite",
+      databaseEngine: "PostgreSQL",
       uptimeSeconds: Math.round(process.uptime()),
       startedAt: startedAt.toISOString(),
       checkedAt: new Date().toISOString(),
