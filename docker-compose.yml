@@ -1,0 +1,17 @@
+services:
+  ez-equip:
+    build: .
+    image: ez-equip:latest
+    container_name: ez-equip
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      EZ_EQUIP_DB_PATH: /data/ez-equip.db
+    volumes:
+      - ez_equip_data:/data
+
+volumes:
+  ez_equip_data:

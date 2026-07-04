@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* EZ-EQUIP — fleet ops palette
+ * Dark mode is first-class. Surfaces are warm slate/charcoal,
+ * accent is a measured teal-green (not neon). Action buttons
+ * pick up small accent hues (teal/violet/amber) on the asset
+ * detail page only, to match the legacy reference UI.
+ */
+
+/* LIGHT MODE — utilitarian, low-saturation */
+:root {
+  --button-outline: rgba(0, 0, 0, 0.08);
+  --badge-outline: rgba(0, 0, 0, 0.05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0, 0, 0, 0.03);
+  --elevate-2: rgba(0, 0, 0, 0.07);
+
+  --background: 40 10% 96%;
+  --foreground: 220 14% 14%;
+  --border: 220 10% 86%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 14% 14%;
+  --card-border: 220 10% 88%;
+
+  --sidebar: 220 14% 13%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-border: 220 14% 18%;
+  --sidebar-primary: 178 50% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 14% 18%;
+  --sidebar-accent-foreground: 0 0% 95%;
+  --sidebar-ring: 178 50% 42%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 14% 14%;
+  --popover-border: 220 10% 86%;
+
+  --primary: 178 50% 38%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 8% 90%;
+  --secondary-foreground: 220 14% 14%;
+  --muted: 220 10% 92%;
+  --muted-foreground: 220 8% 40%;
+  --accent: 178 40% 90%;
+  --accent-foreground: 178 60% 20%;
+  --destructive: 0 70% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 10% 80%;
+  --ring: 178 50% 42%;
+
+  --chart-1: 178 50% 42%;
+  --chart-2: 14 60% 50%;
+  --chart-3: 188 65% 28%;
+  --chart-4: 43 70% 52%;
+  --chart-5: 268 40% 55%;
+
+  --status-ok: 142 55% 42%;
+  --status-warn: 38 90% 50%;
+  --status-overdue: 0 70% 50%;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 0.5rem;
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+/* DARK MODE — fleet ops console (default) */
+.dark {
+  --button-outline: rgba(255, 255, 255, 0.08);
+  --badge-outline: rgba(255, 255, 255, 0.06);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255, 255, 255, 0.04);
+  --elevate-2: rgba(255, 255, 255, 0.08);
+
+  --background: 220 18% 8%;
+  --foreground: 210 18% 92%;
+  --border: 220 14% 18%;
+  --card: 220 18% 11%;
+  --card-foreground: 210 18% 92%;
+  --card-border: 220 14% 18%;
+
+  --sidebar: 220 20% 7%;
+  --sidebar-foreground: 210 14% 86%;
+  --sidebar-border: 220 14% 14%;
+  --sidebar-primary: 158 60% 48%;
+  --sidebar-primary-foreground: 220 20% 7%;
+  --sidebar-accent: 220 14% 16%;
+  --sidebar-accent-foreground: 210 18% 92%;
+  --sidebar-ring: 178 60% 48%;
+
+  --popover: 220 18% 12%;
+  --popover-foreground: 210 18% 92%;
+  --popover-border: 220 14% 20%;
+
+  --primary: 178 55% 48%;
+  --primary-foreground: 220 20% 7%;
+  --secondary: 220 14% 18%;
+  --secondary-foreground: 210 18% 92%;
+  --muted: 220 14% 16%;
+  --muted-foreground: 220 9% 60%;
+  --accent: 178 30% 22%;
+  --accent-foreground: 178 60% 80%;
+  --destructive: 0 65% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 14% 22%;
+  --ring: 178 60% 48%;
+
+  --chart-1: 178 55% 52%;
+  --chart-2: 14 70% 60%;
+  --chart-3: 188 60% 48%;
+  --chart-4: 43 80% 60%;
+  --chart-5: 268 55% 65%;
+
+  --status-ok: 158 60% 50%;
+  --status-warn: 38 90% 56%;
+  --status-overdue: 0 70% 58%;
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+  }
+  html, #root { overflow-x: hidden; }
+  .num { font-variant-numeric: tabular-nums lining-nums; }
+}
+
+@layer utilities {
+  input[type='search']::-webkit-search-cancel-button { @apply hidden; }
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
+
+  .toggle-elevate::before, .toggle-elevate-2::before {
+    content: ''; pointer-events: none; position: absolute; inset: 0px;
+    border-radius: inherit; z-index: -1;
+  }
+  .toggle-elevate.toggle-elevated::before { background-color: var(--elevate-2); }
+  .border.toggle-elevate::before { inset: -1px; }
+
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) { position: relative; z-index: 0; }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: ''; pointer-events: none; position: absolute; inset: 0;
+    border-radius: inherit; z-index: 999;
+  }
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after { background-color: var(--elevate-1); }
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after { background-color: var(--elevate-2); }
+
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after { inset: -1px; }
+
+  /* Status pill colors */
+  .status-ok { color: hsl(var(--status-ok)); border-color: hsl(var(--status-ok) / 0.65); background-color: hsl(var(--status-ok) / 0.16); }
+  .status-warn { color: hsl(var(--status-warn)); border-color: hsl(var(--status-warn) / 0.68); background-color: hsl(var(--status-warn) / 0.17); }
+  .status-overdue { color: hsl(var(--status-overdue)); border-color: hsl(var(--status-overdue) / 0.72); background-color: hsl(var(--status-overdue) / 0.18); }
+}
+
+/* Print rules for asset history modals.
+   When a history print is triggered, hide everything except the modal content,
+   then within the modal hide the chrome (toolbar, close button) and show
+   the asset summary, optional chart, and table. */
+@media print {
+  body[data-printing-history] > *:not([data-radix-portal]):not([data-radix-popper-content-wrapper]) {
+    display: none !important;
+  }
+  body[data-printing-history] .history-modal-content {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    inset: auto !important;
+  }
+  body[data-printing-history] .history-modal-content .history-modal-chrome {
+    display: none !important;
+  }
+  body[data-printing-history] .history-modal-actions-col {
+    display: none !important;
+  }
+  body[data-printing-history] .history-modal-body {
+    overflow: visible !important;
+  }
+  body[data-printing-history] .history-modal-content,
+  body[data-printing-history] .history-modal-content * {
+    color: black !important;
+    background-image: none !important;
+  }
+  body[data-printing-history] .recharts-surface {
+    overflow: visible !important;
+  }
+  /* Hide overlay/backdrop completely while printing */
+  body[data-printing-history] [data-radix-dialog-overlay] {
+    display: none !important;
+  }
+  body[data-printing-history] [aria-hidden="true"]:not(.history-modal-content):not(.history-modal-content *) {
+    display: none !important;
+  }
+}
+
+/* Hide the auto-injected DialogContent close button inside history modals;
+   we provide our own close in the header for layout reasons. */
+.history-modal-content > button.absolute.right-4.top-4 {
+  display: none !important;
+}
