@@ -5,7 +5,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { initStorage, pool } from "./storage";
-import { attachCurrentUser } from "./auth";
+import { attachCurrentUser, bootstrapAdminPassword } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -87,6 +87,7 @@ app.use((req, res, next) => {
 
 (async () => {
   await initStorage();
+  await bootstrapAdminPassword();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

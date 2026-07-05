@@ -30,6 +30,10 @@ services:
       PORT: "5000"
       SESSION_SECRET: ajklaf8a9ds8h359284h915h14u5h1i
       DATABASE_URL: postgres://ez_equip:ez_equip@postgres:5432/ez_equip
+      # One-time bootstrap: applied to the first system-admin account that still
+      # has no password, then never touched again. Change this, then remove or
+      # rotate it once you've logged in and set a real password via the UI.
+      ADMIN_BOOTSTRAP_PASSWORD: change-me-please
 
 volumes:
   ez_equip_pgdata:

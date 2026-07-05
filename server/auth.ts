@@ -27,6 +27,26 @@ export async function attachCurrentUser(req: Request, _res: Response, next: Next
   next();
 }
 
+// Fresh installs seed/create system-admin users with password_hash = NULL --
+// nobody can log in until someone sets a password. If ADMIN_BOOTSTRAP_PASSWORD
+// is set, apply it once to the first system admin that still has no password.
+// Safe to leave the env var set permanently: it only ever touches a NULL
+// password_hash, so it never overwrites a password set via the UI/CLI later.
+export async function bootstrapAdminPassword() {
+  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+  if (!bootstrapPassword) return;
+  if (bootstrapPassword.length < 8) {
+    console.warn("[auth] ADMIN_BOOTSTRAP_PASSWORD is set but shorter than 8 characters; skipping.");
+    return;
+  }
+  const users = await storage.listUsers();
+  const target = users.find(u => u.systemAdmin && !u.passwordHash);
+  if (!target) return;
+  const passwordHash = await argon2.hash(bootstrapPassword);
+  await storage.updateUser(target.id, { passwordHash });
+  console.log(`[auth] Bootstrap password set for system admin "${target.username}" from ADMIN_BOOTSTRAP_PASSWORD.`);
+}
+
 const loginSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
