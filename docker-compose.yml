@@ -17,7 +17,7 @@ services:
 
   ez-equip:
     build: .
-    image: github.com/asm5mt/ez-equip-beta:latest
+    image: asm5mt/ez-equip-beta:latest
     container_name: ez-equip
     restart: unless-stopped
     depends_on:
