@@ -6,6 +6,7 @@ import { autoTable } from "jspdf-autotable";
 import argon2 from "argon2";
 import { storage } from "./storage";
 import { registerAuthRoutes } from "./auth";
+import { registerOidcRoutes, testOidcConnection } from "./oidc";
 import {
   requireAuth,
   requireSystemAdmin,
@@ -53,7 +54,9 @@ import {
   insertInventoryMovementSchema,
   insertAttachmentSchema,
   insertAppSettingSchema,
+  insertOidcGroupMappingSchema,
 } from "@shared/schema";
+import type { InsertSystemSettings } from "@shared/schema";
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { z } from "zod";
@@ -326,6 +329,7 @@ function nhtsaModelCandidates(model: string) {
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerAuthRoutes(app);
+  registerOidcRoutes(app);
 
   app.get("/api/nhtsa/safety", async (req, res) => {
     const make = String(req.query.make ?? "").trim();
@@ -912,6 +916,96 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           updatedAt: new Date().toISOString(),
         }))
       ));
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+
+  // ---------- System settings (auth mode + OIDC config) ----------
+  app.get("/api/system-settings", requireSystemAdmin, async (_req, res) => {
+    const settings = await storage.getSystemSettings();
+    const { oidcClientSecret, ...rest } = settings;
+    res.json({ ...rest, oidcClientSecretSet: !!oidcClientSecret });
+  });
+  const systemSettingsPatchSchema = z.object({
+    authMode: z.enum(["local", "oidc", "both"]).optional(),
+    oidcIssuerUrl: z.string().url().optional().or(z.literal("")),
+    oidcClientId: z.string().optional().or(z.literal("")),
+    oidcClientSecret: z.string().optional(),
+    oidcRedirectUri: z.string().url().optional().or(z.literal("")),
+  });
+  app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
+    try {
+      const { oidcClientSecret, ...body } = systemSettingsPatchSchema.parse(req.body);
+      const patch: Partial<InsertSystemSettings> = { ...body };
+      // Write-only secret: omit or blank means "leave the stored value alone".
+      if (oidcClientSecret) patch.oidcClientSecret = oidcClientSecret;
+      const updated = await storage.updateSystemSettings(patch);
+      const { oidcClientSecret: _secret, ...rest } = updated;
+      res.json({ ...rest, oidcClientSecretSet: !!_secret });
+    } catch (err) { handleError(res, err); }
+  });
+  app.post("/api/system-settings/test-oidc-connection", requireSystemAdmin, async (req, res) => {
+    try {
+      const body = z.object({
+        issuerUrl: z.string().url(),
+        clientId: z.string().min(1),
+        clientSecret: z.string().optional(),
+      }).parse(req.body);
+      let clientSecret = body.clientSecret;
+      if (!clientSecret) {
+        const settings = await storage.getSystemSettings();
+        clientSecret = settings.oidcClientSecret ?? undefined;
+      }
+      const result = await testOidcConnection(body.issuerUrl, body.clientId, clientSecret);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.json({ ok: false, error: String((err as Error)?.message ?? err) });
+    }
+  });
+
+  // ---------- OIDC group -> fleet/role mappings ----------
+  app.get("/api/oidc-group-mappings", requireSystemAdmin, async (_req, res) => {
+    res.json(await storage.listOidcGroupMappings());
+  });
+  app.post("/api/oidc-group-mappings", requireSystemAdmin, async (req, res) => {
+    try { res.json(await storage.createOidcGroupMapping(insertOidcGroupMappingSchema.parse(req.body))); }
+    catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/oidc-group-mappings/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateOidcGroupMapping(Number(req.params.id), insertOidcGroupMappingSchema.partial().parse(req.body));
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.delete("/api/oidc-group-mappings/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteOidcGroupMapping(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
+
+  // ---------- Per-user auth provider management ----------
+  app.post("/api/users/:id/convert-to-oidc", requireSystemAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateUser(Number(req.params.id), { authProvider: "oidc", passwordHash: null });
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.post("/api/users/:id/convert-to-local", requireSystemAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateUser(Number(req.params.id), { authProvider: "local", externalId: null, passwordHash: null });
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/users/:id/auth-settings", requireSystemAdmin, async (req, res) => {
+    try {
+      const body = z.object({ exemptFromGlobalAuthMode: z.boolean() }).parse(req.body);
+      const updated = await storage.updateUser(Number(req.params.id), body);
+      if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });

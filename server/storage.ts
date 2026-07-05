@@ -19,6 +19,8 @@ import {
   inventoryMovements,
   attachments,
   appSettings,
+  oidcGroupMappings,
+  systemSettings,
 } from "@shared/schema";
 import type {
   Fleet, InsertFleet,
@@ -40,6 +42,8 @@ import type {
   InventoryMovement, InsertInventoryMovement,
   Attachment, InsertAttachment,
   AppSetting, InsertAppSetting,
+  OidcGroupMapping, InsertOidcGroupMapping,
+  SystemSettings, InsertSystemSettings,
 } from "@shared/schema";
 import type { PermissionKey } from "@shared/permissions";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -267,6 +271,17 @@ export interface IStorage {
   // settings
   listAppSettings(): Promise<AppSetting[]>;
   upsertAppSetting(input: InsertAppSetting): Promise<AppSetting>;
+
+  // auth: system settings (auth-mode + OIDC config, singleton row)
+  getSystemSettings(): Promise<SystemSettings>;
+  updateSystemSettings(patch: Partial<InsertSystemSettings>): Promise<SystemSettings>;
+
+  // auth: OIDC group -> fleet/role mappings
+  listOidcGroupMappings(): Promise<OidcGroupMapping[]>;
+  getOidcGroupMapping(id: number): Promise<OidcGroupMapping | undefined>;
+  createOidcGroupMapping(input: InsertOidcGroupMapping): Promise<OidcGroupMapping>;
+  updateOidcGroupMapping(id: number, input: Partial<InsertOidcGroupMapping>): Promise<OidcGroupMapping | undefined>;
+  deleteOidcGroupMapping(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -916,6 +931,40 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(appSettings).values(input).returning();
     return created;
+  }
+
+  // -- auth: system settings (singleton row) ----
+  async getSystemSettings(): Promise<SystemSettings> {
+    const [existing] = await db.select().from(systemSettings).orderBy(systemSettings.id).limit(1);
+    if (existing) return existing;
+    const [created] = await db.insert(systemSettings).values({}).returning();
+    return created;
+  }
+  async updateSystemSettings(patch: Partial<InsertSystemSettings>): Promise<SystemSettings> {
+    const existing = await this.getSystemSettings();
+    const [updated] = await db.update(systemSettings).set(patch).where(eq(systemSettings.id, existing.id)).returning();
+    return updated;
+  }
+
+  // -- auth: OIDC group mappings ----
+  async listOidcGroupMappings(): Promise<OidcGroupMapping[]> {
+    return db.select().from(oidcGroupMappings).orderBy(oidcGroupMappings.groupName);
+  }
+  async getOidcGroupMapping(id: number): Promise<OidcGroupMapping | undefined> {
+    const [row] = await db.select().from(oidcGroupMappings).where(eq(oidcGroupMappings.id, id));
+    return row;
+  }
+  async createOidcGroupMapping(input: InsertOidcGroupMapping): Promise<OidcGroupMapping> {
+    const [row] = await db.insert(oidcGroupMappings).values(input).returning();
+    return row;
+  }
+  async updateOidcGroupMapping(id: number, input: Partial<InsertOidcGroupMapping>): Promise<OidcGroupMapping | undefined> {
+    const [row] = await db.update(oidcGroupMappings).set(input).where(eq(oidcGroupMappings.id, id)).returning();
+    return row;
+  }
+  async deleteOidcGroupMapping(id: number): Promise<boolean> {
+    const result = await db.delete(oidcGroupMappings).where(eq(oidcGroupMappings.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 }
 

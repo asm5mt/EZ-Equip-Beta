@@ -7,6 +7,12 @@ import type { User } from "@shared/schema";
 declare module "express-session" {
   interface SessionData {
     userId?: number;
+    // Scratch data for an in-flight OIDC login, cleared on success/failure.
+    oidc?: {
+      state: string;
+      nonce: string;
+      codeVerifier: string;
+    };
   }
 }
 
@@ -71,6 +77,15 @@ export function registerAuthRoutes(app: Express) {
   app.get("/api/auth/setup-status", async (_req, res) => {
     const users = await storage.listUsers();
     res.json({ needsSetup: users.length === 0 });
+  });
+
+  // Public (pre-auth): tells the Login page whether to show local
+  // username/password, an SSO link, or both.
+  app.get("/api/auth/login-config", async (_req, res) => {
+    const settings = await storage.getSystemSettings();
+    const oidcAvailable = settings.authMode !== "local"
+      && !!settings.oidcIssuerUrl && !!settings.oidcClientId && !!settings.oidcRedirectUri;
+    res.json({ authMode: settings.authMode, oidcAvailable });
   });
 
   app.post("/api/auth/setup", async (req, res) => {
