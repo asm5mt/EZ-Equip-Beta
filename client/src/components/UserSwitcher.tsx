@@ -1,10 +1,13 @@
-import { ChevronDown, LogOut, User as UserIcon } from "lucide-react";
+import { ChevronDown, Info, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Logo } from "./Logo";
 import { useAppContext } from "@/lib/app-context";
+import { APP_VERSION, BUILD_NUMBER, BUILD_TIME } from "@/lib/version";
 
 export function UserSwitcher() {
   const { currentUser, fleet, fleets, setFleetId, role, logout } = useAppContext();
@@ -35,6 +38,29 @@ export function UserSwitcher() {
           Role: {role}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <Dialog>
+          <DialogTrigger asChild>
+            {/* preventDefault stops the menu from closing/returning focus before
+                the dialog claims it — the standard fix for Dialog-in-DropdownMenu. */}
+            <DropdownMenuItem onSelect={e => e.preventDefault()} data-testid="menuitem-about">
+              <Info className="size-4 mr-1.5" /> About
+            </DropdownMenuItem>
+          </DialogTrigger>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="sr-only">About EZ-Equip</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center text-center gap-2 py-2">
+              <Logo size={40} withWordmark={false} />
+              <div className="text-lg font-semibold">EZ-Equip</div>
+              <div className="text-sm text-muted-foreground">Sessanna Consulting</div>
+              <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                <div>Version {APP_VERSION} · Build {BUILD_NUMBER}</div>
+                <div>Built {new Date(BUILD_TIME).toLocaleString()}</div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         <DropdownMenuItem onClick={() => logout()} data-testid="menuitem-logout">
           <LogOut className="size-4 mr-1.5" /> Log out
         </DropdownMenuItem>

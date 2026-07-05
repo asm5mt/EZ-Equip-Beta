@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Truck, Gauge, Wrench, ClipboardList, Boxes, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText } from "lucide-react";
+import { LayoutDashboard, Truck, Wrench, Boxes, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Logo } from "./Logo";
 import { QuickAddSheet } from "./QuickAddSheet";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useAppContext } from "@/lib/app-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { versionString, APP_VERSION, BUILD_NUMBER, BUILD_TIME } from "@/lib/version";
 import type { AppSetting } from "@shared/schema";
 
 interface AppShellProps {
@@ -21,8 +22,6 @@ interface AppShellProps {
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/assets", label: "Assets", icon: Truck },
-  { href: "/meter-readings", label: "Meter Readings", icon: Gauge },
-  { href: "/events", label: "Events", icon: ClipboardList },
   { href: "/maintenance", label: "Maintenance", icon: Wrench },
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/reports", label: "Reports", icon: FileText },
@@ -147,7 +146,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
         <div className="px-4 py-3 border-t border-[hsl(var(--sidebar-border))] space-y-2">
           <SystemStatus />
           <div className="text-[10px] text-[hsl(var(--sidebar-foreground))]/45 tracking-wide">
-            (C) 2026 Sessanna Consulting
+            (C) 2026 Sessanna Consulting · {versionString()}
           </div>
         </div>
       </aside>
@@ -264,8 +263,10 @@ function SystemStatus() {
             <StatusLine label="Frontend" value={status.frontend} />
             <StatusLine label="Backend API" value={status.backend} />
             <StatusLine label={status.databaseEngine ?? "Database"} value={status.database} />
-            <div className="pt-2 border-t border-border text-xs text-muted-foreground">
-              Uptime: {status.uptimeSeconds}s · Checked: {new Date(status.checkedAt).toLocaleString()}
+            <div className="grid gap-1.5 pt-2 border-t border-border text-xs text-muted-foreground">
+              <div>Version: {APP_VERSION} · Build: {BUILD_NUMBER}</div>
+              <div>Built: {new Date(BUILD_TIME).toLocaleString()}</div>
+              <div>Uptime: {status.uptimeSeconds}s · Checked: {new Date(status.checkedAt).toLocaleString()}</div>
             </div>
           </div>
         )}

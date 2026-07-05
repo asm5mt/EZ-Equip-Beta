@@ -60,7 +60,7 @@ function AppRouter() {
       <Route path="/assets/:id/meter">{(params) => <RequireEdit fallback={`/assets/${params.id}`}><MeterForm /></RequireEdit>}</Route>
       <Route path="/assets/:id/services/new">{(params) => <RequireEdit fallback={`/assets/${params.id}`}><ServiceForm /></RequireEdit>}</Route>
       <Route path="/assets/:id/service/new">{(params) => <RequireEdit fallback={`/assets/${params.id}`}><ServiceForm /></RequireEdit>}</Route>
-      <Route path="/events/:id/edit">{() => <RequireEdit fallback="/events"><ServiceForm /></RequireEdit>}</Route>
+      <Route path="/events/:id/edit">{() => <RequireEdit fallback="/"><ServiceForm /></RequireEdit>}</Route>
       <Route path="/assets/:id" component={AssetDetail} />
       <Route path="/meter-readings" component={MeterReadings} />
       <Route path="/events" component={Events} />

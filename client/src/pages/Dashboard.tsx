@@ -96,7 +96,17 @@ export default function Dashboard() {
           </Card>
 
           <Card className="p-5">
-            <h3 className="font-semibold mb-3">Recent Activity</h3>
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h3 className="font-semibold">Recent Activity</h3>
+              <div className="flex items-center gap-3 text-xs shrink-0">
+                <Link href="/events" className="text-muted-foreground hover:text-foreground hover:underline" data-testid="link-view-all-events">
+                  All Events
+                </Link>
+                <Link href="/meter-readings" className="text-muted-foreground hover:text-foreground hover:underline" data-testid="link-view-all-meter-readings">
+                  All Meter Readings
+                </Link>
+              </div>
+            </div>
             {recent.length === 0 ? (
               <p className="text-sm text-muted-foreground">Recent service and meter activity will appear here.</p>
             ) : (
