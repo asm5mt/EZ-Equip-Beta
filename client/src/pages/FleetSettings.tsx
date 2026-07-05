@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
@@ -504,32 +505,43 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         )}
         {unsavedDialog}
 
-        <Card className="p-5 space-y-4">
-          <SectionHeader
-            icon={<BadgeDollarSign className="size-4" />}
-            label="Fleet Defaults"
-            description="Currency is stored per fleet so costs and reports can use the correct symbol."
-          />
-          <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Label>Currency</Label>
-                <HelpTooltip content="Sets the currency symbol used for this fleet's inventory costs, service totals, reports, and price displays." testId={`tooltip-fleet-currency-${fleet.id}`} />
-              </div>
-              <p className="text-xs text-muted-foreground">Current display symbol: {currencySymbol(draftCurrency)}</p>
-            </div>
-            <Select value={draftCurrency} onValueChange={setDraftCurrency} disabled={!canAdmin || saveSettings.isPending}>
-              <SelectTrigger data-testid={`select-fleet-currency-${fleet.id}`}><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-72">
-                {CURRENCY_CODES.map(code => (
-                  <SelectItem key={code} value={code}>{code} {currencySymbol(code)} — {currencyName(code)}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </Card>
+        <Tabs defaultValue="general" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-fleet-settings">
+            <TabsTrigger value="general" data-testid="tab-fleet-general">General</TabsTrigger>
+            <TabsTrigger value="fuel-types" data-testid="tab-fleet-fuel-types">Fuel Types</TabsTrigger>
+            <TabsTrigger value="asset-types" data-testid="tab-fleet-asset-types">Asset Types</TabsTrigger>
+            <TabsTrigger value="inventory-types" data-testid="tab-fleet-inventory-types">Inventory Types</TabsTrigger>
+          </TabsList>
 
-        <Card className="p-5 space-y-4">
+          <TabsContent value="general" className="mt-5">
+            <Card className="p-5 space-y-4">
+              <SectionHeader
+                icon={<BadgeDollarSign className="size-4" />}
+                label="Fleet Defaults"
+                description="Currency is stored per fleet so costs and reports can use the correct symbol."
+              />
+              <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label>Currency</Label>
+                    <HelpTooltip content="Sets the currency symbol used for this fleet's inventory costs, service totals, reports, and price displays." testId={`tooltip-fleet-currency-${fleet.id}`} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Current display symbol: {currencySymbol(draftCurrency)}</p>
+                </div>
+                <Select value={draftCurrency} onValueChange={setDraftCurrency} disabled={!canAdmin || saveSettings.isPending}>
+                  <SelectTrigger data-testid={`select-fleet-currency-${fleet.id}`}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {CURRENCY_CODES.map(code => (
+                      <SelectItem key={code} value={code}>{code} {currencySymbol(code)} — {currencyName(code)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="fuel-types" className="mt-5">
+            <Card className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <SectionHeader
               icon={<Fuel className="size-4" />}
@@ -623,9 +635,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               </div>
             ))}
           </div>
-        </Card>
+            </Card>
+          </TabsContent>
 
-        <Card className="p-5 space-y-4">
+          <TabsContent value="asset-types" className="mt-5">
+            <Card className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <SectionHeader
               icon={<Tags className="size-4" />}
@@ -713,9 +727,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               </div>
             ))}
           </div>
-        </Card>
+            </Card>
+          </TabsContent>
 
-        <Card className="p-5 space-y-4">
+          <TabsContent value="inventory-types" className="mt-5">
+            <Card className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <SectionHeader
               icon={<Boxes className="size-4" />}
@@ -861,7 +877,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               </div>
             </DialogContent>
           </Dialog>
-        </Card>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppShell>
   );
