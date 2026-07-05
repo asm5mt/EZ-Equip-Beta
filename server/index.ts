@@ -32,6 +32,13 @@ if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET is not set");
 }
 
+// Behind a reverse proxy (Nginx, etc.) terminating TLS, Express otherwise sees
+// every request as plain HTTP and silently drops secure cookies on login.
+// Trusting the first proxy hop makes req.secure reflect X-Forwarded-Proto.
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 app.use(session({
   store: new (connectPgSimple(session))({ pool, createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET,
