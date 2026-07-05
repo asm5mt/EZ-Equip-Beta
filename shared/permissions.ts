@@ -15,6 +15,7 @@ export const PERMISSION_CATALOG = [
   { key: "fleets.manage_settings", label: "Manage fleet/equipment/fuel-type settings", category: "Administration" },
   { key: "users.manage", label: "Manage users & fleet access", category: "Administration" },
   { key: "roles.manage", label: "Manage fleet roles & permissions", category: "Administration" },
+  { key: "system.admin", label: "System Administrator", category: "Administration" },
   { key: "data.export", label: "Export/print reports", category: "Reports" },
 ] as const;
 

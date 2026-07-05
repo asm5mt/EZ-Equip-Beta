@@ -447,6 +447,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
+  app.delete("/api/fleets/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteFleet(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
 
   app.get("/api/fleets/:id/sites", requireFleetMember(fleetIdFromFleet), async (req, res) => {
     res.json(await storage.listSites(Number(req.params.id)));

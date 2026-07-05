@@ -57,7 +57,7 @@ export function useUnsavedChangeGuard({
           <Button type="button" variant="cancel" onClick={discardAndContinue} data-testid="button-discard-unsaved-dialog">
             <X className="size-4 mr-1.5" /> Discard
           </Button>
-          <Button type="button" variant="success" onClick={onSave} data-testid="button-save-unsaved-dialog">
+          <Button type="button" variant="success" onClick={() => { onSave(); setOpen(false); }} data-testid="button-save-unsaved-dialog">
             <Save className="size-4 mr-1.5" /> Save
           </Button>
         </AlertDialogFooter>

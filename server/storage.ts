@@ -99,16 +99,32 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "assets.view", "inventory.view", "data.export",
     "assets.edit", "assets.delete", "meters.log", "meters.edit",
     "schedules.manage", "service.log", "service.edit", "inventory.manage",
-    "fleets.manage_settings", "users.manage", "roles.manage",
+    "fleets.manage_settings", "users.manage", "roles.manage", "system.admin",
   ],
 };
+
+async function roleHasPermission(roleId: number, key: PermissionKey): Promise<boolean> {
+  const [row] = await db.select().from(fleetRolePermissions)
+    .where(and(eq(fleetRolePermissions.roleId, roleId), eq(fleetRolePermissions.permissionKey, key)));
+  return !!row;
+}
 
 // A role is admin-equivalent for the last-fleet-admin safety net iff it can
 // manage roles/access — that's the one thing a fleet can never be left without.
 async function isAdminRoleId(roleId: number): Promise<boolean> {
-  const [row] = await db.select().from(fleetRolePermissions)
-    .where(and(eq(fleetRolePermissions.roleId, roleId), eq(fleetRolePermissions.permissionKey, "roles.manage" satisfies PermissionKey)));
-  return !!row;
+  return roleHasPermission(roleId, "roles.manage");
+}
+
+// Effective system-admin status: either the hardcoded users.system_admin
+// bootstrap flag, or the grantable "system.admin" permission on any of the
+// user's fleet roles. server/auth.ts folds this into req.user.systemAdmin on
+// every request so every existing systemAdmin check picks it up for free.
+export async function userHasSystemAdminPermission(userId: number): Promise<boolean> {
+  const memberships = await db.select().from(fleetMemberships).where(eq(fleetMemberships.userId, userId));
+  for (const m of memberships) {
+    if (await roleHasPermission(m.roleId, "system.admin")) return true;
+  }
+  return false;
 }
 
 async function adminRoleIdForFleet(fleetId: number): Promise<number | undefined> {
@@ -174,6 +190,7 @@ export interface IStorage {
   getFleet(id: number): Promise<Fleet | undefined>;
   updateFleet(id: number, input: Partial<InsertFleet>): Promise<Fleet | undefined>;
   createFleet(input: InsertFleet): Promise<Fleet>;
+  deleteFleet(id: number): Promise<boolean>;
 
   listSites(fleetId: number): Promise<Site[]>;
   getSite(id: number): Promise<Site | undefined>;
@@ -314,6 +331,85 @@ export class DatabaseStorage implements IStorage {
     await this.createInventoryCategory({ fleetId: fleet.id, name: "fluid", description: "ATF, coolant, brake fluid, gear oil, and additives.", active: true });
     await this.createInventoryCategory({ fleetId: fleet.id, name: "part", description: "General replacement parts and ad-hoc items.", active: true });
     return fleet;
+  }
+
+  // Deleting a fleet cascades through every fleet-scoped table by hand since
+  // none of the FKs are declared ON DELETE CASCADE. Children are removed
+  // before their parents; attachments are cleaned up too even though they
+  // have no DB-level FK (polymorphic entityType/entityId).
+  async deleteFleet(id: number): Promise<boolean> {
+    const fleetAssets = await db.select({ id: assets.id }).from(assets).where(eq(assets.fleetId, id));
+    const assetIds = fleetAssets.map(a => a.id);
+
+    const fleetServiceEvents = assetIds.length
+      ? await db.select({ id: serviceEvents.id }).from(serviceEvents).where(inArray(serviceEvents.assetId, assetIds))
+      : [];
+    const serviceEventIds = fleetServiceEvents.map(e => e.id);
+
+    const fleetInventoryItems = await db.select({ id: inventoryItems.id }).from(inventoryItems).where(eq(inventoryItems.fleetId, id));
+    const inventoryItemIds = fleetInventoryItems.map(i => i.id);
+
+    const fleetInventoryCategories = await db.select({ id: inventoryCategories.id }).from(inventoryCategories).where(eq(inventoryCategories.fleetId, id));
+    const categoryIds = fleetInventoryCategories.map(c => c.id);
+
+    const fleetRoleRows = await db.select({ id: fleetRoles.id }).from(fleetRoles).where(eq(fleetRoles.fleetId, id));
+    const roleIds = fleetRoleRows.map(r => r.id);
+
+    if (serviceEventIds.length) {
+      await db.delete(attachments).where(and(eq(attachments.entityType, "service-event"), inArray(attachments.entityId, serviceEventIds)));
+    }
+    if (inventoryItemIds.length) {
+      await db.delete(attachments).where(and(eq(attachments.entityType, "inventory-item"), inArray(attachments.entityId, inventoryItemIds)));
+      const movements = await db.select({ id: inventoryMovements.id }).from(inventoryMovements).where(inArray(inventoryMovements.inventoryItemId, inventoryItemIds));
+      const movementIds = movements.map(m => m.id);
+      if (movementIds.length) {
+        await db.delete(attachments).where(and(eq(attachments.entityType, "inventory-movement"), inArray(attachments.entityId, movementIds)));
+      }
+      await db.delete(inventoryMovements).where(inArray(inventoryMovements.inventoryItemId, inventoryItemIds));
+    }
+
+    if (serviceEventIds.length) {
+      await db.delete(serviceLineItems).where(inArray(serviceLineItems.serviceEventId, serviceEventIds));
+    }
+    if (assetIds.length) {
+      await db.delete(meterReadings).where(inArray(meterReadings.assetId, assetIds));
+    }
+
+    // Schedules: fleet-scoped (fleetId = this fleet) and asset-scoped (assetId in this fleet's assets).
+    const fleetScopedSchedules = await db.select({ id: maintenanceSchedules.id }).from(maintenanceSchedules).where(eq(maintenanceSchedules.fleetId, id));
+    const assetScopedSchedules = assetIds.length
+      ? await db.select({ id: maintenanceSchedules.id }).from(maintenanceSchedules).where(inArray(maintenanceSchedules.assetId, assetIds))
+      : [];
+    const scheduleIds = Array.from(new Set([...fleetScopedSchedules, ...assetScopedSchedules].map(s => s.id)));
+    if (scheduleIds.length) {
+      await db.delete(maintenanceScheduleAssignments).where(inArray(maintenanceScheduleAssignments.scheduleId, scheduleIds));
+      await db.delete(maintenanceSchedules).where(inArray(maintenanceSchedules.id, scheduleIds));
+    }
+
+    if (serviceEventIds.length) {
+      await db.delete(serviceEvents).where(inArray(serviceEvents.id, serviceEventIds));
+    }
+    if (assetIds.length) {
+      await db.delete(assets).where(inArray(assets.id, assetIds));
+    }
+    if (inventoryItemIds.length) {
+      await db.delete(inventoryItems).where(inArray(inventoryItems.id, inventoryItemIds));
+    }
+    if (categoryIds.length) {
+      await db.delete(inventoryCategoryFields).where(inArray(inventoryCategoryFields.categoryId, categoryIds));
+      await db.delete(inventoryCategories).where(inArray(inventoryCategories.id, categoryIds));
+    }
+    await db.delete(fleetEquipmentTypes).where(eq(fleetEquipmentTypes.fleetId, id));
+    await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.fleetId, id));
+    await db.delete(oidcGroupMappings).where(eq(oidcGroupMappings.fleetId, id));
+    await db.delete(fleetMemberships).where(eq(fleetMemberships.fleetId, id));
+    if (roleIds.length) {
+      await db.delete(fleetRolePermissions).where(inArray(fleetRolePermissions.roleId, roleIds));
+      await db.delete(fleetRoles).where(inArray(fleetRoles.id, roleIds));
+    }
+    await db.delete(sites).where(eq(sites.fleetId, id));
+    const result = await db.delete(fleets).where(eq(fleets.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   private async seedDefaultFleetRoles(fleetId: number): Promise<void> {

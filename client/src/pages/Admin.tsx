@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
@@ -44,6 +45,9 @@ function defaultVinFeaturesForName(value: string) {
 export default function Admin() {
   const { fleet, fleets, users, canAdmin } = useAppContext();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const activeTab = new URLSearchParams(search).get("tab") ?? "general";
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
 
   const persisted = useMemo(() => {
@@ -73,6 +77,8 @@ export default function Admin() {
   const [wizardTypeName, setWizardTypeName] = useState("vehicle");
   const [wizardTypeColor, setWizardTypeColor] = useState("blue");
   const [wizardTypeMeter, setWizardTypeMeter] = useState("mileage");
+  const [pendingDeleteFleetId, setPendingDeleteFleetId] = useState<number | null>(null);
+  const [deleteFleetAcknowledged, setDeleteFleetAcknowledged] = useState(false);
 
   useEffect(() => {
     setThemeMode(persisted.themeMode);
@@ -156,6 +162,18 @@ export default function Admin() {
     },
   });
 
+  const deleteFleetMut = useMutation({
+    mutationFn: async () => (await apiRequest("DELETE", `/api/fleets/${pendingDeleteFleetId}`)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
+      setPendingDeleteFleetId(null);
+      setDeleteFleetAcknowledged(false);
+      toast({ title: "Fleet deleted" });
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+  const pendingDeleteFleet = fleets.find(f => f.id === pendingDeleteFleetId) ?? null;
+
   return (
     <AppShell title="Settings" subtitle="Theme, units, fleets, local users, and access control">
       <div className="space-y-6 max-w-6xl">
@@ -167,7 +185,7 @@ export default function Admin() {
           </Link>
         </div>
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
           <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 h-auto" data-testid="tabs-settings">
             <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
             <TabsTrigger value="fleets" data-testid="tab-fleets">Fleets</TabsTrigger>
@@ -226,7 +244,41 @@ export default function Admin() {
             <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <h3 className="font-semibold">Fleets</h3>
-                <span className="text-xs text-muted-foreground">{fleets.length} total</span>
+                <div className="flex items-center gap-2">
+                  <Dialog open={fleetWizardOpen} onOpenChange={setFleetWizardOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" disabled={!canAdmin} data-testid="button-open-fleet-wizard"><Plus className="size-4 mr-1.5" /> Add Fleet</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-xl">
+                      <DialogHeader><DialogTitle>Fleet Setup Wizard</DialogTitle></DialogHeader>
+                      <div className="space-y-5">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Fleet identity</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                            <div><Label>Name</Label><Input value={newFleetName} onChange={e => setNewFleetName(e.target.value)} data-testid="input-new-fleet-name" /></div>
+                            <div><Label>Slug</Label><Input value={newFleetSlug} onChange={e => setNewFleetSlug(e.target.value)} placeholder="auto" data-testid="input-new-fleet-slug" /></div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Required first asset type</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                            <div><Label>Type Name</Label><Input value={wizardTypeName} onChange={e => setWizardTypeName(e.target.value)} data-testid="input-wizard-type-name" /></div>
+                            <SelectField label="Color" value={wizardTypeColor} onChange={setWizardTypeColor} options={BADGE_COLORS.map(c => [c, c])} testid="select-wizard-type-color" />
+                            <SelectField label="Default Meter" value={wizardTypeMeter} onChange={setWizardTypeMeter} options={[["mileage", "mileage"], ["hours", "hours"], ["count", "count"], ["custom", "custom"]]} testid="select-wizard-type-meter" />
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">More fleet setup steps will be added here as we build out the wizard.</p>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="cancel" onClick={() => setFleetWizardOpen(false)} data-testid="button-cancel-fleet-wizard">Cancel</Button>
+                          <Button onClick={() => createFleetMut.mutate()} disabled={!canAdmin || !newFleetName || !wizardTypeName || createFleetMut.isPending} data-testid="button-create-fleet">
+                            {createFleetMut.isPending ? "Creating…" : "Create Fleet"}
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <span className="text-xs text-muted-foreground">{fleets.length} total</span>
+                </div>
               </div>
               <div className="grid gap-2">
                 {fleets.map(f => (
@@ -242,44 +294,20 @@ export default function Admin() {
                           <Tags className="size-4 mr-1.5" /> Settings
                         </Button>
                       </Link>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive"
+                        disabled={!canAdmin}
+                        onClick={() => setPendingDeleteFleetId(f.id)}
+                        data-testid={`button-delete-fleet-${f.id}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
                 {fleets.length === 0 && <p className="text-sm text-muted-foreground">No fleets yet.</p>}
-              </div>
-              <div className="pt-2 border-t border-border">
-                <Dialog open={fleetWizardOpen} onOpenChange={setFleetWizardOpen}>
-                  <DialogTrigger asChild>
-                    <Button disabled={!canAdmin} data-testid="button-open-fleet-wizard"><Plus className="size-4 mr-1.5" /> Add Fleet</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-xl">
-                    <DialogHeader><DialogTitle>Fleet Setup Wizard</DialogTitle></DialogHeader>
-                    <div className="space-y-5">
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Fleet identity</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                          <div><Label>Name</Label><Input value={newFleetName} onChange={e => setNewFleetName(e.target.value)} data-testid="input-new-fleet-name" /></div>
-                          <div><Label>Slug</Label><Input value={newFleetSlug} onChange={e => setNewFleetSlug(e.target.value)} placeholder="auto" data-testid="input-new-fleet-slug" /></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Required first asset type</div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
-                          <div><Label>Type Name</Label><Input value={wizardTypeName} onChange={e => setWizardTypeName(e.target.value)} data-testid="input-wizard-type-name" /></div>
-                          <SelectField label="Color" value={wizardTypeColor} onChange={setWizardTypeColor} options={BADGE_COLORS.map(c => [c, c])} testid="select-wizard-type-color" />
-                          <SelectField label="Default Meter" value={wizardTypeMeter} onChange={setWizardTypeMeter} options={[["mileage", "mileage"], ["hours", "hours"], ["count", "count"], ["custom", "custom"]]} testid="select-wizard-type-meter" />
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">More fleet setup steps will be added here as we build out the wizard.</p>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="cancel" onClick={() => setFleetWizardOpen(false)} data-testid="button-cancel-fleet-wizard">Cancel</Button>
-                        <Button onClick={() => createFleetMut.mutate()} disabled={!canAdmin || !newFleetName || !wizardTypeName || createFleetMut.isPending} data-testid="button-create-fleet">
-                          {createFleetMut.isPending ? "Creating…" : "Create Fleet"}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </div>
             </Card>
           </TabsContent>
@@ -336,6 +364,47 @@ export default function Admin() {
             </div>
           </div>
         )}
+
+        <AlertDialog
+          open={pendingDeleteFleetId != null}
+          onOpenChange={open => { if (!open) { setPendingDeleteFleetId(null); setDeleteFleetAcknowledged(false); } }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {pendingDeleteFleet?.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete "{pendingDeleteFleet?.name}" and everything in it — all assets, service
+                history, meter readings, inventory, and schedules. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={deleteFleetAcknowledged}
+                onCheckedChange={c => setDeleteFleetAcknowledged(c === true)}
+                className="mt-0.5"
+                data-testid="checkbox-confirm-delete-fleet"
+              />
+              I understand this will permanently delete all assets and data in this fleet
+            </label>
+            <AlertDialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setPendingDeleteFleetId(null); setDeleteFleetAcknowledged(false); }}
+                data-testid="button-cancel-delete-fleet"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!deleteFleetAcknowledged || deleteFleetMut.isPending}
+                onClick={() => deleteFleetMut.mutate()}
+                data-testid="button-confirm-delete-fleet"
+              >
+                {deleteFleetMut.isPending ? "Deleting…" : "Delete Fleet"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppShell>
   );
@@ -400,10 +469,12 @@ function RolesPermissionsSection() {
   const fleetId = selectedFleetId ?? currentFleet?.id ?? fleets[0]?.id ?? null;
   const selectedFleet = fleets.find(f => f.id === fleetId) ?? null;
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
+  const [pendingDeleteRoleId, setPendingDeleteRoleId] = useState<number | null>(null);
 
   const rolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles", { fleetId }], enabled: !!fleetId });
   const permissionsQ = useQuery<PermissionCatalogEntry[]>({ queryKey: ["/api/permissions"] });
   const permissionCatalog = permissionsQ.data ?? [];
+  const [addRoleOpen, setAddRoleOpen] = useState(false);
   const [name, setName] = useState("");
   const [newPermissions, setNewPermissions] = useState<string[]>([]);
   const [description, setDescription] = useState("");
@@ -413,6 +484,7 @@ function RolesPermissionsSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] });
       setName(""); setNewPermissions([]); setDescription("");
+      setAddRoleOpen(false);
       toast({ title: "Fleet role added" });
     },
   });
@@ -426,6 +498,7 @@ function RolesPermissionsSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] });
       setEditingRoleId(null);
+      setPendingDeleteRoleId(null);
       toast({ title: "Fleet role deleted" });
     },
     onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
@@ -433,6 +506,52 @@ function RolesPermissionsSection() {
 
   const roles = rolesQ.data ?? [];
   const editingRole = roles.find(r => r.id === editingRoleId) ?? null;
+  const pendingDeleteRole = roles.find(r => r.id === pendingDeleteRoleId) ?? null;
+
+  // Buffered edit-modal draft: name/description/permissions only apply on
+  // "Save Changes". Re-initialized only when the *target role* changes, not
+  // on every background refetch, so in-progress edits survive.
+  const [draftName, setDraftName] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [draftPermissions, setDraftPermissions] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (editingRoleId == null) return;
+    const role = roles.find(r => r.id === editingRoleId);
+    if (!role) return;
+    setDraftName(role.name);
+    setDraftDescription(role.description ?? "");
+    setDraftPermissions(role.permissions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingRoleId]);
+
+  const roleDirty = !!editingRole && (
+    draftName !== editingRole.name
+    || draftDescription !== (editingRole.description ?? "")
+    || JSON.stringify([...draftPermissions].sort()) !== JSON.stringify([...editingRole.permissions].sort())
+  );
+
+  const saveRole = useMutation({
+    mutationFn: async () => {
+      if (!editingRole) return;
+      await apiRequest("PATCH", `/api/fleet-roles/${editingRole.id}`, {
+        name: draftName.toLowerCase(),
+        description: draftDescription || null,
+        permissions: draftPermissions,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] });
+      toast({ title: "Role updated" });
+      setEditingRoleId(null);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const { confirmOrRun: confirmRoleClose, dialog: roleUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: roleDirty,
+    onSave: () => saveRole.mutate(),
+  });
 
   return (
     <div className="space-y-5">
@@ -457,6 +576,38 @@ function RolesPermissionsSection() {
 
       {selectedFleet && (
         <Card className="p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="font-semibold">Roles</h3>
+            <div className="flex items-center gap-2">
+              <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" disabled={!canAdmin} data-testid="button-add-fleet-role"><Plus className="size-4 mr-1.5" /> Add Role</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader><DialogTitle>Add Role</DialogTitle></DialogHeader>
+                  <div className="grid gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="mechanic" data-testid="input-new-fleet-role" /></div>
+                      <div><Label>Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} data-testid="input-new-fleet-role-description" /></div>
+                    </div>
+                    <PermissionCheckboxes
+                      permissions={permissionCatalog}
+                      selected={newPermissions}
+                      idPrefix="new-role"
+                      onToggle={(key, checked) => setNewPermissions(prev => checked ? [...prev, key] : prev.filter(p => p !== key))}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="cancel" onClick={() => setAddRoleOpen(false)} data-testid="button-cancel-add-role">Cancel</Button>
+                      <Button disabled={!canAdmin || !name || createRole.isPending} onClick={() => createRole.mutate()} data-testid="button-create-fleet-role">
+                        {createRole.isPending ? "Creating…" : "Add"}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <span className="text-xs text-muted-foreground">{roles.length} total</span>
+            </div>
+          </div>
           <div className="max-h-[360px] overflow-y-auto pr-1 space-y-2" data-testid="list-fleet-roles">
             {roles.map(role => (
               <div
@@ -479,9 +630,9 @@ function RolesPermissionsSection() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="shrink-0"
+                  className="shrink-0 text-destructive"
                   disabled={!canAdmin || role.builtIn || deleteRole.isPending}
-                  onClick={() => deleteRole.mutate(role.id)}
+                  onClick={() => setPendingDeleteRoleId(role.id)}
                   data-testid={`button-delete-fleet-role-${role.id}`}
                 >
                   <Trash2 className="size-4" />
@@ -490,76 +641,117 @@ function RolesPermissionsSection() {
             ))}
             {roles.length === 0 && <p className="text-sm text-muted-foreground">No roles yet for this fleet.</p>}
           </div>
-
-          <div className="rounded-md bg-muted p-4 space-y-3">
-            <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Add a custom role</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="mechanic" data-testid="input-new-fleet-role" /></div>
-              <div><Label>Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} data-testid="input-new-fleet-role-description" /></div>
-            </div>
-            <PermissionCheckboxes
-              permissions={permissionCatalog}
-              selected={newPermissions}
-              idPrefix="new-role"
-              onToggle={(key, checked) => setNewPermissions(prev => checked ? [...prev, key] : prev.filter(p => p !== key))}
-            />
-            <div className="flex justify-end">
-              <Button disabled={!canAdmin || !name || createRole.isPending} onClick={() => createRole.mutate()} data-testid="button-create-fleet-role"><Plus className="size-4 mr-1.5" /> Add</Button>
-            </div>
-          </div>
         </Card>
       )}
 
-      <Dialog open={editingRole != null} onOpenChange={open => !open && setEditingRoleId(null)}>
+      <Dialog
+        open={editingRole != null}
+        onOpenChange={open => { if (!open) confirmRoleClose(() => setEditingRoleId(null)); }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Edit Role</DialogTitle></DialogHeader>
           {editingRole && (
-            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label>Name</Label>
-                  <Input
-                    value={editingRole.name}
-                    disabled={!canAdmin || editingRole.builtIn}
-                    onChange={e => updateRole.mutate({ id: editingRole.id, patch: { name: e.target.value.toLowerCase() } })}
-                    data-testid={`input-fleet-role-name-${editingRole.id}`}
-                  />
-                </div>
-                <div>
-                  <Label>Description</Label>
-                  <Input
-                    value={editingRole.description ?? ""}
-                    disabled={!canAdmin}
-                    onChange={e => updateRole.mutate({ id: editingRole.id, patch: { description: e.target.value } })}
-                    data-testid={`input-fleet-role-description-${editingRole.id}`}
-                  />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <Badge variant="outline" className={`text-[10px] tracking-wide ${roleDirty ? "status-warn" : ""}`} data-testid="badge-role-dirty-state">
+                  {roleDirty ? "Unsaved changes" : "No pending changes"}
+                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="cancel"
+                    size="sm"
+                    onClick={() => {
+                      setDraftName(editingRole.name);
+                      setDraftDescription(editingRole.description ?? "");
+                      setDraftPermissions(editingRole.permissions);
+                      setEditingRoleId(null);
+                    }}
+                    data-testid="button-cancel-edit-role"
+                  >
+                    <X className="size-4 mr-1.5" /> Cancel
+                  </Button>
+                  <Button
+                    variant="success"
+                    size="sm"
+                    disabled={!canAdmin || !roleDirty || saveRole.isPending}
+                    onClick={() => saveRole.mutate()}
+                    data-testid="button-save-edit-role"
+                  >
+                    <Save className="size-4 mr-1.5" /> {saveRole.isPending ? "Saving…" : "Save Changes"}
+                  </Button>
                 </div>
               </div>
-              {editingRole.builtIn && <Badge variant="outline" className="text-[10px] tracking-wide">Built-in</Badge>}
-              <PermissionCheckboxes
-                permissions={permissionCatalog}
-                selected={editingRole.permissions}
-                disabled={!canAdmin}
-                idPrefix={`role-${editingRole.id}`}
-                onToggle={(key, checked) => {
-                  const next = checked ? [...editingRole.permissions, key] : editingRole.permissions.filter(p => p !== key);
-                  updateRole.mutate({ id: editingRole.id, patch: { permissions: next } });
-                }}
-              />
-              <div className="flex justify-end pt-2 border-t border-border">
-                <Button
-                  variant="destructive"
-                  disabled={!canAdmin || editingRole.builtIn || deleteRole.isPending}
-                  onClick={() => deleteRole.mutate(editingRole.id)}
-                  data-testid={`button-delete-fleet-role-modal-${editingRole.id}`}
-                >
-                  <Trash2 className="size-4 mr-1.5" /> Delete Role
-                </Button>
+
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label>Name</Label>
+                    <Input
+                      value={draftName}
+                      disabled={!canAdmin || editingRole.builtIn}
+                      onChange={e => setDraftName(e.target.value.toLowerCase())}
+                      data-testid={`input-fleet-role-name-${editingRole.id}`}
+                    />
+                  </div>
+                  <div>
+                    <Label>Description</Label>
+                    <Input
+                      value={draftDescription}
+                      disabled={!canAdmin}
+                      onChange={e => setDraftDescription(e.target.value)}
+                      data-testid={`input-fleet-role-description-${editingRole.id}`}
+                    />
+                  </div>
+                </div>
+                {editingRole.builtIn && <Badge variant="outline" className="text-[10px] tracking-wide">Built-in</Badge>}
+                <PermissionCheckboxes
+                  permissions={permissionCatalog}
+                  selected={draftPermissions}
+                  disabled={!canAdmin}
+                  idPrefix={`role-${editingRole.id}`}
+                  onToggle={(key, checked) => {
+                    setDraftPermissions(prev => checked ? [...prev, key] : prev.filter(p => p !== key));
+                  }}
+                />
+                <div className="flex justify-end pt-2 border-t border-border">
+                  <Button
+                    variant="destructive"
+                    disabled={!canAdmin || editingRole.builtIn || deleteRole.isPending}
+                    onClick={() => setPendingDeleteRoleId(editingRole.id)}
+                    data-testid={`button-delete-fleet-role-modal-${editingRole.id}`}
+                  >
+                    <Trash2 className="size-4 mr-1.5" /> Delete Role
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      {roleUnsavedDialog}
+
+      <AlertDialog open={pendingDeleteRole != null} onOpenChange={open => !open && setPendingDeleteRoleId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{pendingDeleteRole?.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the role from this fleet. Any users currently assigned to it will lose the access it granted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setPendingDeleteRoleId(null)} data-testid="button-cancel-delete-fleet-role">Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteRole.isPending}
+              onClick={() => pendingDeleteRoleId != null && deleteRole.mutate(pendingDeleteRoleId)}
+              data-testid="button-confirm-delete-fleet-role"
+            >
+              {deleteRole.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -855,6 +1047,7 @@ function UserRow({ user }: { user: User }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [convertDialog, setConvertDialog] = useState<"oidc" | "local" | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const setPassword = useMutation({
     mutationFn: async () => apiRequest("PATCH", `/api/users/${user.id}/password`, { password: newPassword }),
@@ -865,31 +1058,16 @@ function UserRow({ user }: { user: User }) {
     },
     onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
-  const assign = useMutation({
-    mutationFn: async ({ fleetId, roleId }: { fleetId: number; roleId: number }) => {
-      const res = await apiRequest("POST", "/api/fleet-memberships", { fleetId, userId: user.id, roleId });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/fleet-memberships"] });
-      toast({ title: "Access updated" });
-    },
-  });
-  const removeAccess = useMutation({
-    mutationFn: async ({ fleetId, userId }: { fleetId: number; userId: number }) => (await apiRequest("DELETE", `/api/fleet-memberships?fleetId=${fleetId}&userId=${userId}`)).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/fleet-memberships"] });
-      toast({ title: "Access removed" });
-    },
-  });
   const deleteUser = useMutation({
     mutationFn: async () => (await apiRequest("DELETE", `/api/users/${user.id}`)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/fleet-memberships"] });
+      setDeleteConfirmOpen(false);
       setEditOpen(false);
       toast({ title: "User deleted" });
     },
+    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
   const convertProvider = useMutation({
     mutationFn: async (target: "oidc" | "local") => (await apiRequest("POST", `/api/users/${user.id}/convert-to-${target}`)).json(),
@@ -900,23 +1078,88 @@ function UserRow({ user }: { user: User }) {
     },
     onError: (e: any) => toast({ title: "Conversion failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
-  const setExempt = useMutation({
-    mutationFn: async (exemptFromGlobalAuthMode: boolean) => (await apiRequest("PATCH", `/api/users/${user.id}/auth-settings`, { exemptFromGlobalAuthMode })).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({ title: "Updated" });
-    },
-    onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
-  });
 
   const userMemberships = memberships.filter(m => m.userId === user.id);
   const roleNames = userMemberships
     .map(m => (rolesQ.data ?? []).find(r => r.id === m.roleId)?.name)
     .filter((n): n is string => !!n);
+  const effectiveSystemAdmin = user.systemAdmin || userMemberships.some(m => {
+    const role = (rolesQ.data ?? []).find(r => r.id === m.roleId);
+    return role?.permissions.includes("system.admin");
+  });
 
   const passwordsMatch = newPassword === confirmPassword;
   const passwordLongEnough = newPassword.length >= 8;
   const canSubmitPassword = passwordLongEnough && passwordsMatch && confirmPassword.length > 0;
+
+  // Buffered edit-modal draft: fleet-access assignments and the exempt
+  // checkbox only apply on "Save Changes". Re-initialized only when the
+  // modal transitions to open, not on every background refetch, so
+  // in-progress edits survive.
+  const [draftMemberships, setDraftMemberships] = useState<Record<number, number | null>>({});
+  const [draftExempt, setDraftExempt] = useState(user.exemptFromGlobalAuthMode);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    const draft: Record<number, number | null> = {};
+    for (const fleet of fleets) {
+      const m = memberships.find(m => m.fleetId === fleet.id && m.userId === user.id);
+      draft[fleet.id] = m ? m.roleId : null;
+    }
+    setDraftMemberships(draft);
+    setDraftExempt(user.exemptFromGlobalAuthMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editOpen]);
+
+  const persistedMemberships = useMemo(() => {
+    const map: Record<number, number | null> = {};
+    for (const fleet of fleets) {
+      const m = memberships.find(m => m.fleetId === fleet.id && m.userId === user.id);
+      map[fleet.id] = m ? m.roleId : null;
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fleets, memberships, user.id]);
+
+  const userDirty = JSON.stringify(draftMemberships) !== JSON.stringify(persistedMemberships)
+    || draftExempt !== user.exemptFromGlobalAuthMode;
+
+  const resetUserDraft = () => {
+    setDraftMemberships(persistedMemberships);
+    setDraftExempt(user.exemptFromGlobalAuthMode);
+  };
+
+  const saveUser = useMutation({
+    mutationFn: async () => {
+      const work: Promise<unknown>[] = [];
+      for (const fleet of fleets) {
+        const draftRoleId = draftMemberships[fleet.id] ?? null;
+        const originalRoleId = persistedMemberships[fleet.id] ?? null;
+        if (draftRoleId === originalRoleId) continue;
+        if (draftRoleId == null) {
+          work.push(apiRequest("DELETE", `/api/fleet-memberships?fleetId=${fleet.id}&userId=${user.id}`));
+        } else {
+          work.push(apiRequest("POST", "/api/fleet-memberships", { fleetId: fleet.id, userId: user.id, roleId: draftRoleId }));
+        }
+      }
+      if (draftExempt !== user.exemptFromGlobalAuthMode) {
+        work.push(apiRequest("PATCH", `/api/users/${user.id}/auth-settings`, { exemptFromGlobalAuthMode: draftExempt }));
+      }
+      await Promise.all(work);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/fleet-memberships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ title: "User updated" });
+      setEditOpen(false);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const { confirmOrRun: confirmUserClose, dialog: userUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: userDirty,
+    onSave: () => saveUser.mutate(),
+  });
 
   return (
     <>
@@ -937,6 +1180,11 @@ function UserRow({ user }: { user: User }) {
             <Badge variant="outline" className="text-[10px] tracking-wide" data-testid={`badge-auth-provider-${user.id}`}>
               {user.authProvider === "oidc" ? "SSO" : "Local"}
             </Badge>
+            {effectiveSystemAdmin && (
+              <Badge variant="outline" className="text-[10px] tracking-wide status-warn" data-testid={`badge-system-admin-${user.id}`}>
+                System Admin
+              </Badge>
+            )}
             {roleNames.length === 0 && <Badge variant="outline" className="text-[10px] tracking-wide">no access</Badge>}
             {roleNames.slice(0, 2).map((r, i) => (
               <Badge key={i} variant="outline" className="text-[10px] tracking-wide">{r}</Badge>
@@ -952,112 +1200,144 @@ function UserRow({ user }: { user: User }) {
         <Button
           variant="ghost"
           size="icon"
-          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-          disabled={!canAdmin || deleteUser.isPending}
-          onClick={() => deleteUser.mutate()}
+          className="shrink-0 text-destructive"
+          disabled={!canAdmin}
+          onClick={() => setDeleteConfirmOpen(true)}
           data-testid={`button-delete-user-${user.id}`}
         >
           <Trash2 className="size-4" />
         </Button>
       </div>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      <Dialog
+        open={editOpen}
+        onOpenChange={open => { if (!open) confirmUserClose(() => setEditOpen(false)); }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>{user.displayName}</DialogTitle></DialogHeader>
-          <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
-            <div className="space-y-2">
-              <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Fleet Access</div>
-              <div className="grid gap-2">
-                {fleets.map(fleet => {
-                  const m = memberships.find(m => m.fleetId === fleet.id && m.userId === user.id);
-                  const fleetRoles = (rolesQ.data ?? []).filter(r => r.fleetId === fleet.id);
-                  return (
-                    <div key={fleet.id} className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-3 items-center rounded-md border border-border p-3">
-                      <div>
-                        <div className="font-medium">{fleet.name}</div>
-                        <div className="text-xs text-muted-foreground">Current role: {fleetRoles.find(r => r.id === m?.roleId)?.name ?? "no access"}</div>
-                      </div>
-                      <Select
-                        value={m ? String(m.roleId) : "none"}
-                        onValueChange={(value) => value === "none" ? removeAccess.mutate({ fleetId: fleet.id, userId: user.id }) : assign.mutate({ fleetId: fleet.id, roleId: Number(value) })}
-                        disabled={!canAdmin}
-                      >
-                        <SelectTrigger data-testid={`select-user-${user.id}-fleet-${fleet.id}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">no access</SelectItem>
-                          {fleetRoles.map(role => <SelectItem key={role.id} value={String(role.id)}>{role.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  );
-                })}
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <Badge variant="outline" className={`text-[10px] tracking-wide ${userDirty ? "status-warn" : ""}`} data-testid={`badge-user-dirty-state-${user.id}`}>
+                {userDirty ? "Unsaved changes" : "No pending changes"}
+              </Badge>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="cancel"
+                  size="sm"
+                  onClick={() => { resetUserDraft(); setEditOpen(false); }}
+                  data-testid={`button-cancel-edit-user-${user.id}`}
+                >
+                  <X className="size-4 mr-1.5" /> Cancel
+                </Button>
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={!userDirty || saveUser.isPending}
+                  onClick={() => saveUser.mutate()}
+                  data-testid={`button-save-edit-user-${user.id}`}
+                >
+                  <Save className="size-4 mr-1.5" /> {saveUser.isPending ? "Saving…" : "Save Changes"}
+                </Button>
               </div>
             </div>
 
-            {systemAdmin && (
-              <div className="space-y-3 pt-4 border-t border-border">
-                <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Authentication</div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className="text-[10px] tracking-wide">{user.authProvider === "oidc" ? "SSO" : "Local"}</Badge>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setConvertDialog(user.authProvider === "oidc" ? "local" : "oidc")}
-                    data-testid={`button-convert-auth-${user.id}`}
-                  >
-                    <Link2 className="size-4 mr-1.5" /> {user.authProvider === "oidc" ? "Convert to Local" : "Convert to OIDC"}
-                  </Button>
-                </div>
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Checkbox
-                    checked={user.exemptFromGlobalAuthMode}
-                    onCheckedChange={checked => setExempt.mutate(checked === true)}
-                    data-testid={`checkbox-exempt-auth-mode-${user.id}`}
-                  />
-                  Exempt from global auth mode
-                </label>
-              </div>
-            )}
-
-            {systemAdmin && (
-              <div className="space-y-3 pt-4 border-t border-border">
-                <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Reset Password</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label>New Password</Label>
-                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} data-testid={`input-new-password-${user.id}`} />
-                  </div>
-                  <div>
-                    <Label>Confirm Password</Label>
-                    <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} data-testid={`input-confirm-password-${user.id}`} />
-                  </div>
-                </div>
-                {newPassword.length > 0 && !passwordLongEnough && (
-                  <p className="text-sm text-[hsl(var(--status-overdue))]" data-testid={`text-password-too-short-${user.id}`}>
-                    Password must be at least 8 characters.
-                  </p>
-                )}
-                {confirmPassword.length > 0 && !passwordsMatch && (
-                  <p className="text-sm text-[hsl(var(--status-overdue))]" data-testid={`text-password-mismatch-${user.id}`}>
-                    Passwords do not match.
-                  </p>
-                )}
-                <div className="flex justify-end">
-                  <Button disabled={!canSubmitPassword || setPassword.isPending} onClick={() => setPassword.mutate()} data-testid={`button-save-password-${user.id}`}>
-                    <KeyRound className="size-4 mr-1.5" /> {setPassword.isPending ? "Saving…" : "Save Password"}
-                  </Button>
+            <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Fleet Access</div>
+                <div className="grid gap-2">
+                  {fleets.map(fleet => {
+                    const fleetRoles = (rolesQ.data ?? []).filter(r => r.fleetId === fleet.id);
+                    const draftRoleId = draftMemberships[fleet.id] ?? null;
+                    return (
+                      <div key={fleet.id} className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-3 items-center rounded-md border border-border p-3">
+                        <div>
+                          <div className="font-medium">{fleet.name}</div>
+                          <div className="text-xs text-muted-foreground">Current role: {fleetRoles.find(r => r.id === draftRoleId)?.name ?? "no access"}</div>
+                        </div>
+                        <Select
+                          value={draftRoleId ? String(draftRoleId) : "none"}
+                          onValueChange={(value) => setDraftMemberships(prev => ({ ...prev, [fleet.id]: value === "none" ? null : Number(value) }))}
+                          disabled={!canAdmin}
+                        >
+                          <SelectTrigger data-testid={`select-user-${user.id}-fleet-${fleet.id}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">no access</SelectItem>
+                            {fleetRoles.map(role => <SelectItem key={role.id} value={String(role.id)}>{role.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            )}
 
-            <div className="flex justify-end pt-4 border-t border-border">
-              <Button variant="destructive" disabled={!canAdmin || deleteUser.isPending} onClick={() => deleteUser.mutate()} data-testid={`button-delete-user-modal-${user.id}`}>
-                <Trash2 className="size-4 mr-1.5" /> Delete User
-              </Button>
+              {systemAdmin && (
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Authentication</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] tracking-wide">{user.authProvider === "oidc" ? "SSO" : "Local"}</Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConvertDialog(user.authProvider === "oidc" ? "local" : "oidc")}
+                      data-testid={`button-convert-auth-${user.id}`}
+                    >
+                      <Link2 className="size-4 mr-1.5" /> {user.authProvider === "oidc" ? "Convert to Local" : "Convert to OIDC"}
+                    </Button>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Checkbox
+                      checked={draftExempt}
+                      onCheckedChange={checked => setDraftExempt(checked === true)}
+                      data-testid={`checkbox-exempt-auth-mode-${user.id}`}
+                    />
+                    Exempt from global auth mode
+                  </label>
+                </div>
+              )}
+
+              {systemAdmin && (
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Reset Password</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label>New Password</Label>
+                      <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} data-testid={`input-new-password-${user.id}`} />
+                    </div>
+                    <div>
+                      <Label>Confirm Password</Label>
+                      <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} data-testid={`input-confirm-password-${user.id}`} />
+                    </div>
+                  </div>
+                  {newPassword.length > 0 && !passwordLongEnough && (
+                    <p className="text-sm text-[hsl(var(--status-overdue))]" data-testid={`text-password-too-short-${user.id}`}>
+                      Password must be at least 8 characters.
+                    </p>
+                  )}
+                  {confirmPassword.length > 0 && !passwordsMatch && (
+                    <p className="text-sm text-[hsl(var(--status-overdue))]" data-testid={`text-password-mismatch-${user.id}`}>
+                      Passwords do not match.
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <Button disabled={!canSubmitPassword || setPassword.isPending} onClick={() => setPassword.mutate()} data-testid={`button-save-password-${user.id}`}>
+                      <KeyRound className="size-4 mr-1.5" /> {setPassword.isPending ? "Saving…" : "Save Password"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-4 border-t border-border">
+                <Button variant="destructive" disabled={!canAdmin} onClick={() => setDeleteConfirmOpen(true)} data-testid={`button-delete-user-modal-${user.id}`}>
+                  <Trash2 className="size-4 mr-1.5" /> Delete User
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+      {userUnsavedDialog}
 
       <AlertDialog open={convertDialog !== null} onOpenChange={(open) => !open && setConvertDialog(null)}>
         <AlertDialogContent>
@@ -1080,6 +1360,28 @@ function UserRow({ user }: { user: User }) {
               data-testid={`button-confirm-convert-${user.id}`}
             >
               {convertProvider.isPending ? "Converting…" : "Convert"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {user.displayName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes their account and all fleet access. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)} data-testid={`button-cancel-delete-user-${user.id}`}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteUser.isPending}
+              onClick={() => deleteUser.mutate()}
+              data-testid={`button-confirm-delete-user-${user.id}`}
+            >
+              {deleteUser.isPending ? "Deleting…" : "Delete"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

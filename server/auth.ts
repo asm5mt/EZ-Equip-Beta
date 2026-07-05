@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import argon2 from "argon2";
 import { z } from "zod";
-import { storage } from "./storage";
+import { storage, userHasSystemAdminPermission } from "./storage";
 import type { User } from "@shared/schema";
 
 declare module "express-session" {
@@ -28,7 +28,13 @@ declare global {
 export async function attachCurrentUser(req: Request, _res: Response, next: NextFunction) {
   if (req.session.userId != null) {
     const user = await storage.getUser(req.session.userId);
-    if (user) req.user = user;
+    if (user) {
+      // Fold the grantable "system.admin" fleet-role permission into the same
+      // systemAdmin flag every downstream check already reads, alongside the
+      // hardcoded users.system_admin bootstrap flag.
+      const systemAdmin = user.systemAdmin || await userHasSystemAdminPermission(user.id);
+      req.user = { ...user, systemAdmin };
+    }
   }
   next();
 }
