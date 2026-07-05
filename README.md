@@ -43,8 +43,9 @@ npm run dev
 
 The dev server starts on port **5000** and serves both the API and the
 Vite-powered React app on the same port. On boot the app runs any pending
-drizzle-kit migrations against `DATABASE_URL`, then seeds a demo fleet if
-the database is empty so you can navigate immediately.
+drizzle-kit migrations against `DATABASE_URL`. If no users exist yet, the
+app shows a first-run setup wizard where you create your fleet and admin
+account before logging in.
 
 Useful scripts:
 
@@ -140,10 +141,14 @@ changes are captured as versioned SQL files in `migrations/` via
 migrations against `DATABASE_URL` (`drizzle-orm/node-postgres/migrator`)
 before serving traffic.
 
-`seedIfEmpty()` runs once when the DB is empty and populates the
-`Sessanna Home Fleet` with three users (`jaimy` / `tech` / `viewer`),
-four assets, sample maintenance schedules, an oil-change event, and
-six inventory items so the app is immediately interactive.
+On first run (empty `users` table), the app serves a setup wizard
+(`GET /api/auth/setup-status`, `POST /api/auth/setup`) that creates your
+first fleet and admin account. Every fleet created — via the wizard or
+later by an admin — is seeded with a default set of equipment types
+(vehicle, generator, trailer, tractor, ATV, snowmobile, lawn, equipment),
+fuel types, the built-in `viewer` / `editor` / `admin` roles, and starter
+inventory categories (oil, filter, fluid, part) via `createFleet()` in
+`server/storage.ts`.
 
 ---
 

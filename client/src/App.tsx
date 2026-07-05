@@ -12,6 +12,7 @@ import type { CurrentUser } from "@/lib/app-context";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { NoFleetAssigned } from "@/components/NoFleetAssigned";
 import Login from "@/pages/Login";
+import Setup from "@/pages/Setup";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Assets from "@/pages/Assets";
@@ -79,11 +80,21 @@ function AppRouter() {
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
+  const setupQ = useQuery<{ needsSetup: boolean }>({
+    queryKey: ["/api/auth/setup-status"],
+  });
   const meQ = useQuery<CurrentUser | null>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: setupQ.isSuccess && !setupQ.data.needsSetup,
   });
 
+  if (setupQ.isLoading) {
+    return <div className="min-h-screen bg-background" />;
+  }
+  if (setupQ.data?.needsSetup) {
+    return <Setup onComplete={() => { setupQ.refetch(); meQ.refetch(); }} />;
+  }
   if (meQ.isLoading) {
     return <div className="min-h-screen bg-background" />;
   }

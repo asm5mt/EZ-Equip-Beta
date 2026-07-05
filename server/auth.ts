@@ -52,7 +52,55 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const setupSchema = z.object({
+  fleetName: z.string().min(1),
+  displayName: z.string().min(1),
+  username: z.string().min(1),
+  email: z.string().email().optional().or(z.literal("")),
+  password: z.string().min(8),
+});
+
+function slugifyFleetName(name: string): string {
+  const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return base || "fleet";
+}
+
 export function registerAuthRoutes(app: Express) {
+  // First-run setup: only reachable while the users table is empty. Once any
+  // user exists this always 409s, so it can't be used to re-provision later.
+  app.get("/api/auth/setup-status", async (_req, res) => {
+    const users = await storage.listUsers();
+    res.json({ needsSetup: users.length === 0 });
+  });
+
+  app.post("/api/auth/setup", async (req, res) => {
+    const existingUsers = await storage.listUsers();
+    if (existingUsers.length > 0) return res.status(409).json({ error: "already_initialized" });
+
+    const parsed = setupSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "validation_error" });
+    const { fleetName, displayName, username, email, password } = parsed.data;
+
+    const fleet = await storage.createFleet({ name: fleetName, slug: slugifyFleetName(fleetName), currency: "USD", notes: null });
+    const passwordHash = await argon2.hash(password);
+    const user = await storage.createUser({
+      username,
+      displayName,
+      email: email || null,
+      passwordHash,
+      systemAdmin: true,
+    });
+    const roles = await storage.listFleetRoles(fleet.id);
+    const adminRole = roles.find(r => r.name === "admin")!;
+    await storage.upsertFleetMembership({ fleetId: fleet.id, userId: user.id, roleId: adminRole.id, grantedBy: "manual" });
+
+    req.session.regenerate((err) => {
+      if (err) return res.status(500).json({ error: "internal_error" });
+      req.session.userId = user.id;
+      res.json({ id: user.id, username: user.username, displayName: user.displayName, systemAdmin: user.systemAdmin });
+    });
+  });
+
   app.post("/api/auth/login", async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "validation_error" });

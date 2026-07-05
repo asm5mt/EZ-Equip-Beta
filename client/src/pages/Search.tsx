@@ -41,7 +41,7 @@ export default function Search() {
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
-              placeholder="Try: Silverado, 1GCHK29U, oil filter, NAPA…"
+              placeholder="Try: a vehicle name, VIN, oil filter, vendor…"
               className="pl-9"
               data-testid="input-search-query"
             />

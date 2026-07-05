@@ -288,6 +288,16 @@ export class DatabaseStorage implements IStorage {
     for (const fuel of DEFAULT_FUEL_TYPE_ROWS) {
       await db.insert(fleetFuelTypes).values({ fleetId: fleet.id, ...fuel });
     }
+    for (const type of DEFAULT_EQUIPMENT_TYPE_ROWS) {
+      await db.insert(fleetEquipmentTypes).values({ fleetId: fleet.id, active: true, ...type });
+    }
+    const oilCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "oil", description: "Engine oil, hydraulic oil, and other lubricants.", active: true });
+    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Viscosity", fieldType: "text", required: false, sortOrder: 1 });
+    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Container Size", fieldType: "text", required: false, sortOrder: 2 });
+    const filterCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "filter", description: "Oil, air, fuel, cabin, and hydraulic filters.", active: true });
+    await this.createInventoryCategoryField({ categoryId: filterCategory.id, name: "Filter Type", fieldType: "text", required: false, sortOrder: 1 });
+    await this.createInventoryCategory({ fleetId: fleet.id, name: "fluid", description: "ATF, coolant, brake fluid, gear oil, and additives.", active: true });
+    await this.createInventoryCategory({ fleetId: fleet.id, name: "part", description: "General replacement parts and ad-hoc items.", active: true });
     return fleet;
   }
 
@@ -912,272 +922,7 @@ export class DatabaseStorage implements IStorage {
 export const storage = new DatabaseStorage();
 
 // ---------------------------------------------------------------------------
-// Seed
-// ---------------------------------------------------------------------------
-
-export async function seedIfEmpty() {
-  const existingFleets = await storage.listFleets();
-  if (existingFleets.length > 0) return;
-
-  const fleet = await storage.createFleet({
-    name: "Sessanna Home Fleet",
-    slug: "home",
-    currency: "USD",
-    notes: "Personal vehicles, trailers, generators, lawn and snow equipment.",
-  });
-
-  const homeSite = await storage.createSite({ fleetId: fleet.id, name: "Home Garage", address: "Upstate NY" });
-
-  // Users + memberships (local auth simulation; AD coming later)
-  const owner = await storage.createUser({
-    username: "jaimy",
-    displayName: "Jaimy Sessanna",
-    email: "jaimy@sessanna.com",
-    passwordHash: null,
-    systemAdmin: true,
-  });
-  const tech = await storage.createUser({
-    username: "tech",
-    displayName: "Workshop Tech",
-    email: null,
-    passwordHash: null,
-    systemAdmin: false,
-  });
-  const viewer = await storage.createUser({
-    username: "viewer",
-    displayName: "Read-only Viewer",
-    email: null,
-    passwordHash: null,
-    systemAdmin: false,
-  });
-  const seedRoles = await storage.listFleetRoles(fleet.id);
-  const seedRoleIdByName = new Map(seedRoles.map(r => [r.name, r.id]));
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: owner.id, roleId: seedRoleIdByName.get("admin")!, grantedBy: "manual" });
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: tech.id, roleId: seedRoleIdByName.get("editor")!, grantedBy: "manual" });
-  await storage.upsertFleetMembership({ fleetId: fleet.id, userId: viewer.id, roleId: seedRoleIdByName.get("viewer")!, grantedBy: "manual" });
-  for (const type of DEFAULT_EQUIPMENT_TYPE_ROWS) {
-    await storage.createFleetEquipmentType({ fleetId: fleet.id, active: true, ...type });
-  }
-  const oilCategory = await storage.createInventoryCategory({ fleetId: fleet.id, name: "oil", description: "Engine oil, hydraulic oil, and other lubricants.", active: true });
-  await storage.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Viscosity", fieldType: "text", required: false, sortOrder: 1 });
-  await storage.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Container Size", fieldType: "text", required: false, sortOrder: 2 });
-  const filterCategory = await storage.createInventoryCategory({ fleetId: fleet.id, name: "filter", description: "Oil, air, fuel, cabin, and hydraulic filters.", active: true });
-  await storage.createInventoryCategoryField({ categoryId: filterCategory.id, name: "Filter Type", fieldType: "text", required: false, sortOrder: 1 });
-  await storage.createInventoryCategory({ fleetId: fleet.id, name: "fluid", description: "ATF, coolant, brake fluid, gear oil, and additives.", active: true });
-  await storage.createInventoryCategory({ fleetId: fleet.id, name: "part", description: "General replacement parts and ad-hoc items.", active: true });
-
-  // ----- Assets ------------------------------------------------------------
-  const today = new Date();
-  const meterDate = new Date("2025-08-27");
-
-  const silverado = await storage.createAsset({
-    fleetId: fleet.id,
-    siteId: homeSite.id,
-    friendlyName: "2005 Silverado 2500HD",
-    assetType: "vehicle",
-    year: 2005,
-    make: "Chevrolet",
-    model: "Silverado 2500HD",
-    trim: "LT",
-    vin: "1GCHK29U65E102198",
-    serial: null,
-    engine: "6.0 LQ4 V8",
-    transmission: "4L80E",
-    drivetrain: "4WD",
-    meterType: "mileage",
-    meterLabel: null,
-    currentMeter: 78510,
-    meterAsOf: meterDate,
-    status: "active",
-    notes: null,
-  });
-
-  const tahoe = await storage.createAsset({
-    fleetId: fleet.id,
-    siteId: homeSite.id,
-    friendlyName: "2005 Tahoe LT Z71",
-    assetType: "vehicle",
-    year: 2005,
-    make: "Chevrolet",
-    model: "Tahoe",
-    trim: "LT Z71",
-    vin: "1GNEK13T05R204731",
-    serial: null,
-    engine: "5.3 LM7 V8",
-    transmission: "4L60E",
-    drivetrain: "4WD",
-    meterType: "mileage",
-    currentMeter: 330171,
-    meterAsOf: meterDate,
-    status: "active",
-    notes: "Daily driver. Imported from legacy Tahoe spreadsheet.",
-  });
-
-  const generator = await storage.createAsset({
-    fleetId: fleet.id,
-    siteId: homeSite.id,
-    friendlyName: "Generac 22kW Standby",
-    assetType: "generator",
-    year: 2019,
-    make: "Generac",
-    model: "Guardian 22kW",
-    meterType: "hours",
-    currentMeter: 184.5,
-    meterAsOf: today,
-    status: "active",
-  });
-
-  const trailer = await storage.createAsset({
-    fleetId: fleet.id,
-    siteId: homeSite.id,
-    friendlyName: "Sure-Trac 7x14 Dump",
-    assetType: "trailer",
-    year: 2021,
-    make: "Sure-Trac",
-    model: "7x14 Dump",
-    meterType: "count",
-    meterLabel: "Loads",
-    currentMeter: 47,
-    meterAsOf: today,
-    status: "active",
-    notes: "Tandem axle. Annual NY inspection due each spring.",
-  });
-
-  // ----- Schedules ---------------------------------------------------------
-  // Silverado
-  const oilSchedSilverado = await storage.createSchedule({
-    assetId: silverado.id,
-    name: "Oil Change",
-    category: "engine",
-    readingType: "mileage",
-    meterInterval: 3000,
-    dayInterval: 365,
-    meterDueSoon: 250,
-    dayDueSoon: 30,
-    notes: "Routine engine oil and filter service.",
-    active: true,
-  });
-  await storage.createSchedule({
-    assetId: silverado.id, name: "Air Filter", category: "engine",
-    readingType: "mileage", meterInterval: 20000, dayInterval: null,
-    meterDueSoon: 1500, dayDueSoon: null, notes: "Engine air filter replacement.", active: true,
-  });
-  await storage.createSchedule({
-    assetId: silverado.id, name: "Transmission Service", category: "drivetrain",
-    readingType: "mileage", meterInterval: 30000, dayInterval: null,
-    meterDueSoon: 2000, dayDueSoon: null, notes: "ATF + filter.", active: true,
-  });
-  await storage.createSchedule({
-    assetId: silverado.id, name: "Coolant Service", category: "engine",
-    readingType: "mileage", meterInterval: 100000, dayInterval: 1825,
-    meterDueSoon: 5000, dayDueSoon: 60, notes: "Flush and replace coolant on time-based intervals.", active: true,
-  });
-  await storage.createSchedule({
-    assetId: silverado.id, name: "Annual NY Inspection", category: "inspection",
-    readingType: "mileage", meterInterval: null, dayInterval: 365,
-    meterDueSoon: null, dayDueSoon: 30, notes: "Time-only schedule. Triggered by day interval.", active: true,
-  });
-  await storage.createSchedule({
-    assetId: silverado.id, name: "Battery Terminal Service", category: "other",
-    readingType: "mileage", meterInterval: null, dayInterval: 180,
-    meterDueSoon: null, dayDueSoon: 21, notes: "Clean and protect battery terminals every 6 months.", active: true,
-  });
-
-  // Tahoe — minimal seeded schedules
-  await storage.createSchedule({
-    assetId: tahoe.id, name: "Oil Change", category: "engine",
-    readingType: "mileage", meterInterval: 5000, dayInterval: 365,
-    meterDueSoon: 300, dayDueSoon: 30, notes: "5W-30 conventional, AC Delco PF48.", active: true,
-  });
-
-  // Generator
-  await storage.createSchedule({
-    assetId: generator.id, name: "Oil & Filter (Hours)", category: "engine",
-    readingType: "hours", meterInterval: 200, dayInterval: 730,
-    meterDueSoon: 25, dayDueSoon: 60, notes: "Synthetic 5W-30, replace OEM filter.", active: true,
-  });
-
-  // Trailer
-  await storage.createSchedule({
-    assetId: trailer.id, name: "Annual NY Inspection", category: "inspection",
-    readingType: "count", meterInterval: null, dayInterval: 365,
-    meterDueSoon: null, dayDueSoon: 30, notes: "Time-only.", active: true,
-  });
-  await storage.createSchedule({
-    assetId: trailer.id, name: "Bearing Re-pack", category: "drivetrain",
-    readingType: "count", meterInterval: null, dayInterval: 730,
-    meterDueSoon: null, dayDueSoon: 30, notes: "Every 2 years.", active: true,
-  });
-
-  // ----- Inventory ---------------------------------------------------------
-  const oil5w30 = await storage.createInventoryItem({
-    fleetId: fleet.id, name: "Mobil 1 5W-30 Synthetic", category: "oil",
-    sku: "M1-5W30-1Q", partNumber: "M1-5W30",
-    unit: "qt", onHand: 12, reorderPoint: 6, reorderQuantity: 12,
-    lowStockAlert: true, lowStockQuantity: 6, reorderReminder: true,
-    costTracking: true, stocked: true, unitCost: 8.49, notes: "Engine oil, 1qt bottles.",
-  });
-  await storage.createInventoryItem({
-    fleetId: fleet.id, name: "AC Delco PF48 Oil Filter", category: "filter",
-    sku: "ACD-PF48", partNumber: "PF48",
-    unit: "each", onHand: 4, reorderPoint: 3, reorderQuantity: 6,
-    lowStockAlert: true, lowStockQuantity: 3, reorderReminder: true,
-    costTracking: true, stocked: true, unitCost: 9.99,
-  });
-  await storage.createInventoryItem({
-    fleetId: fleet.id, name: "K&N Air Filter 33-2129", category: "filter",
-    partNumber: "33-2129", unit: "each", onHand: 1, reorderPoint: 1,
-    reorderQuantity: 1, stocked: true, unitCost: 64.99,
-    lowStockAlert: true, lowStockQuantity: 1, reorderReminder: true, costTracking: true,
-  });
-  await storage.createInventoryItem({
-    fleetId: fleet.id, name: "Dexron VI ATF", category: "fluid",
-    unit: "qt", onHand: 5, reorderPoint: 4, reorderQuantity: 12,
-    lowStockAlert: true, lowStockQuantity: 4, reorderReminder: true,
-    costTracking: true, stocked: true, unitCost: 7.49,
-  });
-  await storage.createInventoryItem({
-    fleetId: fleet.id, name: "Bosch ICON 22\" Wiper", category: "wiper",
-    unit: "each", onHand: 0, reorderPoint: 1, reorderQuantity: 2,
-    lowStockAlert: true, lowStockQuantity: 1, reorderReminder: true,
-    costTracking: true, stocked: true, unitCost: 28.99, notes: "Driver side.",
-  });
-  await storage.createInventoryItem({
-    fleetId: fleet.id, name: "DeWalt 12\" Bar Oil 1qt", category: "fluid",
-    unit: "qt", onHand: 2, reorderPoint: null, reorderQuantity: null,
-    lowStockAlert: false, lowStockQuantity: null, reorderReminder: false,
-    costTracking: false, stocked: false, notes: "Ad-hoc, not on routine reorder.",
-  });
-
-  // ----- Past service event -- gives Silverado oil-change history ---------
-  const sEvent = await storage.createServiceEvent({
-    assetId: silverado.id,
-    scheduleId: oilSchedSilverado.id,
-    eventType: "scheduled",
-    title: "Oil Change",
-    performedAt: meterDate,
-    meterAtService: 78510,
-    vendor: "Self",
-    technician: "Jaimy",
-    cost: 42.45,
-    notes: "Mobil 1 5W-30, PF48 filter.",
-  });
-  await storage.createLineItem({
-    serviceEventId: sEvent.id,
-    inventoryItemId: oil5w30.id,
-    itemName: "Mobil 1 5W-30 Synthetic",
-    partNumber: "M1-5W30",
-    brand: "Mobil 1",
-    spec: "5W-30",
-    quantity: 6,
-    unit: "qt",
-    unitCost: 8.49,
-    notes: null,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Startup: run pending migrations, then seed/backfill.
+// Startup: run pending migrations, then backfill.
 // ---------------------------------------------------------------------------
 
 export async function runMigrations() {
@@ -1186,6 +931,5 @@ export async function runMigrations() {
 
 export async function initStorage() {
   await runMigrations();
-  await seedIfEmpty();
   await ensureEveryFleetHasAdmin();
 }
