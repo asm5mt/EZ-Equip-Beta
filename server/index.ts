@@ -1,8 +1,11 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
-import { initStorage } from "./storage";
+import { initStorage, pool } from "./storage";
+import { attachCurrentUser } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -24,6 +27,26 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is not set");
+}
+
+app.use(session({
+  store: new (connectPgSimple(session))({ pool, createTableIfMissing: true }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 8, // 8h, refreshed by rolling:true
+  },
+}));
+
+app.use(attachCurrentUser);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

@@ -64,7 +64,7 @@ export default function Assets() {
   });
   const typesQ = useQuery<FleetEquipmentType[]>({ queryKey: ["/api/fleet-equipment-types", { fleetId }], enabled: !!fleetId });
   const fuelTypesQ = useQuery<FleetFuelType[]>({ queryKey: ["/api/fleet-fuel-types", { fleetId }], enabled: !!fleetId });
-  const readingsQ = useQuery<MeterReading[]>({ queryKey: ["/api/meter-readings"], enabled: !!fleetId });
+  const readingsQ = useQuery<MeterReading[]>({ queryKey: ["/api/meter-readings", { fleetId }], enabled: !!fleetId });
 
   const assets = assetsQ.data ?? [];
   const assetTypes = typesQ.data ?? [];

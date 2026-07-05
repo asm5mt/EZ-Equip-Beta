@@ -99,7 +99,7 @@ export default function AssetDetail() {
     queryKey: ["/api/meter-readings", { assetId }],
     enabled: !!assetId,
   });
-  const lineItemsQ = useQuery<ServiceLineItem[]>({ queryKey: ["/api/service-line-items"], enabled: !!assetId });
+  const lineItemsQ = useQuery<ServiceLineItem[]>({ queryKey: ["/api/service-line-items", { assetId }], enabled: !!assetId });
   const vinDecodeQ = useQuery<VinDecodeField[]>({
     queryKey: ["nhtsa-vpic-decode", assetQ.data?.vin],
     enabled: !!assetQ.data?.vin && vinFeaturesEnabled,

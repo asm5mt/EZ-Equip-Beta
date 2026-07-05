@@ -69,7 +69,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     enabled: Number.isFinite(fleetId),
   });
   const inventoryFieldsQ = useQuery<InventoryCategoryField[]>({
-    queryKey: ["/api/inventory-category-fields"],
+    queryKey: ["/api/inventory-category-fields", { fleetId }],
+    enabled: Number.isFinite(fleetId),
   });
 
   const [draftCurrency, setDraftCurrency] = useState("USD");

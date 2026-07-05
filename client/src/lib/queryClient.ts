@@ -1,11 +1,13 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient, QueryCache, QueryFunction } from "@tanstack/react-query";
 
 export const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const err = new Error(`${res.status}: ${text}`) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
 }
 
@@ -57,6 +59,13 @@ export const getQueryFn: <T>(options: {
   };
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (err) => {
+      if ((err as { status?: number })?.status === 401) {
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),

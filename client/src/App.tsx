@@ -2,12 +2,16 @@ import { Switch, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { queryClient } from "./lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient, getQueryFn } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppProvider, useAppContext } from "@/lib/app-context";
+import type { CurrentUser } from "@/lib/app-context";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { NoFleetAssigned } from "@/components/NoFleetAssigned";
+import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Assets from "@/pages/Assets";
@@ -74,17 +78,42 @@ function AppRouter() {
   );
 }
 
+function AuthGate({ children }: { children: ReactNode }) {
+  const meQ = useQuery<CurrentUser | null>({
+    queryKey: ["/api/auth/me"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+
+  if (meQ.isLoading) {
+    return <div className="min-h-screen bg-background" />;
+  }
+  if (!meQ.data) {
+    return <Login onLoggedIn={() => meQ.refetch()} />;
+  }
+  if (!meQ.data.systemAdmin && meQ.data.fleetIds.length === 0) {
+    return (
+      <NoFleetAssigned
+        onLogout={async () => {
+          await fetch("/api/auth/logout", { method: "POST" });
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        }}
+      />
+    );
+  }
+  return <AppProvider me={meQ.data}>{children}</AppProvider>;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AppErrorBoundary>
-          <AppProvider>
+          <AuthGate>
             <Toaster />
             <Router hook={useHashLocation}>
               <AppRouter />
             </Router>
-          </AppProvider>
+          </AuthGate>
         </AppErrorBoundary>
       </TooltipProvider>
     </QueryClientProvider>

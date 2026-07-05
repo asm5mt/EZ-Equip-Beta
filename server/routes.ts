@@ -1,9 +1,39 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
+import argon2 from "argon2";
 import { storage } from "./storage";
+import { registerAuthRoutes } from "./auth";
+import {
+  requireAuth,
+  requireSystemAdmin,
+  requireFleetMember,
+  requirePermission,
+  fleetIdFromQuery,
+  fleetIdFromAsset,
+  fleetIdFromInventoryItem,
+  fleetIdFromInventoryCategory,
+  fleetIdFromFleetEquipmentType,
+  fleetIdFromFleetFuelType,
+  fleetIdFromFleetRole,
+  fleetIdFromSite,
+  fleetIdFromFleet,
+  fleetIdFromSchedule,
+  fleetIdFromMeterReading,
+  fleetIdFromMeterReadingsQuery,
+  fleetIdFromServiceEvent,
+  fleetIdFromServiceEventsQuery,
+  fleetIdFromLineItem,
+  fleetIdFromServiceEventBody,
+  fleetIdFromInventoryMovement,
+  fleetIdFromInventoryCategoryField,
+  fleetIdFromScheduleAssignments,
+  fleetIdFromScheduleAssignmentsQuery,
+  fleetIdFromAssetBody,
+  fleetIdFromAttachment,
+} from "./permissions-middleware";
 import {
   insertFleetSchema,
   insertSiteSchema,
@@ -25,6 +55,7 @@ import {
   insertAppSettingSchema,
 } from "@shared/schema";
 import { PERMISSION_CATALOG } from "@shared/permissions";
+import type { PermissionKey } from "@shared/permissions";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -294,6 +325,8 @@ function nhtsaModelCandidates(model: string) {
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  registerAuthRoutes(app);
+
   app.get("/api/nhtsa/safety", async (req, res) => {
     const make = String(req.query.make ?? "").trim();
     const model = String(req.query.model ?? "").trim();
@@ -391,14 +424,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Fleets ----------
-  app.get("/api/fleets", async (_req, res) => res.json(await storage.listFleets()));
-  app.post("/api/fleets", async (req, res) => {
+  app.get("/api/fleets", requireAuth, async (req, res) => {
+    const all = await storage.listFleets();
+    if (req.user!.systemAdmin) return res.json(all);
+    const myFleetIds = new Set((await storage.listFleetMemberships()).filter(m => m.userId === req.user!.id).map(m => m.fleetId));
+    res.json(all.filter(f => myFleetIds.has(f.id)));
+  });
+  app.post("/api/fleets", requireSystemAdmin, async (req, res) => {
     try {
       const data = insertFleetSchema.parse(req.body);
       res.json(await storage.createFleet(data));
     } catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleets/:id", async (req, res) => {
+  app.patch("/api/fleets/:id", requirePermission("fleets.manage_settings", fleetIdFromFleet), async (req, res) => {
     try {
       const updated = await storage.updateFleet(Number(req.params.id), insertFleetSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
@@ -406,33 +444,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err) { handleError(res, err); }
   });
 
-  app.get("/api/fleets/:id/sites", async (req, res) => {
+  app.get("/api/fleets/:id/sites", requireFleetMember(fleetIdFromFleet), async (req, res) => {
     res.json(await storage.listSites(Number(req.params.id)));
   });
-  app.post("/api/sites", async (req, res) => {
+  app.post("/api/sites", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createSite(insertSiteSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- Users / memberships ----------
-  app.get("/api/users", async (_req, res) => res.json(await storage.listUsers()));
-  app.post("/api/users", async (req, res) => {
+  app.get("/api/users", requireAuth, async (_req, res) => res.json(await storage.listUsers()));
+  app.post("/api/users", requireSystemAdmin, async (req, res) => {
     try { res.json(await storage.createUser(insertUserSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.delete("/api/users/:id", async (req, res) => {
+  app.delete("/api/users/:id", requireSystemAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteUser(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-memberships", async (_req, res) => res.json(await storage.listFleetMemberships()));
-  app.post("/api/fleet-memberships", async (req, res) => {
+  app.patch("/api/users/:id/password", requireSystemAdmin, async (req, res) => {
+    try {
+      const body = z.object({ password: z.string().min(8) }).parse(req.body);
+      const passwordHash = await argon2.hash(body.password);
+      const updated = await storage.updateUser(Number(req.params.id), { passwordHash });
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
+  app.get("/api/fleet-memberships", requireAuth, async (_req, res) => res.json(await storage.listFleetMemberships()));
+  app.post("/api/fleet-memberships", requirePermission("users.manage", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.upsertFleetMembership(insertFleetMembershipSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-memberships", async (req, res) => {
+  app.delete("/api/fleet-memberships", requirePermission("users.manage", fleetIdFromQuery), async (req, res) => {
     try {
       const fleetId = Number(req.query.fleetId);
       const userId = Number(req.query.userId);
@@ -441,56 +488,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-equipment-types", async (req, res) => {
+  app.get("/api/fleet-equipment-types", requireFleetMember(fleetIdFromQuery), async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     res.json(await storage.listFleetEquipmentTypes(fleetId));
   });
-  app.post("/api/fleet-equipment-types", async (req, res) => {
+  app.post("/api/fleet-equipment-types", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createFleetEquipmentType(insertFleetEquipmentTypeSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-equipment-types/:id", async (req, res) => {
+  app.patch("/api/fleet-equipment-types/:id", requirePermission("fleets.manage_settings", fleetIdFromFleetEquipmentType), async (req, res) => {
     try {
       const updated = await storage.updateFleetEquipmentType(Number(req.params.id), insertFleetEquipmentTypeSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-equipment-types/:id", async (req, res) => {
+  app.delete("/api/fleet-equipment-types/:id", requirePermission("fleets.manage_settings", fleetIdFromFleetEquipmentType), async (req, res) => {
     try {
       const ok = await storage.deleteFleetEquipmentType(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/fleet-fuel-types", async (req, res) => {
+  app.get("/api/fleet-fuel-types", requireFleetMember(fleetIdFromQuery), async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     res.json(await storage.listFleetFuelTypes(fleetId));
   });
-  app.post("/api/fleet-fuel-types", async (req, res) => {
+  app.post("/api/fleet-fuel-types", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createFleetFuelType(insertFleetFuelTypeSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-fuel-types/:id", async (req, res) => {
+  app.patch("/api/fleet-fuel-types/:id", requirePermission("fleets.manage_settings", fleetIdFromFleetFuelType), async (req, res) => {
     try {
       const updated = await storage.updateFleetFuelType(Number(req.params.id), insertFleetFuelTypeSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-fuel-types/:id", async (req, res) => {
+  app.delete("/api/fleet-fuel-types/:id", requirePermission("fleets.manage_settings", fleetIdFromFleetFuelType), async (req, res) => {
     try {
       const ok = await storage.deleteFleetFuelType(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/permissions", async (_req, res) => res.json(PERMISSION_CATALOG));
-  app.get("/api/fleet-roles", async (req, res) => {
-    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(await storage.listFleetRolesWithPermissions(fleetId));
+  app.get("/api/permissions", requireAuth, async (_req, res) => res.json(PERMISSION_CATALOG));
+  app.get("/api/fleet-roles", requireAuth, async (req, res) => {
+    const fleetIdParam = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    const myFleetIds = req.user!.systemAdmin
+      ? null
+      : new Set((await storage.listFleetMemberships()).filter(m => m.userId === req.user!.id).map(m => m.fleetId));
+    if (fleetIdParam != null) {
+      if (myFleetIds && !myFleetIds.has(fleetIdParam)) return res.status(403).json({ error: "forbidden" });
+      return res.json(await storage.listFleetRolesWithPermissions(fleetIdParam));
+    }
+    const all = await storage.listFleetRolesWithPermissions();
+    res.json(myFleetIds ? all.filter(r => myFleetIds.has(r.fleetId)) : all);
   });
-  app.post("/api/fleet-roles", async (req, res) => {
+  app.post("/api/fleet-roles", requirePermission("roles.manage", fleetIdFromQuery), async (req, res) => {
     try {
       const body = insertFleetRoleSchema.extend({ permissions: z.array(z.string()).optional() }).parse(req.body);
       const { permissions, ...roleInput } = body;
@@ -499,7 +554,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ...role, permissions: permissions ?? [] });
     } catch (err) { handleError(res, err); }
   });
-  app.patch("/api/fleet-roles/:id", async (req, res) => {
+  app.patch("/api/fleet-roles/:id", requirePermission("roles.manage", fleetIdFromFleetRole), async (req, res) => {
     try {
       const body = insertFleetRoleSchema.partial().extend({ permissions: z.array(z.string()).optional() }).parse(req.body);
       const { permissions, ...roleInput } = body;
@@ -512,7 +567,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(permissions ? { ...updated, permissions } : updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/fleet-roles/:id", async (req, res) => {
+  app.delete("/api/fleet-roles/:id", requirePermission("roles.manage", fleetIdFromFleetRole), async (req, res) => {
     try {
       const ok = await storage.deleteFleetRole(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
@@ -520,44 +575,56 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err) { handleError(res, err); }
   });
 
-  app.get("/api/inventory-categories", async (req, res) => {
+  app.get("/api/inventory-categories", requireFleetMember(fleetIdFromQuery), async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     res.json(await storage.listInventoryCategories(fleetId));
   });
-  app.post("/api/inventory-categories", async (req, res) => {
+  app.post("/api/inventory-categories", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createInventoryCategory(insertInventoryCategorySchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-categories/:id", async (req, res) => {
+  app.patch("/api/inventory-categories/:id", requirePermission("fleets.manage_settings", fleetIdFromInventoryCategory), async (req, res) => {
     try {
       const updated = await storage.updateInventoryCategory(Number(req.params.id), insertInventoryCategorySchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-categories/:id", async (req, res) => {
+  app.delete("/api/inventory-categories/:id", requirePermission("fleets.manage_settings", fleetIdFromInventoryCategory), async (req, res) => {
     try {
       const ok = await storage.deleteInventoryCategory(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/inventory-category-fields", async (req, res) => {
+  const fleetIdFromCategoryQuery = async (req: Request) => {
+    if (req.query.fleetId != null) return Number(req.query.fleetId);
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
-    res.json(await storage.listInventoryCategoryFields(categoryId));
+    if (categoryId == null) return undefined;
+    return (await storage.getInventoryCategory(categoryId))?.fleetId;
+  };
+  const fleetIdFromCategoryBody = async (req: Request) => {
+    const categoryId = req.body?.categoryId != null ? Number(req.body.categoryId) : undefined;
+    if (categoryId == null) return undefined;
+    return (await storage.getInventoryCategory(categoryId))?.fleetId;
+  };
+  app.get("/api/inventory-category-fields", requireFleetMember(fleetIdFromCategoryQuery), async (req, res) => {
+    const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    res.json(await storage.listInventoryCategoryFields(categoryId, fleetId));
   });
-  app.post("/api/inventory-category-fields", async (req, res) => {
+  app.post("/api/inventory-category-fields", requirePermission("fleets.manage_settings", fleetIdFromCategoryBody), async (req, res) => {
     try { res.json(await storage.createInventoryCategoryField(insertInventoryCategoryFieldSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-category-fields/:id", async (req, res) => {
+  app.patch("/api/inventory-category-fields/:id", requirePermission("fleets.manage_settings", fleetIdFromInventoryCategoryField), async (req, res) => {
     try {
       const updated = await storage.updateInventoryCategoryField(Number(req.params.id), insertInventoryCategoryFieldSchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-category-fields/:id", async (req, res) => {
+  app.delete("/api/inventory-category-fields/:id", requirePermission("fleets.manage_settings", fleetIdFromInventoryCategoryField), async (req, res) => {
     try {
       const ok = await storage.deleteInventoryCategoryField(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
@@ -566,20 +633,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Assets ----------
-  app.get("/api/assets", async (req, res) => {
+  app.get("/api/assets", requireFleetMember(fleetIdFromQuery), async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     res.json(await storage.listAssets(fleetId));
   });
-  app.get("/api/assets/:id", async (req, res) => {
+  app.get("/api/assets/:id", requireFleetMember(fleetIdFromAsset), async (req, res) => {
     const a = await storage.getAsset(Number(req.params.id));
     if (!a) return res.status(404).json({ error: "not_found" });
     res.json(a);
   });
-  app.post("/api/assets", async (req, res) => {
+  app.post("/api/assets", requirePermission("assets.edit", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createAsset(insertAssetSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/assets/:id", async (req, res) => {
+  app.patch("/api/assets/:id", requirePermission("assets.edit", fleetIdFromAsset), async (req, res) => {
     try {
       const partial = insertAssetSchema.partial().parse(req.body);
       const updated = await storage.updateAsset(Number(req.params.id), partial);
@@ -587,12 +654,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/assets/:id", async (req, res) => {
+  app.delete("/api/assets/:id", requirePermission("assets.delete", fleetIdFromAsset), async (req, res) => {
     const ok = await storage.deleteAsset(Number(req.params.id));
     res.json({ ok });
   });
 
-  app.get("/api/assets/:id/history/:kind/export/:format", async (req, res) => {
+  app.get("/api/assets/:id/history/:kind/export/:format", requireFleetMember(fleetIdFromAsset), async (req, res) => {
     try {
       const kind = String(req.params.kind) as HistoryKind;
       const format = String(req.params.format) as HistoryFormat;
@@ -624,7 +691,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/assets/:id/history/:kind/print", async (req, res) => {
+  app.get("/api/assets/:id/history/:kind/print", requireFleetMember(fleetIdFromAsset), async (req, res) => {
     try {
       const kind = String(req.params.kind) as HistoryKind;
       if (kind !== "service" && kind !== "meter") return res.status(404).json({ error: "not_found" });
@@ -638,20 +705,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Meter readings ----------
-  app.get("/api/meter-readings", async (req, res) => {
+  app.get("/api/meter-readings", requireFleetMember(fleetIdFromMeterReadingsQuery), async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
-    res.json(await storage.listMeterReadings(assetId));
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    res.json(await storage.listMeterReadings(assetId, fleetId));
   });
-  app.post("/api/meter-readings", async (req, res) => {
+  app.post("/api/meter-readings", requirePermission("meters.log", fleetIdFromAssetBody), async (req, res) => {
     try { res.json(await storage.createMeterReading(insertMeterReadingSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.get("/api/meter-readings/:id", async (req, res) => {
+  app.get("/api/meter-readings/:id", requireFleetMember(fleetIdFromMeterReading), async (req, res) => {
     const r = await storage.getMeterReading(Number(req.params.id));
     if (!r) return res.status(404).json({ error: "not_found" });
     res.json(r);
   });
-  app.patch("/api/meter-readings/:id", async (req, res) => {
+  app.patch("/api/meter-readings/:id", requirePermission("meters.edit", fleetIdFromMeterReading), async (req, res) => {
     try {
       const partial = insertMeterReadingSchema.partial().parse(req.body);
       const updated = await storage.updateMeterReading(Number(req.params.id), partial);
@@ -659,27 +727,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/meter-readings/:id", async (req, res) => {
+  app.delete("/api/meter-readings/:id", requirePermission("meters.edit", fleetIdFromMeterReading), async (req, res) => {
     res.json({ ok: await storage.deleteMeterReading(Number(req.params.id)) });
   });
 
   // ---------- Maintenance schedules ----------
-  app.get("/api/schedules", async (req, res) => {
+  const fleetIdFromSchedulesQuery = async (req: Request) => {
+    if (req.query.fleetId != null) return Number(req.query.fleetId);
+    if (req.query.assetId != null) return (await storage.getAsset(Number(req.query.assetId)))?.fleetId;
+    return undefined;
+  };
+  const fleetIdFromScheduleBody = async (req: Request) => {
+    if (req.body?.fleetId != null) return Number(req.body.fleetId);
+    if (req.body?.assetId != null) return (await storage.getAsset(Number(req.body.assetId)))?.fleetId;
+    return undefined;
+  };
+  app.get("/api/schedules", requireFleetMember(fleetIdFromSchedulesQuery), async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     if (fleetId != null) return res.json(await storage.listAllSchedulesForFleet(fleetId));
     res.json(await storage.listSchedules(assetId));
   });
-  app.get("/api/schedules/:id", async (req, res) => {
+  app.get("/api/schedules/:id", requireFleetMember(fleetIdFromSchedule), async (req, res) => {
     const s = await storage.getSchedule(Number(req.params.id));
     if (!s) return res.status(404).json({ error: "not_found" });
     res.json(s);
   });
-  app.post("/api/schedules", async (req, res) => {
+  app.post("/api/schedules", requirePermission("schedules.manage", fleetIdFromScheduleBody), async (req, res) => {
     try { res.json(await storage.createSchedule(insertMaintenanceScheduleSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/schedules/:id", async (req, res) => {
+  app.patch("/api/schedules/:id", requirePermission("schedules.manage", fleetIdFromSchedule), async (req, res) => {
     try {
       const partial = insertMaintenanceScheduleSchema.partial().parse(req.body);
       const updated = await storage.updateSchedule(Number(req.params.id), partial);
@@ -687,23 +765,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/schedules/:id", async (req, res) => {
+  app.delete("/api/schedules/:id", requirePermission("schedules.manage", fleetIdFromSchedule), async (req, res) => {
     res.json({ ok: await storage.deleteSchedule(Number(req.params.id)) });
   });
   // ---------- Schedule assignments (fleet -> asset) ----------
-  app.get("/api/schedule-assignments", async (_req, res) => {
-    res.json(await storage.listScheduleAssignments());
+  app.get("/api/schedule-assignments", requireFleetMember(fleetIdFromScheduleAssignmentsQuery), async (req, res) => {
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    res.json(await storage.listScheduleAssignments(undefined, fleetId));
   });
-  app.get("/api/schedules/:id/assignments", async (req, res) => {
+  app.get("/api/schedules/:id/assignments", requireFleetMember(fleetIdFromScheduleAssignments), async (req, res) => {
     res.json(await storage.listScheduleAssignments(Number(req.params.id)));
   });
-  app.put("/api/schedules/:id/assignments", async (req, res) => {
+  app.put("/api/schedules/:id/assignments", requirePermission("schedules.manage", fleetIdFromSchedule), async (req, res) => {
     try {
       const body = z.object({ assetIds: z.array(z.coerce.number().int()) }).parse(req.body);
       res.json(await storage.setScheduleAssignments(Number(req.params.id), body.assetIds));
     } catch (err) { handleError(res, err); }
   });
-  app.post("/api/schedules/:id/promote", async (req, res) => {
+  app.post("/api/schedules/:id/promote", requirePermission("schedules.manage", fleetIdFromSchedule), async (req, res) => {
     try {
       const body = z.object({ assetIds: z.array(z.coerce.number().int()).default([]) }).parse(req.body ?? {});
       res.json(await storage.promoteScheduleToFleet(Number(req.params.id), body.assetIds));
@@ -711,20 +790,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Service events / line items ----------
-  app.get("/api/service-events", async (req, res) => {
+  app.get("/api/service-events", requireFleetMember(fleetIdFromServiceEventsQuery), async (req, res) => {
     const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
-    res.json(await storage.listServiceEvents(assetId));
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    res.json(await storage.listServiceEvents(assetId, fleetId));
   });
-  app.get("/api/service-events/:id", async (req, res) => {
+  app.get("/api/service-events/:id", requireFleetMember(fleetIdFromServiceEvent), async (req, res) => {
     const e = await storage.getServiceEvent(Number(req.params.id));
     if (!e) return res.status(404).json({ error: "not_found" });
     res.json(e);
   });
-  app.post("/api/service-events", async (req, res) => {
+  app.post("/api/service-events", requirePermission("service.log", fleetIdFromAssetBody), async (req, res) => {
     try { res.json(await storage.createServiceEvent(insertServiceEventSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/service-events/:id", async (req, res) => {
+  app.patch("/api/service-events/:id", requirePermission("service.edit", fleetIdFromServiceEvent), async (req, res) => {
     try {
       const partial = insertServiceEventSchema.partial().parse(req.body);
       const updated = await storage.updateServiceEvent(Number(req.params.id), partial);
@@ -732,18 +812,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/service-events/:id", async (req, res) => {
+  app.delete("/api/service-events/:id", requirePermission("service.edit", fleetIdFromServiceEvent), async (req, res) => {
     res.json({ ok: await storage.deleteServiceEvent(Number(req.params.id)) });
   });
-  app.get("/api/service-line-items", async (req, res) => {
+  const fleetIdFromLineItemsQuery = async (req: Request) => {
+    if (req.query.serviceEventId != null) {
+      const event = await storage.getServiceEvent(Number(req.query.serviceEventId));
+      if (!event) return undefined;
+      return (await storage.getAsset(event.assetId))?.fleetId;
+    }
+    if (req.query.assetId != null) return (await storage.getAsset(Number(req.query.assetId)))?.fleetId;
+    return undefined;
+  };
+  app.get("/api/service-line-items", requireFleetMember(fleetIdFromLineItemsQuery), async (req, res) => {
     const eventId = req.query.serviceEventId ? Number(req.query.serviceEventId) : undefined;
-    res.json(await storage.listLineItems(eventId));
+    const assetId = req.query.assetId ? Number(req.query.assetId) : undefined;
+    res.json(await storage.listLineItems(eventId, assetId));
   });
-  app.post("/api/service-line-items", async (req, res) => {
+  app.post("/api/service-line-items", requirePermission("service.log", fleetIdFromServiceEventBody), async (req, res) => {
     try { res.json(await storage.createLineItem(insertServiceLineItemSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.put("/api/service-events/:id/line-items", async (req, res) => {
+  app.put("/api/service-events/:id/line-items", requirePermission("service.edit", fleetIdFromServiceEventBody), async (req, res) => {
     try {
       const serviceEventId = Number(req.params.id);
       const lines = z.array(insertServiceLineItemSchema.omit({ serviceEventId: true }).extend({
@@ -754,20 +844,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Inventory ----------
-  app.get("/api/inventory-items", async (req, res) => {
+  app.get("/api/inventory-items", requireFleetMember(fleetIdFromQuery), async (req, res) => {
     const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
     res.json(await storage.listInventoryItems(fleetId));
   });
-  app.get("/api/inventory-items/:id", async (req, res) => {
+  app.get("/api/inventory-items/:id", requireFleetMember(fleetIdFromInventoryItem), async (req, res) => {
     const item = await storage.getInventoryItem(Number(req.params.id));
     if (!item) return res.status(404).json({ error: "not_found" });
     res.json(item);
   });
-  app.post("/api/inventory-items", async (req, res) => {
+  app.post("/api/inventory-items", requirePermission("inventory.manage", fleetIdFromQuery), async (req, res) => {
     try { res.json(await storage.createInventoryItem(insertInventoryItemSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/inventory-items/:id", async (req, res) => {
+  app.patch("/api/inventory-items/:id", requirePermission("inventory.manage", fleetIdFromInventoryItem), async (req, res) => {
     try {
       const partial = insertInventoryItemSchema.partial().parse(req.body);
       const updated = await storage.updateInventoryItem(Number(req.params.id), partial);
@@ -775,32 +865,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/inventory-items/:id", async (req, res) => {
+  app.delete("/api/inventory-items/:id", requirePermission("inventory.manage", fleetIdFromInventoryItem), async (req, res) => {
     res.json({ ok: await storage.deleteInventoryItem(Number(req.params.id)) });
   });
-  app.get("/api/inventory-movements", async (req, res) => {
+  const fleetIdFromInventoryMovementsQuery = async (req: Request) => {
+    const itemId = req.query.itemId != null ? Number(req.query.itemId) : undefined;
+    if (itemId == null) return undefined;
+    return (await storage.getInventoryItem(itemId))?.fleetId;
+  };
+  app.get("/api/inventory-movements", requireFleetMember(fleetIdFromInventoryMovementsQuery), async (req, res) => {
     const itemId = req.query.itemId ? Number(req.query.itemId) : undefined;
     res.json(await storage.listInventoryMovements(itemId));
   });
-  app.post("/api/inventory-movements", async (req, res) => {
+  app.post("/api/inventory-movements", requirePermission("inventory.manage", fleetIdFromInventoryMovement), async (req, res) => {
     try { res.json(await storage.createInventoryMovement(insertInventoryMovementSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- Attachments ----------
-  app.get("/api/attachments", async (req, res) => {
+  app.get("/api/attachments", requireFleetMember(fleetIdFromAttachment), async (req, res) => {
     const entityType = req.query.entityType ? String(req.query.entityType) : undefined;
     const entityId = req.query.entityId ? Number(req.query.entityId) : undefined;
     res.json(await storage.listAttachments(entityType, entityId));
   });
-  app.post("/api/attachments", async (req, res) => {
+  const attachmentWritePermission = async (req: Request): Promise<PermissionKey> => {
+    const entityType = String(req.body?.entityType ?? "");
+    return entityType === "service-event" ? "service.edit" : "inventory.manage";
+  };
+  app.post("/api/attachments", async (req, res, next) => {
+    const key = await attachmentWritePermission(req);
+    return requirePermission(key, fleetIdFromAttachment)(req, res, next);
+  }, async (req, res) => {
     try { res.json(await storage.createAttachment(insertAttachmentSchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
 
   // ---------- App settings ----------
-  app.get("/api/app-settings", async (_req, res) => res.json(await storage.listAppSettings()));
-  app.patch("/api/app-settings", async (req, res) => {
+  app.get("/api/app-settings", requireAuth, async (_req, res) => res.json(await storage.listAppSettings()));
+  app.patch("/api/app-settings", requireSystemAdmin, async (req, res) => {
     try {
       const entries = z.record(z.string(), z.string()).parse(req.body);
       const updated = await Promise.all(Object.entries(entries).map(([key, value]) =>
@@ -815,17 +917,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ---------- Search ----------
-  app.get("/api/search", async (req, res) => {
+  app.get("/api/search", requireFleetMember(fleetIdFromQuery), async (req, res) => {
+    const fleetId = req.resolvedFleetId!;
     const q = String(req.query.q ?? "").trim().toLowerCase();
     if (!q) return res.json({ assets: [], inventory: [], serviceEvents: [] });
     const matches = (s: string | null | undefined) => !!s && s.toLowerCase().includes(q);
     const [lineItems, allAssets, allInventory, allServiceEvents] = await Promise.all([
       storage.listLineItems(),
-      storage.listAssets(),
-      storage.listInventoryItems(),
-      storage.listServiceEvents(),
+      storage.listAssets(fleetId),
+      storage.listInventoryItems(fleetId),
+      storage.listServiceEvents(undefined, fleetId),
     ]);
-    const matchingLineEventIds = new Set(lineItems
+    const fleetEventIds = new Set(allServiceEvents.map(e => e.id));
+    const fleetLineItems = lineItems.filter(l => fleetEventIds.has(l.serviceEventId));
+    const matchingLineEventIds = new Set(fleetLineItems
       .filter(l => matches(l.itemName) || matches(l.partNumber) || matches(l.brand) || matches(l.spec) || matches(l.notes))
       .map(l => l.serviceEventId));
     const assetResults = allAssets.filter(a =>
@@ -835,7 +940,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       matches(i.name) || matches(i.partNumber) || matches(i.sku) || matches(i.category) || matches(i.notes));
     const serviceEventResults = allServiceEvents.filter(s =>
       matches(s.title) || matches(s.notes) || matches(s.vendor) || matches(s.technician) || matchingLineEventIds.has(s.id));
-    const serviceLineItems = lineItems.filter(l =>
+    const serviceLineItems = fleetLineItems.filter(l =>
       matches(l.itemName) || matches(l.partNumber) || matches(l.brand) || matches(l.spec) || matches(l.notes));
     res.json({ assets: assetResults, inventory, serviceEvents: serviceEventResults, serviceLineItems });
   });

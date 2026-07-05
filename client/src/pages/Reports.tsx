@@ -28,9 +28,9 @@ export default function Reports() {
   const fleetCurrency = fleet?.currency ?? "USD";
 
   const assetsQ = useQuery<Asset[]>({ queryKey: ["/api/assets", { fleetId: fleet?.id }], enabled: !!fleet });
-  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events"] });
+  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events", { fleetId: fleet?.id }], enabled: !!fleet });
   const inventoryQ = useQuery<InventoryItem[]>({ queryKey: ["/api/inventory-items", { fleetId: fleet?.id }], enabled: !!fleet });
-  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules"] });
+  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules", { fleetId: fleet?.id }], enabled: !!fleet });
 
   const assets = assetsQ.data ?? [];
   const events = eventsQ.data ?? [];

@@ -18,7 +18,7 @@ import type { FleetRoleWithPermissions } from "@/lib/app-context";
 import type { AppSetting, Fleet, User } from "@shared/schema";
 import type { PermissionCatalogEntry } from "@shared/permissions";
 import { BADGE_COLORS } from "@/lib/badges";
-import { ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, Tags, ShieldCheck, UserCog, Save, X, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, Tags, ShieldCheck, UserCog, KeyRound, Save, X, Plus, Trash2 } from "lucide-react";
 
 type ThemeMode = "auto" | "dark" | "light";
 
@@ -447,9 +447,20 @@ function FleetRolesDialog({ fleet }: { fleet: Fleet }) {
 }
 
 function UserRow({ user }: { user: User }) {
-  const { fleets, memberships, canAdmin } = useAppContext();
+  const { fleets, memberships, canAdmin, systemAdmin } = useAppContext();
   const { toast } = useToast();
   const rolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles"] });
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const setPassword = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/users/${user.id}/password`, { password: newPassword }),
+    onSuccess: () => {
+      setNewPassword("");
+      setPasswordOpen(false);
+      toast({ title: "Password updated" });
+    },
+    onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
   const assign = useMutation({
     mutationFn: async ({ fleetId, roleId }: { fleetId: number; roleId: number }) => {
       const res = await apiRequest("POST", "/api/fleet-memberships", { fleetId, userId: user.id, roleId });
@@ -516,6 +527,28 @@ function UserRow({ user }: { user: User }) {
             </div>
           </DialogContent>
         </Dialog>
+        {systemAdmin && (
+          <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" data-testid={`button-set-password-${user.id}`}><KeyRound className="size-4 mr-1.5" /> Set Password</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Set Password for {user.displayName}</DialogTitle></DialogHeader>
+              <div className="grid gap-3">
+                <div>
+                  <Label>New Password</Label>
+                  <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} data-testid={`input-new-password-${user.id}`} />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="cancel" onClick={() => setPasswordOpen(false)} data-testid={`button-cancel-password-${user.id}`}>Cancel</Button>
+                  <Button disabled={newPassword.length < 8 || setPassword.isPending} onClick={() => setPassword.mutate()} data-testid={`button-save-password-${user.id}`}>
+                    {setPassword.isPending ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
         <Button variant="destructive" size="sm" disabled={!canAdmin || deleteUser.isPending} onClick={() => deleteUser.mutate()} data-testid={`button-delete-user-${user.id}`}>
           <Trash2 className="size-4 mr-1.5" /> Delete
         </Button>

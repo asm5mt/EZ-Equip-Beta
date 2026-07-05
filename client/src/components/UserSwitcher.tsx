@@ -1,4 +1,4 @@
-import { ChevronDown, User as UserIcon } from "lucide-react";
+import { ChevronDown, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -7,8 +7,8 @@ import {
 import { useAppContext } from "@/lib/app-context";
 
 export function UserSwitcher() {
-  const { currentUser, users, setCurrentUserId, fleet, fleets, setFleetId, role } = useAppContext();
-  const display = currentUser?.displayName ?? "User";
+  const { currentUser, fleet, fleets, setFleetId, role, logout } = useAppContext();
+  const display = currentUser.displayName;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -31,20 +31,12 @@ export function UserSwitcher() {
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>Simulate User</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={currentUser ? String(currentUser.id) : ""}
-          onValueChange={v => setCurrentUserId(Number(v))}
-        >
-          {users.map(u => (
-            <DropdownMenuRadioItem key={u.id} value={String(u.id)} data-testid={`menuitem-user-${u.id}`}>
-              {u.displayName}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
         <DropdownMenuItem disabled className="text-xs uppercase tracking-wider text-muted-foreground">
           Role: {role}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => logout()} data-testid="menuitem-logout">
+          <LogOut className="size-4 mr-1.5" /> Log out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

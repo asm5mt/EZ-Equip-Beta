@@ -65,9 +65,9 @@ export default function Maintenance() {
   const { fleet, canEdit } = useAppContext();
   const fleetId = fleet?.id;
   const assetsQ = useQuery<Asset[]>({ queryKey: ["/api/assets", { fleetId }], enabled: !!fleetId });
-  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules"] });
-  const assignmentsQ = useQuery<MaintenanceScheduleAssignment[]>({ queryKey: ["/api/schedule-assignments"] });
-  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events"] });
+  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules", { fleetId }], enabled: !!fleetId });
+  const assignmentsQ = useQuery<MaintenanceScheduleAssignment[]>({ queryKey: ["/api/schedule-assignments", { fleetId }], enabled: !!fleetId });
+  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events", { fleetId }], enabled: !!fleetId });
 
   const [view, setView] = useState<ViewMode>("by-category");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");

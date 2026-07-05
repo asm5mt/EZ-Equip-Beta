@@ -15,7 +15,7 @@ export default function Events() {
   const fleetCurrency = fleet?.currency ?? "USD";
   const fleetId = fleet?.id;
   const assetsQ = useQuery<Asset[]>({ queryKey: ["/api/assets", { fleetId }], enabled: !!fleetId });
-  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events"] });
+  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events", { fleetId }], enabled: !!fleetId });
 
   const assetsById = useMemo(() => new Map((assetsQ.data ?? []).map(a => [a.id, a])), [assetsQ.data]);
   const fleetAssetIds = new Set((assetsQ.data ?? []).map(a => a.id));

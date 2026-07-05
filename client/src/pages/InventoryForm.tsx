@@ -42,8 +42,6 @@ export default function InventoryForm({ mode, itemId }: Props) {
     queryKey: ["/api/inventory-categories", { fleetId: fleet?.id }],
     enabled: !!fleet?.id,
   });
-  const fieldsQ = useQuery<InventoryCategoryField[]>({ queryKey: ["/api/inventory-category-fields"] });
-
   const form = useForm<InsertInventoryItem>({
     resolver: zodResolver(insertInventoryItemSchema),
     defaultValues: {
@@ -123,6 +121,10 @@ export default function InventoryForm({ mode, itemId }: Props) {
     ? [...categories, { id: -1, fleetId: fleet?.id ?? 0, name: selectedCategory, description: "Existing free-form category", active: true } as InventoryCategory]
     : categories;
   const selectedCategoryDef = categories.find(category => category.name === selectedCategory);
+  const fieldsQ = useQuery<InventoryCategoryField[]>({
+    queryKey: ["/api/inventory-category-fields", { categoryId: selectedCategoryDef?.id }],
+    enabled: !!selectedCategoryDef?.id,
+  });
   const selectedCategoryFields = useMemo(
     () => (fieldsQ.data ?? []).filter(field => field.categoryId === selectedCategoryDef?.id),
     [fieldsQ.data, selectedCategoryDef?.id],

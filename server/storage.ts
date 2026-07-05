@@ -52,7 +52,7 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not set");
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export const db = drizzle(pool);
 
@@ -172,20 +172,26 @@ export interface IStorage {
   createFleet(input: InsertFleet): Promise<Fleet>;
 
   listSites(fleetId: number): Promise<Site[]>;
+  getSite(id: number): Promise<Site | undefined>;
   createSite(input: InsertSite): Promise<Site>;
 
   // users / memberships
   listUsers(): Promise<User[]>;
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
   createUser(input: InsertUser): Promise<User>;
+  updateUser(id: number, input: Partial<InsertUser>): Promise<User | undefined>;
   deleteUser(id: number): Promise<boolean>;
   listFleetMemberships(): Promise<FleetMembership[]>;
   upsertFleetMembership(input: InsertFleetMembership): Promise<FleetMembership>;
   deleteFleetMembership(fleetId: number, userId: number): Promise<boolean>;
   listFleetEquipmentTypes(fleetId?: number): Promise<FleetEquipmentType[]>;
+  getFleetEquipmentType(id: number): Promise<FleetEquipmentType | undefined>;
   createFleetEquipmentType(input: InsertFleetEquipmentType): Promise<FleetEquipmentType>;
   updateFleetEquipmentType(id: number, input: Partial<InsertFleetEquipmentType>): Promise<FleetEquipmentType | undefined>;
   deleteFleetEquipmentType(id: number): Promise<boolean>;
   listFleetFuelTypes(fleetId?: number): Promise<FleetFuelType[]>;
+  getFleetFuelType(id: number): Promise<FleetFuelType | undefined>;
   createFleetFuelType(input: InsertFleetFuelType): Promise<FleetFuelType>;
   updateFleetFuelType(id: number, input: Partial<InsertFleetFuelType>): Promise<FleetFuelType | undefined>;
   deleteFleetFuelType(id: number): Promise<boolean>;
@@ -197,10 +203,12 @@ export interface IStorage {
   deleteFleetRole(id: number): Promise<boolean>;
   setFleetRolePermissions(roleId: number, keys: string[]): Promise<void>;
   listInventoryCategories(fleetId?: number): Promise<InventoryCategory[]>;
+  getInventoryCategory(id: number): Promise<InventoryCategory | undefined>;
   createInventoryCategory(input: InsertInventoryCategory): Promise<InventoryCategory>;
   updateInventoryCategory(id: number, input: Partial<InsertInventoryCategory>): Promise<InventoryCategory | undefined>;
   deleteInventoryCategory(id: number): Promise<boolean>;
-  listInventoryCategoryFields(categoryId?: number): Promise<InventoryCategoryField[]>;
+  listInventoryCategoryFields(categoryId?: number, fleetId?: number): Promise<InventoryCategoryField[]>;
+  getInventoryCategoryField(id: number): Promise<InventoryCategoryField | undefined>;
   createInventoryCategoryField(input: InsertInventoryCategoryField): Promise<InventoryCategoryField>;
   updateInventoryCategoryField(id: number, input: Partial<InsertInventoryCategoryField>): Promise<InventoryCategoryField | undefined>;
   deleteInventoryCategoryField(id: number): Promise<boolean>;
@@ -213,7 +221,7 @@ export interface IStorage {
   deleteAsset(id: number): Promise<boolean>;
 
   // meter readings
-  listMeterReadings(assetId?: number): Promise<MeterReading[]>;
+  listMeterReadings(assetId?: number, fleetId?: number): Promise<MeterReading[]>;
   getMeterReading(id: number): Promise<MeterReading | undefined>;
   createMeterReading(input: InsertMeterReading): Promise<MeterReading>;
   updateMeterReading(id: number, input: Partial<InsertMeterReading>): Promise<MeterReading | undefined>;
@@ -227,17 +235,18 @@ export interface IStorage {
   createSchedule(input: InsertMaintenanceSchedule): Promise<MaintenanceSchedule>;
   updateSchedule(id: number, input: Partial<InsertMaintenanceSchedule>): Promise<MaintenanceSchedule | undefined>;
   deleteSchedule(id: number): Promise<boolean>;
-  listScheduleAssignments(scheduleId?: number): Promise<MaintenanceScheduleAssignment[]>;
+  listScheduleAssignments(scheduleId?: number, fleetId?: number): Promise<MaintenanceScheduleAssignment[]>;
   setScheduleAssignments(scheduleId: number, assetIds: number[]): Promise<MaintenanceScheduleAssignment[]>;
   promoteScheduleToFleet(scheduleId: number, additionalAssetIds: number[]): Promise<MaintenanceSchedule>;
 
   // service events
-  listServiceEvents(assetId?: number): Promise<ServiceEvent[]>;
+  listServiceEvents(assetId?: number, fleetId?: number): Promise<ServiceEvent[]>;
   getServiceEvent(id: number): Promise<ServiceEvent | undefined>;
   createServiceEvent(input: InsertServiceEvent): Promise<ServiceEvent>;
   updateServiceEvent(id: number, input: Partial<InsertServiceEvent>): Promise<ServiceEvent | undefined>;
   deleteServiceEvent(id: number): Promise<boolean>;
-  listLineItems(serviceEventId?: number): Promise<ServiceLineItem[]>;
+  listLineItems(serviceEventId?: number, assetId?: number): Promise<ServiceLineItem[]>;
+  getLineItem(id: number): Promise<ServiceLineItem | undefined>;
   createLineItem(input: InsertServiceLineItem): Promise<ServiceLineItem>;
   replaceLineItems(serviceEventId: number, input: InsertServiceLineItem[]): Promise<ServiceLineItem[]>;
 
@@ -248,6 +257,7 @@ export interface IStorage {
   updateInventoryItem(id: number, input: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined>;
   deleteInventoryItem(id: number): Promise<boolean>;
   listInventoryMovements(itemId?: number): Promise<InventoryMovement[]>;
+  getInventoryMovement(id: number): Promise<InventoryMovement | undefined>;
   createInventoryMovement(input: InsertInventoryMovement): Promise<InventoryMovement>;
 
   // attachments
@@ -294,6 +304,10 @@ export class DatabaseStorage implements IStorage {
   async listSites(fleetId: number): Promise<Site[]> {
     return db.select().from(sites).where(eq(sites.fleetId, fleetId));
   }
+  async getSite(id: number): Promise<Site | undefined> {
+    const [row] = await db.select().from(sites).where(eq(sites.id, id));
+    return row;
+  }
   async createSite(input: InsertSite): Promise<Site> {
     const [site] = await db.insert(sites).values(input).returning();
     return site;
@@ -303,9 +317,21 @@ export class DatabaseStorage implements IStorage {
   async listUsers(): Promise<User[]> {
     return db.select().from(users).orderBy(users.displayName);
   }
+  async getUser(id: number): Promise<User | undefined> {
+    const [row] = await db.select().from(users).where(eq(users.id, id));
+    return row;
+  }
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [row] = await db.select().from(users).where(eq(users.username, username));
+    return row;
+  }
   async createUser(input: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(input).returning();
     return user;
+  }
+  async updateUser(id: number, input: Partial<InsertUser>): Promise<User | undefined> {
+    const [row] = await db.update(users).set(input).where(eq(users.id, id)).returning();
+    return row;
   }
   async deleteUser(id: number): Promise<boolean> {
     const memberships = await db.select().from(fleetMemberships).where(eq(fleetMemberships.userId, id));
@@ -349,6 +375,10 @@ export class DatabaseStorage implements IStorage {
     const q = db.select().from(fleetEquipmentTypes).orderBy(fleetEquipmentTypes.name);
     return fleetId ? await q.where(eq(fleetEquipmentTypes.fleetId, fleetId)) : await q;
   }
+  async getFleetEquipmentType(id: number): Promise<FleetEquipmentType | undefined> {
+    const [row] = await db.select().from(fleetEquipmentTypes).where(eq(fleetEquipmentTypes.id, id));
+    return row;
+  }
   async createFleetEquipmentType(input: InsertFleetEquipmentType): Promise<FleetEquipmentType> {
     const [row] = await db.insert(fleetEquipmentTypes).values(input).returning();
     return row;
@@ -372,6 +402,10 @@ export class DatabaseStorage implements IStorage {
     }
     const q = db.select().from(fleetFuelTypes).orderBy(fleetFuelTypes.name);
     return fleetId ? await q.where(eq(fleetFuelTypes.fleetId, fleetId)) : await q;
+  }
+  async getFleetFuelType(id: number): Promise<FleetFuelType | undefined> {
+    const [row] = await db.select().from(fleetFuelTypes).where(eq(fleetFuelTypes.id, id));
+    return row;
   }
   async createFleetFuelType(input: InsertFleetFuelType): Promise<FleetFuelType> {
     const [row] = await db.insert(fleetFuelTypes).values(input).returning();
@@ -462,6 +496,10 @@ export class DatabaseStorage implements IStorage {
     const q = db.select().from(inventoryCategories).orderBy(inventoryCategories.name);
     return fleetId ? await q.where(eq(inventoryCategories.fleetId, fleetId)) : await q;
   }
+  async getInventoryCategory(id: number): Promise<InventoryCategory | undefined> {
+    const [row] = await db.select().from(inventoryCategories).where(eq(inventoryCategories.id, id));
+    return row;
+  }
   async createInventoryCategory(input: InsertInventoryCategory): Promise<InventoryCategory> {
     const [row] = await db.insert(inventoryCategories).values(input).returning();
     return row;
@@ -475,9 +513,23 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(inventoryCategories).where(eq(inventoryCategories.id, id));
     return (result.rowCount ?? 0) > 0;
   }
-  async listInventoryCategoryFields(categoryId?: number): Promise<InventoryCategoryField[]> {
-    const q = db.select().from(inventoryCategoryFields).orderBy(inventoryCategoryFields.sortOrder, inventoryCategoryFields.name);
-    return categoryId ? await q.where(eq(inventoryCategoryFields.categoryId, categoryId)) : await q;
+  async listInventoryCategoryFields(categoryId?: number, fleetId?: number): Promise<InventoryCategoryField[]> {
+    if (categoryId != null) {
+      return db.select().from(inventoryCategoryFields).where(eq(inventoryCategoryFields.categoryId, categoryId))
+        .orderBy(inventoryCategoryFields.sortOrder, inventoryCategoryFields.name);
+    }
+    if (fleetId != null) {
+      const rows = await db.select({ f: inventoryCategoryFields }).from(inventoryCategoryFields)
+        .innerJoin(inventoryCategories, eq(inventoryCategories.id, inventoryCategoryFields.categoryId))
+        .where(eq(inventoryCategories.fleetId, fleetId))
+        .orderBy(inventoryCategoryFields.sortOrder, inventoryCategoryFields.name);
+      return rows.map(row => row.f);
+    }
+    return db.select().from(inventoryCategoryFields).orderBy(inventoryCategoryFields.sortOrder, inventoryCategoryFields.name);
+  }
+  async getInventoryCategoryField(id: number): Promise<InventoryCategoryField | undefined> {
+    const [row] = await db.select().from(inventoryCategoryFields).where(eq(inventoryCategoryFields.id, id));
+    return row;
   }
   async createInventoryCategoryField(input: InsertInventoryCategoryField): Promise<InventoryCategoryField> {
     const [row] = await db.insert(inventoryCategoryFields).values(input).returning();
@@ -515,9 +567,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // -- meter readings ----
-  async listMeterReadings(assetId?: number): Promise<MeterReading[]> {
-    const q = db.select().from(meterReadings).orderBy(desc(meterReadings.readingDate));
-    return assetId ? await q.where(eq(meterReadings.assetId, assetId)) : await q;
+  async listMeterReadings(assetId?: number, fleetId?: number): Promise<MeterReading[]> {
+    if (assetId != null) {
+      return db.select().from(meterReadings).where(eq(meterReadings.assetId, assetId)).orderBy(desc(meterReadings.readingDate));
+    }
+    if (fleetId != null) {
+      const rows = await db.select({ r: meterReadings }).from(meterReadings)
+        .innerJoin(assets, eq(assets.id, meterReadings.assetId))
+        .where(eq(assets.fleetId, fleetId))
+        .orderBy(desc(meterReadings.readingDate));
+      return rows.map(row => row.r);
+    }
+    return db.select().from(meterReadings).orderBy(desc(meterReadings.readingDate));
   }
   async getMeterReading(id: number): Promise<MeterReading | undefined> {
     const [row] = await db.select().from(meterReadings).where(eq(meterReadings.id, id));
@@ -632,9 +693,17 @@ export class DatabaseStorage implements IStorage {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async listScheduleAssignments(scheduleId?: number): Promise<MaintenanceScheduleAssignment[]> {
-    const q = db.select().from(maintenanceScheduleAssignments);
-    return scheduleId ? await q.where(eq(maintenanceScheduleAssignments.scheduleId, scheduleId)) : await q;
+  async listScheduleAssignments(scheduleId?: number, fleetId?: number): Promise<MaintenanceScheduleAssignment[]> {
+    if (scheduleId != null) {
+      return db.select().from(maintenanceScheduleAssignments).where(eq(maintenanceScheduleAssignments.scheduleId, scheduleId));
+    }
+    if (fleetId != null) {
+      const rows = await db.select({ a: maintenanceScheduleAssignments }).from(maintenanceScheduleAssignments)
+        .innerJoin(maintenanceSchedules, eq(maintenanceSchedules.id, maintenanceScheduleAssignments.scheduleId))
+        .where(eq(maintenanceSchedules.fleetId, fleetId));
+      return rows.map(row => row.a);
+    }
+    return db.select().from(maintenanceScheduleAssignments);
   }
   async setScheduleAssignments(scheduleId: number, assetIds: number[]): Promise<MaintenanceScheduleAssignment[]> {
     // Replace assignments wholesale (idempotent).
@@ -668,9 +737,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // -- service events ----
-  async listServiceEvents(assetId?: number): Promise<ServiceEvent[]> {
-    const q = db.select().from(serviceEvents).orderBy(desc(serviceEvents.performedAt));
-    return assetId ? await q.where(eq(serviceEvents.assetId, assetId)) : await q;
+  async listServiceEvents(assetId?: number, fleetId?: number): Promise<ServiceEvent[]> {
+    if (assetId != null) {
+      return db.select().from(serviceEvents).where(eq(serviceEvents.assetId, assetId)).orderBy(desc(serviceEvents.performedAt));
+    }
+    if (fleetId != null) {
+      const rows = await db.select({ e: serviceEvents }).from(serviceEvents)
+        .innerJoin(assets, eq(assets.id, serviceEvents.assetId))
+        .where(eq(assets.fleetId, fleetId))
+        .orderBy(desc(serviceEvents.performedAt));
+      return rows.map(row => row.e);
+    }
+    return db.select().from(serviceEvents).orderBy(desc(serviceEvents.performedAt));
   }
   async getServiceEvent(id: number): Promise<ServiceEvent | undefined> {
     const [row] = await db.select().from(serviceEvents).where(eq(serviceEvents.id, id));
@@ -711,9 +789,21 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(serviceEvents).where(eq(serviceEvents.id, id));
     return (result.rowCount ?? 0) > 0;
   }
-  async listLineItems(serviceEventId?: number): Promise<ServiceLineItem[]> {
-    const q = db.select().from(serviceLineItems);
-    return serviceEventId ? await q.where(eq(serviceLineItems.serviceEventId, serviceEventId)) : await q;
+  async listLineItems(serviceEventId?: number, assetId?: number): Promise<ServiceLineItem[]> {
+    if (serviceEventId != null) {
+      return db.select().from(serviceLineItems).where(eq(serviceLineItems.serviceEventId, serviceEventId));
+    }
+    if (assetId != null) {
+      const rows = await db.select({ l: serviceLineItems }).from(serviceLineItems)
+        .innerJoin(serviceEvents, eq(serviceEvents.id, serviceLineItems.serviceEventId))
+        .where(eq(serviceEvents.assetId, assetId));
+      return rows.map(row => row.l);
+    }
+    return db.select().from(serviceLineItems);
+  }
+  async getLineItem(id: number): Promise<ServiceLineItem | undefined> {
+    const [row] = await db.select().from(serviceLineItems).where(eq(serviceLineItems.id, id));
+    return row;
   }
   async createLineItem(input: InsertServiceLineItem): Promise<ServiceLineItem> {
     const [line] = await db.insert(serviceLineItems).values(input).returning();
@@ -777,6 +867,10 @@ export class DatabaseStorage implements IStorage {
   async listInventoryMovements(itemId?: number): Promise<InventoryMovement[]> {
     const q = db.select().from(inventoryMovements).orderBy(desc(inventoryMovements.occurredAt));
     return itemId ? await q.where(eq(inventoryMovements.inventoryItemId, itemId)) : await q;
+  }
+  async getInventoryMovement(id: number): Promise<InventoryMovement | undefined> {
+    const [row] = await db.select().from(inventoryMovements).where(eq(inventoryMovements.id, id));
+    return row;
   }
   async createInventoryMovement(input: InsertInventoryMovement): Promise<InventoryMovement> {
     const [movement] = await db.insert(inventoryMovements).values(input).returning();

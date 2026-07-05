@@ -15,7 +15,7 @@ export default function MeterReadings() {
   const fleetId = fleet?.id;
   const selectedAssetId = Number(new URLSearchParams(location.split("?")[1] ?? "").get("assetId") ?? 0) || null;
   const assetsQ = useQuery<Asset[]>({ queryKey: ["/api/assets", { fleetId }], enabled: !!fleetId });
-  const readingsQ = useQuery<MeterReading[]>({ queryKey: ["/api/meter-readings"] });
+  const readingsQ = useQuery<MeterReading[]>({ queryKey: ["/api/meter-readings", { fleetId }], enabled: !!fleetId });
 
   const assetsById = useMemo(() => new Map((assetsQ.data ?? []).map(a => [a.id, a])), [assetsQ.data]);
   const fleetAssetIds = new Set((assetsQ.data ?? []).map(a => a.id));

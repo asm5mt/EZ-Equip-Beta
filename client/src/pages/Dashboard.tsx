@@ -17,9 +17,9 @@ export default function Dashboard() {
     queryKey: ["/api/assets", { fleetId }],
     enabled: !!fleetId,
   });
-  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules"] });
-  const assignmentsQ = useQuery<MaintenanceScheduleAssignment[]>({ queryKey: ["/api/schedule-assignments"] });
-  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events"] });
+  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules", { fleetId }], enabled: !!fleetId });
+  const assignmentsQ = useQuery<MaintenanceScheduleAssignment[]>({ queryKey: ["/api/schedule-assignments", { fleetId }], enabled: !!fleetId });
+  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events", { fleetId }], enabled: !!fleetId });
   const inventoryQ = useQuery<InventoryItem[]>({
     queryKey: ["/api/inventory-items", { fleetId }],
     enabled: !!fleetId,
