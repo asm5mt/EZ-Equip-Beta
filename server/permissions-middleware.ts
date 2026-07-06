@@ -82,10 +82,6 @@ export const fleetIdFromFleetFuelType: FleetIdResolver = async (req) => {
   const row = await storage.getFleetFuelType(Number(req.params.id));
   return row?.fleetId;
 };
-export const fleetIdFromServiceFacility: FleetIdResolver = async (req) => {
-  const row = await storage.getServiceFacility(Number(req.params.id));
-  return row?.fleetId;
-};
 export const fleetIdFromFleetRole: FleetIdResolver = async (req) => {
   const role = await storage.getFleetRole(Number(req.params.id));
   return role?.fleetId;

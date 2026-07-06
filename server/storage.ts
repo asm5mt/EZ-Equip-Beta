@@ -14,6 +14,7 @@ import {
   maintenanceSchedules,
   maintenanceScheduleAssignments,
   serviceFacilities,
+  serviceFacilityTypes,
   serviceEvents,
   serviceLineItems,
   inventoryItems,
@@ -38,6 +39,7 @@ import type {
   MaintenanceSchedule, InsertMaintenanceSchedule,
   MaintenanceScheduleAssignment, InsertMaintenanceScheduleAssignment,
   ServiceFacility, InsertServiceFacility,
+  ServiceFacilityType, InsertServiceFacilityType,
   ServiceEvent, InsertServiceEvent,
   ServiceLineItem, InsertServiceLineItem,
   InventoryItem, InsertInventoryItem,
@@ -218,11 +220,16 @@ export interface IStorage {
   createFleetFuelType(input: InsertFleetFuelType): Promise<FleetFuelType>;
   updateFleetFuelType(id: number, input: Partial<InsertFleetFuelType>): Promise<FleetFuelType | undefined>;
   deleteFleetFuelType(id: number): Promise<boolean>;
-  listServiceFacilities(fleetId?: number): Promise<ServiceFacility[]>;
+  listServiceFacilities(): Promise<ServiceFacility[]>;
   getServiceFacility(id: number): Promise<ServiceFacility | undefined>;
   createServiceFacility(input: InsertServiceFacility): Promise<ServiceFacility>;
   updateServiceFacility(id: number, input: Partial<InsertServiceFacility>): Promise<ServiceFacility | undefined>;
   deleteServiceFacility(id: number): Promise<boolean>;
+  listServiceFacilityTypes(): Promise<ServiceFacilityType[]>;
+  getServiceFacilityType(id: number): Promise<ServiceFacilityType | undefined>;
+  createServiceFacilityType(input: InsertServiceFacilityType): Promise<ServiceFacilityType>;
+  updateServiceFacilityType(id: number, input: Partial<InsertServiceFacilityType>): Promise<ServiceFacilityType | undefined>;
+  deleteServiceFacilityType(id: number): Promise<boolean>;
   listFleetRoles(fleetId?: number): Promise<FleetRole[]>;
   getFleetRole(id: number): Promise<FleetRole | undefined>;
   listFleetRolesWithPermissions(fleetId?: number): Promise<(FleetRole & { permissions: string[] })[]>;
@@ -408,7 +415,6 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(fleetEquipmentTypes).where(eq(fleetEquipmentTypes.fleetId, id));
     await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.fleetId, id));
-    await db.delete(serviceFacilities).where(eq(serviceFacilities.fleetId, id));
     await db.delete(oidcGroupMappings).where(eq(oidcGroupMappings.fleetId, id));
     await db.delete(fleetMemberships).where(eq(fleetMemberships.fleetId, id));
     if (roleIds.length) {
@@ -548,9 +554,8 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.id, id));
     return (result.rowCount ?? 0) > 0;
   }
-  async listServiceFacilities(fleetId?: number): Promise<ServiceFacility[]> {
-    const q = db.select().from(serviceFacilities).orderBy(serviceFacilities.name);
-    return fleetId ? await q.where(eq(serviceFacilities.fleetId, fleetId)) : await q;
+  async listServiceFacilities(): Promise<ServiceFacility[]> {
+    return await db.select().from(serviceFacilities).orderBy(serviceFacilities.name);
   }
   async getServiceFacility(id: number): Promise<ServiceFacility | undefined> {
     const [row] = await db.select().from(serviceFacilities).where(eq(serviceFacilities.id, id));
@@ -572,6 +577,25 @@ export class DatabaseStorage implements IStorage {
     // the historical display independent of this row.
     await db.update(serviceEvents).set({ serviceFacilityId: null }).where(eq(serviceEvents.serviceFacilityId, id));
     const result = await db.delete(serviceFacilities).where(eq(serviceFacilities.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async listServiceFacilityTypes(): Promise<ServiceFacilityType[]> {
+    return await db.select().from(serviceFacilityTypes).orderBy(serviceFacilityTypes.name);
+  }
+  async getServiceFacilityType(id: number): Promise<ServiceFacilityType | undefined> {
+    const [row] = await db.select().from(serviceFacilityTypes).where(eq(serviceFacilityTypes.id, id));
+    return row;
+  }
+  async createServiceFacilityType(input: InsertServiceFacilityType): Promise<ServiceFacilityType> {
+    const [row] = await db.insert(serviceFacilityTypes).values(input).returning();
+    return row;
+  }
+  async updateServiceFacilityType(id: number, input: Partial<InsertServiceFacilityType>): Promise<ServiceFacilityType | undefined> {
+    const [row] = await db.update(serviceFacilityTypes).set(input).where(eq(serviceFacilityTypes.id, id)).returning();
+    return row;
+  }
+  async deleteServiceFacilityType(id: number): Promise<boolean> {
+    const result = await db.delete(serviceFacilityTypes).where(eq(serviceFacilityTypes.id, id));
     return (result.rowCount ?? 0) > 0;
   }
   async getFleetRole(id: number): Promise<FleetRole | undefined> {

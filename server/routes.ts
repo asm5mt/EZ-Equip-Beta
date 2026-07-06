@@ -18,7 +18,6 @@ import {
   fleetIdFromInventoryCategory,
   fleetIdFromFleetEquipmentType,
   fleetIdFromFleetFuelType,
-  fleetIdFromServiceFacility,
   fleetIdFromFleetRole,
   fleetIdFromSite,
   fleetIdFromFleet,
@@ -44,6 +43,7 @@ import {
   insertFleetEquipmentTypeSchema,
   insertFleetFuelTypeSchema,
   insertServiceFacilitySchema,
+  insertServiceFacilityTypeSchema,
   insertFleetRoleSchema,
   insertInventoryCategorySchema,
   insertInventoryCategoryFieldSchema,
@@ -545,24 +545,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
   });
-  app.get("/api/service-facilities", requireFleetMember(fleetIdFromQuery), async (req, res) => {
-    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
-    res.json(await storage.listServiceFacilities(fleetId));
+  // Instance-wide: not scoped to any single fleet, so membership can't gate
+  // access — any authenticated user can view, only a system admin can write.
+  app.get("/api/service-facilities", requireAuth, async (_req, res) => {
+    res.json(await storage.listServiceFacilities());
   });
-  app.post("/api/service-facilities", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
+  app.post("/api/service-facilities", requireSystemAdmin, async (req, res) => {
     try { res.json(await storage.createServiceFacility(insertServiceFacilitySchema.parse(req.body))); }
     catch (err) { handleError(res, err); }
   });
-  app.patch("/api/service-facilities/:id", requirePermission("fleets.manage_settings", fleetIdFromServiceFacility), async (req, res) => {
+  app.patch("/api/service-facilities/:id", requireSystemAdmin, async (req, res) => {
     try {
       const updated = await storage.updateServiceFacility(Number(req.params.id), insertServiceFacilitySchema.partial().parse(req.body));
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }
   });
-  app.delete("/api/service-facilities/:id", requirePermission("fleets.manage_settings", fleetIdFromServiceFacility), async (req, res) => {
+  app.delete("/api/service-facilities/:id", requireSystemAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteServiceFacility(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
+  app.get("/api/service-facility-types", requireAuth, async (_req, res) => {
+    res.json(await storage.listServiceFacilityTypes());
+  });
+  app.post("/api/service-facility-types", requireSystemAdmin, async (req, res) => {
+    try { res.json(await storage.createServiceFacilityType(insertServiceFacilityTypeSchema.parse(req.body))); }
+    catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/service-facility-types/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const updated = await storage.updateServiceFacilityType(Number(req.params.id), insertServiceFacilityTypeSchema.partial().parse(req.body));
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.delete("/api/service-facility-types/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteServiceFacilityType(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }

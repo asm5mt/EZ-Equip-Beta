@@ -22,13 +22,12 @@ import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
 import { INVENTORY_ICON_OPTIONS, InventoryCategoryIcon, normalizeInventoryIcon } from "@/lib/inventory-category-icons";
-import type { FleetEquipmentType, FleetFuelType, InventoryCategory, InventoryCategoryField, ServiceFacility } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, Boxes, Building2, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, Type as TypeIcon, X } from "lucide-react";
+import type { FleetEquipmentType, FleetFuelType, InventoryCategory, InventoryCategoryField } from "@shared/schema";
+import { ArrowLeft, BadgeDollarSign, Boxes, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, Type as TypeIcon, X } from "lucide-react";
 import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
-type DraftServiceFacility = ServiceFacility & { isNew?: boolean };
 type DraftInventoryField = InventoryCategoryField & { isNew?: boolean };
 type DraftInventoryCategory = InventoryCategory & { isNew?: boolean; fields: DraftInventoryField[] };
 
@@ -75,11 +74,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     queryKey: ["/api/inventory-category-fields", { fleetId }],
     enabled: Number.isFinite(fleetId),
   });
-  const serviceFacilitiesQ = useQuery<ServiceFacility[]>({
-    queryKey: ["/api/service-facilities", { fleetId }],
-    enabled: Number.isFinite(fleetId),
-  });
-
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
@@ -106,14 +100,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [categoryIcon, setCategoryIcon] = useState("package");
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState("text");
-  const [draftServiceFacilities, setDraftServiceFacilities] = useState<DraftServiceFacility[]>([]);
-  const [deletedServiceFacilityIds, setDeletedServiceFacilityIds] = useState<number[]>([]);
-  const [addServiceFacilityOpen, setAddServiceFacilityOpen] = useState(false);
-  const [facilityName, setFacilityName] = useState("");
-  const [facilityAddress, setFacilityAddress] = useState("");
-  const [facilityPhone, setFacilityPhone] = useState("");
-  const [facilityTechnician, setFacilityTechnician] = useState("");
-  const [facilityNotes, setFacilityNotes] = useState("");
 
   useEffect(() => {
     if (Number.isFinite(fleetId)) setFleetId(fleetId);
@@ -151,19 +137,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     setFieldType("text");
     setAddInventoryCategoryOpen(false);
     setFieldDialogCategoryId(null);
-    setDraftServiceFacilities((serviceFacilitiesQ.data ?? []).map(facility => ({ ...facility })));
-    setDeletedServiceFacilityIds([]);
-    setFacilityName("");
-    setFacilityAddress("");
-    setFacilityPhone("");
-    setFacilityTechnician("");
-    setFacilityNotes("");
-    setAddServiceFacilityOpen(false);
   };
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.currency, typesQ.data, fuelTypesQ.data, inventoryCategoriesQ.data, inventoryFieldsQ.data, serviceFacilitiesQ.data]);
+  }, [fleet?.currency, typesQ.data, fuelTypesQ.data, inventoryCategoriesQ.data, inventoryFieldsQ.data]);
 
   const saveSettings = useMutation({
     mutationFn: async () => {
@@ -176,8 +154,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const existingCategoryById = new Map(existingCategories.map(category => [category.id, category]));
       const existingFields = inventoryFieldsQ.data ?? [];
       const existingFieldById = new Map(existingFields.map(field => [field.id, field]));
-      const existingServiceFacilities = serviceFacilitiesQ.data ?? [];
-      const existingServiceFacilityById = new Map(existingServiceFacilities.map(facility => [facility.id, facility]));
       const work: Promise<unknown>[] = [];
       const createdCategoryMap = new Map<number, number>();
 
@@ -191,10 +167,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
       for (const id of deletedFuelTypeIds) {
         work.push(apiRequest("DELETE", `/api/fleet-fuel-types/${id}`));
-      }
-
-      for (const id of deletedServiceFacilityIds) {
-        work.push(apiRequest("DELETE", `/api/service-facilities/${id}`));
       }
 
       for (const type of draftTypes) {
@@ -245,32 +217,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         if (fuelType.active !== original.active) patch.active = fuelType.active;
         if (Object.keys(patch).length) {
           work.push(apiRequest("PATCH", `/api/fleet-fuel-types/${fuelType.id}`, patch));
-        }
-      }
-
-      for (const facility of draftServiceFacilities) {
-        if (facility.isNew) {
-          work.push(apiRequest("POST", "/api/service-facilities", {
-            fleetId: fleet.id,
-            name: facility.name.trim(),
-            address: facility.address?.trim() || null,
-            phone: facility.phone?.trim() || null,
-            technician: facility.technician?.trim() || null,
-            notes: facility.notes?.trim() || null,
-          }));
-          continue;
-        }
-
-        const original = existingServiceFacilityById.get(facility.id);
-        if (!original) continue;
-        const patch: Partial<ServiceFacility> = {};
-        if (facility.name.trim() !== original.name) patch.name = facility.name.trim();
-        if ((facility.address ?? "").trim() !== (original.address ?? "")) patch.address = facility.address?.trim() || null;
-        if ((facility.phone ?? "").trim() !== (original.phone ?? "")) patch.phone = facility.phone?.trim() || null;
-        if ((facility.technician ?? "").trim() !== (original.technician ?? "")) patch.technician = facility.technician?.trim() || null;
-        if ((facility.notes ?? "").trim() !== (original.notes ?? "")) patch.notes = facility.notes?.trim() || null;
-        if (Object.keys(patch).length) {
-          work.push(apiRequest("PATCH", `/api/service-facilities/${facility.id}`, patch));
         }
       }
 
@@ -349,7 +295,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       await queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/fleet-equipment-types"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/fleet-fuel-types"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/service-facilities"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] });
       toast({ title: "Fleet settings saved" });
@@ -407,38 +352,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const removeDraftFuelType = (type: DraftFuelType) => {
     setDraftFuelTypes(types => types.filter(t => t.id !== type.id));
     if (!type.isNew) setDeletedFuelTypeIds(ids => [...ids, type.id]);
-  };
-
-  const addDraftServiceFacility = () => {
-    if (!fleet || !facilityName.trim()) return;
-    setDraftServiceFacilities(facilities => [
-      ...facilities,
-      {
-        id: -Date.now(),
-        fleetId: fleet.id,
-        name: facilityName.trim(),
-        address: facilityAddress.trim() || null,
-        phone: facilityPhone.trim() || null,
-        technician: facilityTechnician.trim() || null,
-        notes: facilityNotes.trim() || null,
-        isNew: true,
-      },
-    ]);
-    setFacilityName("");
-    setFacilityAddress("");
-    setFacilityPhone("");
-    setFacilityTechnician("");
-    setFacilityNotes("");
-    setAddServiceFacilityOpen(false);
-  };
-
-  const updateDraftServiceFacility = (id: number, patch: Partial<ServiceFacility>) => {
-    setDraftServiceFacilities(facilities => facilities.map(facility => facility.id === id ? { ...facility, ...patch } : facility));
-  };
-
-  const removeDraftServiceFacility = (facility: DraftServiceFacility) => {
-    setDraftServiceFacilities(facilities => facilities.filter(f => f.id !== facility.id));
-    if (!facility.isNew) setDeletedServiceFacilityIds(ids => [...ids, facility.id]);
   };
 
   const addDraftInventoryCategory = () => {
@@ -562,17 +475,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     || deletedFuelTypeIds.length > 0
     || deletedInventoryCategoryIds.length > 0
     || deletedInventoryFieldIds.length > 0
-    || deletedServiceFacilityIds.length > 0
-    || draftServiceFacilities.some(facility => {
-      if (facility.isNew) return true;
-      const original = (serviceFacilitiesQ.data ?? []).find(f => f.id === facility.id);
-      return !original
-        || facility.name.trim() !== original.name
-        || (facility.address ?? "").trim() !== (original.address ?? "")
-        || (facility.phone ?? "").trim() !== (original.phone ?? "")
-        || (facility.technician ?? "").trim() !== (original.technician ?? "")
-        || (facility.notes ?? "").trim() !== (original.notes ?? "");
-    })
     || draftTypes.some(type => {
       if (type.isNew) return true;
       const original = (typesQ.data ?? []).find(t => t.id === type.id);
@@ -667,12 +569,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         {unsavedDialog}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 h-auto" data-testid="tabs-fleet-settings">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-fleet-settings">
             <TabsTrigger value="general" data-testid="tab-fleet-general">General</TabsTrigger>
             <TabsTrigger value="fuel-types" data-testid="tab-fleet-fuel-types">Fuel Types</TabsTrigger>
             <TabsTrigger value="asset-types" data-testid="tab-fleet-asset-types">Asset Types</TabsTrigger>
             <TabsTrigger value="inventory-types" data-testid="tab-fleet-inventory-types">Inventory Types</TabsTrigger>
-            <TabsTrigger value="service-facilities" data-testid="tab-fleet-service-facilities">Service Facilities</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-5">
@@ -1113,111 +1014,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               </div>
             </DialogContent>
           </Dialog>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="service-facilities" className="mt-5">
-            <Card className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <SectionHeader
-              icon={<Building2 className="size-4" />}
-              label="Service Facilities"
-              description="Save shops and service bays this fleet uses repeatedly, for quick selection on work orders."
-            />
-            <Dialog open={addServiceFacilityOpen} onOpenChange={setAddServiceFacilityOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-service-facility">
-                  <Plus className="size-4 mr-1.5" /> Add
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Add Service Facility</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label>Name</Label>
-                    <Input value={facilityName} onChange={e => setFacilityName(e.target.value)} placeholder="Joe's Garage" data-testid="input-new-service-facility-name" />
-                  </div>
-                  <div>
-                    <Label>Address</Label>
-                    <Input value={facilityAddress} onChange={e => setFacilityAddress(e.target.value)} placeholder="123 Main St, Springfield" data-testid="input-new-service-facility-address" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label>Phone</Label>
-                      <Input value={facilityPhone} onChange={e => setFacilityPhone(e.target.value)} placeholder="(555) 555-1234" data-testid="input-new-service-facility-phone" />
-                    </div>
-                    <div>
-                      <Label>Technician</Label>
-                      <Input value={facilityTechnician} onChange={e => setFacilityTechnician(e.target.value)} placeholder="Optional default contact" data-testid="input-new-service-facility-technician" />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Notes</Label>
-                    <Input value={facilityNotes} onChange={e => setFacilityNotes(e.target.value)} placeholder="Optional" data-testid="input-new-service-facility-notes" />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="cancel" onClick={() => setAddServiceFacilityOpen(false)} data-testid="button-cancel-add-service-facility">
-                      <X className="size-4 mr-1.5" /> Cancel
-                    </Button>
-                    <Button variant="success" disabled={!canAdmin || !facilityName.trim()} onClick={addDraftServiceFacility} data-testid="button-create-service-facility">
-                      <Save className="size-4 mr-1.5" /> Save
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="text-sm font-medium">Configured Service Facilities</div>
-            <Badge variant="outline" className="ml-auto text-[10px] tracking-wide" data-testid="badge-service-facility-count">{draftServiceFacilities.length} total</Badge>
-          </div>
-
-          <div className="grid gap-2">
-            {draftServiceFacilities.length === 0 && (
-              <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="empty-service-facilities">
-                No service facilities are configured yet. Add one to make it selectable on work orders.
-              </div>
-            )}
-            {draftServiceFacilities.map(facility => (
-              <div key={facility.id} className="grid grid-cols-1 lg:grid-cols-[minmax(160px,1fr)_minmax(200px,1.4fr)_150px_150px_40px] gap-2 rounded-md border border-border px-2.5 py-2 items-center" data-testid={`row-service-facility-${facility.id}`}>
-                <Input
-                  className="h-9"
-                  value={facility.name}
-                  disabled={!canAdmin || saveSettings.isPending}
-                  onChange={e => updateDraftServiceFacility(facility.id, { name: e.target.value })}
-                  data-testid={`input-service-facility-name-${facility.id}`}
-                />
-                <Input
-                  className="h-9"
-                  value={facility.address ?? ""}
-                  placeholder="Address"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  onChange={e => updateDraftServiceFacility(facility.id, { address: e.target.value })}
-                  data-testid={`input-service-facility-address-${facility.id}`}
-                />
-                <Input
-                  className="h-9"
-                  value={facility.phone ?? ""}
-                  placeholder="Phone"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  onChange={e => updateDraftServiceFacility(facility.id, { phone: e.target.value })}
-                  data-testid={`input-service-facility-phone-${facility.id}`}
-                />
-                <Input
-                  className="h-9"
-                  value={facility.technician ?? ""}
-                  placeholder="Technician"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  onChange={e => updateDraftServiceFacility(facility.id, { technician: e.target.value })}
-                  data-testid={`input-service-facility-technician-${facility.id}`}
-                />
-                <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending} onClick={() => removeDraftServiceFacility(facility)} data-testid={`button-delete-service-facility-${facility.id}`}>
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
             </Card>
           </TabsContent>
         </Tabs>

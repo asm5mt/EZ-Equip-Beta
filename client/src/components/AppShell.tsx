@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Truck, Wrench, Boxes, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText } from "lucide-react";
+import { LayoutDashboard, Truck, Wrench, Boxes, Building2, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Logo } from "./Logo";
 import { QuickAddSheet } from "./QuickAddSheet";
@@ -24,6 +24,7 @@ const NAV = [
   { href: "/assets", label: "Assets", icon: Truck },
   { href: "/maintenance", label: "Maintenance", icon: Wrench },
   { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/service-facilities", label: "Service Facilities", icon: Building2 },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];

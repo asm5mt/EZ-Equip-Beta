@@ -25,6 +25,7 @@ import MeterReadings from "@/pages/MeterReadings";
 import Events from "@/pages/Events";
 import Maintenance from "@/pages/Maintenance";
 import Inventory from "@/pages/Inventory";
+import ServiceFacilities from "@/pages/ServiceFacilities";
 import InventoryForm from "@/pages/InventoryForm";
 import InventoryStockForm from "@/pages/InventoryStockForm";
 import Reports from "@/pages/Reports";
@@ -69,6 +70,7 @@ function AppRouter() {
       <Route path="/inventory/new">{() => <RequireEdit fallback="/inventory"><InventoryForm mode="new" /></RequireEdit>}</Route>
       <Route path="/inventory/:id/add-stock">{(params) => <RequireEdit fallback="/inventory"><InventoryStockForm itemId={Number(params.id)} /></RequireEdit>}</Route>
       <Route path="/inventory/:id/edit">{(params) => <RequireEdit fallback="/inventory"><InventoryForm mode="edit" itemId={Number(params.id)} /></RequireEdit>}</Route>
+      <Route path="/service-facilities" component={ServiceFacilities} />
       <Route path="/reports" component={Reports} />
       <Route path="/search" component={Search} />
       <Route path="/settings/fleets/:id">{(params) => <FleetSettings fleetId={Number(params.id)} />}</Route>

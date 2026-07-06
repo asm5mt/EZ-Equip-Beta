@@ -19,7 +19,7 @@ import { FuelTypeIcon, fuelTypeByName, tintedFuelStyle } from "@/lib/fuel-types"
 import { plateJurisdictionShort } from "@/lib/plates";
 import { useToast } from "@/hooks/use-toast";
 
-type ViewMode = "list" | "grid";
+export type ViewMode = "list" | "grid";
 type StatusFilter = "active" | "inactive" | "all";
 type SortKey =
   | "name-asc"
@@ -408,7 +408,7 @@ function MeterBlock({ asset, latestReading }: { asset: Asset; latestReading?: Me
   );
 }
 
-function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (value: ViewMode) => void }) {
+export function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (value: ViewMode) => void }) {
   return (
     <div className="inline-flex rounded-md border border-border bg-muted/35 p-1" data-testid="toggle-asset-view-mode">
       <Button type="button" variant={value === "list" ? "secondary" : "ghost"} size="icon" className="h-8 w-8" onClick={() => onChange("list")} aria-label="List view" data-testid="button-assets-list-view">
@@ -421,7 +421,7 @@ function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (value: Vi
   );
 }
 
-function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
+export function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
       <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</div>
@@ -430,7 +430,7 @@ function FilterGroup({ title, children }: { title: string; children: ReactNode }
   );
 }
 
-function CheckboxRow({ label, checked, onCheckedChange, testId }: { label: string; checked: boolean; onCheckedChange: (checked: boolean) => void; testId: string }) {
+export function CheckboxRow({ label, checked, onCheckedChange, testId }: { label: string; checked: boolean; onCheckedChange: (checked: boolean) => void; testId: string }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted">
       <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} data-testid={testId} />
@@ -439,7 +439,7 @@ function CheckboxRow({ label, checked, onCheckedChange, testId }: { label: strin
   );
 }
 
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+export function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
     <button type="button" className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/55 px-2 py-1 text-xs text-muted-foreground hover:text-foreground" onClick={onRemove}>
       <X className="size-3" />

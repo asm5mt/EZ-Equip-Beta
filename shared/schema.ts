@@ -227,12 +227,24 @@ export const maintenanceScheduleAssignments = pgTable("maintenance_schedule_assi
 });
 
 // ----- Service facilities ---------------------------------------------------
+// Instance-wide: shops/dealerships are shared across every fleet, not owned
+// by one — a facility isn't re-entered per fleet just because two fleets
+// happen to use the same dealership.
+
+export const serviceFacilityTypes = pgTable("service_facility_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("slate"),
+  icon: text("icon").notNull().default("wrench"),
+});
 
 export const serviceFacilities = pgTable("service_facilities", {
   id: serial("id").primaryKey(),
-  fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
+  type: text("type"),
   address: text("address"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
   phone: text("phone"),
   technician: text("technician"),
   notes: text("notes"),
@@ -432,6 +444,10 @@ export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export const insertMaintenanceScheduleAssignmentSchema = createInsertSchema(maintenanceScheduleAssignments).omit({ id: true });
 export type InsertMaintenanceScheduleAssignment = z.infer<typeof insertMaintenanceScheduleAssignmentSchema>;
 export type MaintenanceScheduleAssignment = typeof maintenanceScheduleAssignments.$inferSelect;
+
+export const insertServiceFacilityTypeSchema = createInsertSchema(serviceFacilityTypes).omit({ id: true });
+export type InsertServiceFacilityType = z.infer<typeof insertServiceFacilityTypeSchema>;
+export type ServiceFacilityType = typeof serviceFacilityTypes.$inferSelect;
 
 export const insertServiceFacilitySchema = createInsertSchema(serviceFacilities).omit({ id: true });
 export type InsertServiceFacility = z.infer<typeof insertServiceFacilitySchema>;

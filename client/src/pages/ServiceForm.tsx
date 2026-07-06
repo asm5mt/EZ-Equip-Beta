@@ -93,7 +93,7 @@ export default function ServiceForm() {
     queryKey: ["/api/schedules", { fleetId: assetQ.data?.fleetId }], enabled: !!assetQ.data?.fleetId,
   });
   const serviceFacilitiesQ = useQuery<ServiceFacility[]>({
-    queryKey: ["/api/service-facilities", { fleetId: fleet?.id }], enabled: !!fleet,
+    queryKey: ["/api/service-facilities"],
   });
   const inventoryQ = useQuery<InventoryItem[]>({
     queryKey: ["/api/inventory-items", { fleetId: fleet?.id }], enabled: !!fleet,
