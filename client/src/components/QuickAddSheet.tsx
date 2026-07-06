@@ -23,6 +23,9 @@ export function QuickAddSheet({ open, onOpenChange }: Props) {
     enabled: !!fleet,
   });
   const assets = assetsQ.data ?? [];
+  // Avoid a flash of "disabled" while the assets query is still loading —
+  // only treat the fleet as asset-less once we've actually confirmed it.
+  const noAssetsConfirmed = !assetsQ.isLoading && assets.length === 0;
 
   const reset = () => {
     setPendingAction(null);
@@ -90,18 +93,36 @@ export function QuickAddSheet({ open, onOpenChange }: Props) {
                 <span className="text-xs text-muted-foreground">Vehicle, trailer, generator, equipment</span>
               </span>
             </Button>
-            <Button variant="outline" className="justify-start h-auto py-3" data-testid="quickadd-service" onClick={() => startAssetPick("service")}>
+            <Button
+              variant="outline"
+              className="justify-start h-auto py-3"
+              data-testid="quickadd-service"
+              disabled={noAssetsConfirmed}
+              title={noAssetsConfirmed ? "Add an asset first." : undefined}
+              onClick={() => startAssetPick("service")}
+            >
               <Wrench className="size-4 mr-3" />
               <span className="flex flex-col items-start">
                 <span className="font-medium">Log a service</span>
-                <span className="text-xs text-muted-foreground">Routine or unscheduled service / repair</span>
+                <span className="text-xs text-muted-foreground">
+                  {noAssetsConfirmed ? "Add an asset first." : "Routine or unscheduled service / repair"}
+                </span>
               </span>
             </Button>
-            <Button variant="outline" className="justify-start h-auto py-3" data-testid="quickadd-meter" onClick={() => startAssetPick("meter")}>
+            <Button
+              variant="outline"
+              className="justify-start h-auto py-3"
+              data-testid="quickadd-meter"
+              disabled={noAssetsConfirmed}
+              title={noAssetsConfirmed ? "Add an asset first." : undefined}
+              onClick={() => startAssetPick("meter")}
+            >
               <Gauge className="size-4 mr-3" />
               <span className="flex flex-col items-start">
                 <span className="font-medium">Add a meter reading</span>
-                <span className="text-xs text-muted-foreground">Mileage, hours, or count</span>
+                <span className="text-xs text-muted-foreground">
+                  {noAssetsConfirmed ? "Add an asset first." : "Mileage, hours, or count"}
+                </span>
               </span>
             </Button>
             <Button variant="outline" className="justify-start h-auto py-3" data-testid="quickadd-inventory" onClick={() => go("/inventory/new")}>

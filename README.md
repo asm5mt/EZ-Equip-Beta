@@ -47,6 +47,9 @@ drizzle-kit migrations against `DATABASE_URL`. If no users exist yet, the
 app shows a first-run setup wizard where you create your fleet and admin
 account before logging in.
 
+See [`.env.example`](.env.example) for every environment variable the app
+reads, what each one does, and which are required.
+
 Useful scripts:
 
 | Script                  | Purpose                                                     |
