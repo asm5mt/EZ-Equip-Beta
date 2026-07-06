@@ -612,31 +612,33 @@ function RolesPermissionsSection() {
             {roles.map(role => (
               <div
                 key={role.id}
-                className="flex items-center gap-3 p-3 rounded-md border border-border hover-elevate"
+                className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-md border border-border hover-elevate"
                 onDoubleClick={() => setEditingRoleId(role.id)}
                 data-testid={`row-fleet-role-${role.id}`}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium truncate">{role.name}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium truncate max-w-full">{role.name}</span>
                     {role.builtIn && <Badge variant="outline" className="text-[10px] tracking-wide shrink-0">Built-in</Badge>}
                   </div>
                   <div className="text-xs text-muted-foreground truncate">{role.description || "No description"}</div>
                 </div>
-                <Badge variant="outline" className="text-[10px] tracking-wide shrink-0">{role.permissions.length} permissions</Badge>
-                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setEditingRoleId(role.id)} data-testid={`button-edit-fleet-role-${role.id}`}>
-                  <Pencil className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-destructive"
-                  disabled={!canAdmin || role.builtIn || deleteRole.isPending}
-                  onClick={() => setPendingDeleteRoleId(role.id)}
-                  data-testid={`button-delete-fleet-role-${role.id}`}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] tracking-wide shrink-0">{role.permissions.length} permissions</Badge>
+                  <Button variant="ghost" size="icon" onClick={() => setEditingRoleId(role.id)} data-testid={`button-edit-fleet-role-${role.id}`}>
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    disabled={!canAdmin || role.builtIn || deleteRole.isPending}
+                    onClick={() => setPendingDeleteRoleId(role.id)}
+                    data-testid={`button-delete-fleet-role-${role.id}`}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </div>
             ))}
             {roles.length === 0 && <p className="text-sm text-muted-foreground">No roles yet for this fleet.</p>}
@@ -1164,49 +1166,53 @@ function UserRow({ user }: { user: User }) {
   return (
     <>
       <div
-        className="flex items-center gap-3 p-2.5 rounded-md border border-border hover-elevate group"
+        className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-md border border-border hover-elevate group"
         onDoubleClick={() => setEditOpen(true)}
         data-testid={`row-user-${user.id}`}
       >
-        <Avatar>
-          <AvatarFallback className="text-xs font-semibold">{userInitials(user.displayName)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-medium truncate">{user.displayName}</span>
-            <span className="text-xs text-muted-foreground truncate">@{user.username}</span>
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap mt-1">
-            <Badge variant="outline" className="text-[10px] tracking-wide" data-testid={`badge-auth-provider-${user.id}`}>
-              {user.authProvider === "oidc" ? "SSO" : "Local"}
-            </Badge>
-            {effectiveSystemAdmin && (
-              <Badge variant="outline" className="text-[10px] tracking-wide status-warn" data-testid={`badge-system-admin-${user.id}`}>
-                System Admin
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Avatar>
+            <AvatarFallback className="text-xs font-semibold">{userInitials(user.displayName)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-medium truncate max-w-full">{user.displayName}</span>
+              <span className="text-xs text-muted-foreground truncate max-w-full">@{user.username}</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+              <Badge variant="outline" className="text-[10px] tracking-wide" data-testid={`badge-auth-provider-${user.id}`}>
+                {user.authProvider === "oidc" ? "SSO" : "Local"}
               </Badge>
-            )}
-            {roleNames.length === 0 && <Badge variant="outline" className="text-[10px] tracking-wide">no access</Badge>}
-            {roleNames.slice(0, 2).map((r, i) => (
-              <Badge key={i} variant="outline" className="text-[10px] tracking-wide">{r}</Badge>
-            ))}
-            {roleNames.length > 2 && (
-              <Badge variant="outline" className="text-[10px] tracking-wide">+{roleNames.length - 2} more</Badge>
-            )}
+              {effectiveSystemAdmin && (
+                <Badge variant="outline" className="text-[10px] tracking-wide status-warn" data-testid={`badge-system-admin-${user.id}`}>
+                  System Admin
+                </Badge>
+              )}
+              {roleNames.length === 0 && <Badge variant="outline" className="text-[10px] tracking-wide">no access</Badge>}
+              {roleNames.slice(0, 2).map((r, i) => (
+                <Badge key={i} variant="outline" className="text-[10px] tracking-wide">{r}</Badge>
+              ))}
+              {roleNames.length > 2 && (
+                <Badge variant="outline" className="text-[10px] tracking-wide">+{roleNames.length - 2} more</Badge>
+              )}
+            </div>
           </div>
         </div>
-        <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setEditOpen(true)} data-testid={`button-edit-user-${user.id}`}>
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-destructive"
-          disabled={!canAdmin}
-          onClick={() => setDeleteConfirmOpen(true)}
-          data-testid={`button-delete-user-${user.id}`}
-        >
-          <Trash2 className="size-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} data-testid={`button-edit-user-${user.id}`}>
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive"
+            disabled={!canAdmin}
+            onClick={() => setDeleteConfirmOpen(true)}
+            data-testid={`button-delete-user-${user.id}`}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
       </div>
 
       <Dialog

@@ -816,7 +816,7 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
                     <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[420px] p-0" align="start">
+                <PopoverContent className="w-[calc(100vw-2rem)] max-w-[420px] p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
                       placeholder="Search items…"
@@ -826,7 +826,7 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
                     />
                     <CommandList>
                       <div
-                        className="grid gap-2 px-2 pb-1 pt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                        className="hidden sm:grid gap-2 px-2 pb-1 pt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
                         style={{ gridTemplateColumns: `repeat(${pickerColumns.length}, minmax(0,1fr))` }}
                       >
                         {pickerColumns.map(col => <div key={col.key} className="truncate">{col.label}</div>)}
@@ -845,10 +845,20 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
                             className="flex items-center gap-2"
                             data-testid={`option-line-source-${idx}-${item.id}`}
                           >
-                            <div className="grid gap-2 flex-1 min-w-0" style={{ gridTemplateColumns: `repeat(${pickerColumns.length}, minmax(0,1fr))` }}>
+                            <div className="hidden flex-1 min-w-0 sm:grid gap-2" style={{ gridTemplateColumns: `repeat(${pickerColumns.length}, minmax(0,1fr))` }}>
                               {pickerColumns.map(col => (
                                 <span key={col.key} className="truncate">{col.get(item)}</span>
                               ))}
+                            </div>
+                            <div className="min-w-0 flex-1 sm:hidden">
+                              <div className="truncate text-sm font-medium">{inventoryItemTitle(item, selectedCategoryFields)}</div>
+                              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                                {pickerColumns.map(col => (
+                                  <span key={col.key} className="max-w-full truncate">
+                                    <span className="text-muted-foreground/70">{col.label}:</span> {col.get(item)}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
                             {collidingIds.has(item.id) && item.partNumber && (
                               <span className="text-[10px] text-muted-foreground shrink-0">P/N {item.partNumber}</span>

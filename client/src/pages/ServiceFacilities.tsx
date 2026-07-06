@@ -316,8 +316,8 @@ function AddressLine({ facility, onCopy, revealOnHover }: { facility: ServiceFac
   const address = composeAddress(facility);
   if (!address) return null;
   return (
-    <div className={`group/addr flex items-center gap-1.5 text-sm text-muted-foreground ${revealOnHover ? "" : ""}`}>
-      <span className="truncate">{address}</span>
+    <div className={`group/addr flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground ${revealOnHover ? "" : ""}`}>
+      <span className="min-w-0 truncate">{address}</span>
       <button
         type="button"
         className={`inline-flex size-5 shrink-0 items-center justify-center rounded transition-opacity hover:bg-muted focus:opacity-100 ${revealOnHover ? "opacity-0 group-hover/addr:opacity-100" : ""}`}
@@ -351,7 +351,7 @@ function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, 
   canAdmin: boolean;
 }) {
   return (
-    <div className="group/card flex min-h-[180px] flex-col justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`grid-card-facility-${facility.id}`}>
+    <div className="group/card min-w-0 flex min-h-[180px] flex-col justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`grid-card-facility-${facility.id}`}>
       <div className="space-y-1.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -384,7 +384,7 @@ function FacilityListRow({ facility, configuredType, distance, onCopy, onEdit, o
   canAdmin: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`row-facility-${facility.id}`}>
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`row-facility-${facility.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
