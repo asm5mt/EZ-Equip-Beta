@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,11 +14,12 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 import { EditablePageActions } from "@/components/EditablePageActions";
-import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2, ChevronsUpDown } from "lucide-react";
+import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2, ChevronsUpDown, Pencil, Save as SaveIcon } from "lucide-react";
 import { z } from "zod";
 import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceLineItem } from "@shared/schema";
-import { scheduleIntervalSummary } from "@/lib/format";
+import { scheduleIntervalSummary, formatCurrency } from "@/lib/format";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
@@ -26,8 +27,10 @@ import { formatDateInput } from "@/lib/format";
 import { currencySymbol } from "@/lib/currencies";
 import { modeBadgeClass, modeLabel } from "@/lib/mode-styles";
 import { computeKeySpecCollisions, fieldsForCategory, getFieldValue, inventoryItemTitle, titleFieldsForCategory } from "@/lib/inventory-display";
+import { InventoryCategoryIcon } from "@/lib/inventory-category-icons";
+import { tintedBadgeStyle } from "@/lib/badges";
 
-const NON_INVENTORY = "__one_off__";
+const NON_INVENTORY_CATEGORY = "__non_inventory__";
 
 const lineSchema = z.object({
   inventoryItemId: z.number().nullable(),
@@ -126,20 +129,31 @@ export default function ServiceForm() {
     });
     if (event.vendor && event.vendor !== "In-House") setWorkSource("outside");
   }, [eventQ.data]);
+  const linesInitializedRef = useRef(false);
   useEffect(() => {
+    if (linesInitializedRef.current) return;
     if (!existingLinesQ.data?.length || !editEventId) return;
-    setLines(existingLinesQ.data.map(line => ({
-      inventoryItemId: line.inventoryItemId ?? null,
-      itemName: line.itemName,
-      partNumber: line.partNumber ?? "",
-      brand: line.brand ?? "",
-      spec: line.spec ?? "",
-      quantity: line.quantity,
-      unit: line.unit ?? "",
-      unitCost: line.unitCost ?? null,
-      notes: line.notes ?? "",
-    } as any)));
-  }, [existingLinesQ.data, editEventId]);
+    if (inventoryQ.isLoading) return; // wait so we can resolve each line's category from its inventory item
+    linesInitializedRef.current = true;
+    const items = inventoryQ.data ?? [];
+    setLines(existingLinesQ.data.map(line => {
+      const inv = line.inventoryItemId ? items.find(i => i.id === line.inventoryItemId) : null;
+      return {
+        inventoryItemId: line.inventoryItemId ?? null,
+        itemName: line.itemName,
+        partNumber: line.partNumber ?? "",
+        brand: line.brand ?? "",
+        spec: line.spec ?? "",
+        quantity: line.quantity,
+        unit: line.unit ?? "",
+        unitCost: line.unitCost ?? null,
+        notes: line.notes ?? "",
+        category: inv?.category ?? null,
+        itemChosen: true,
+        locked: true,
+      } as any;
+    }));
+  }, [existingLinesQ.data, editEventId, inventoryQ.data, inventoryQ.isLoading]);
 
   const lineItems = form.watch("lineItems");
   const setLines = (next: typeof lineItems) => form.setValue("lineItems", next, { shouldDirty: true });
@@ -147,7 +161,9 @@ export default function ServiceForm() {
   const addLine = (preset?: Partial<z.infer<typeof lineSchema>>) =>
     setLines([...lineItems, {
       inventoryItemId: null, itemName: "", partNumber: "", brand: "", spec: "",
-      quantity: 1, unit: "", unitCost: null, notes: "", ...preset,
+      quantity: 1, unit: "", unitCost: null, notes: "",
+      category: null, itemChosen: false, locked: false,
+      ...preset,
     } as any]);
   const removeLine = (idx: number) => setLines(lineItems.filter((_, i) => i !== idx));
 
@@ -469,36 +485,76 @@ function AttachmentPreview({ attachment, onRemove, idx }: {
 function LineItemRow({ line, inventory, categories: inventoryCategories, categoryFields, onChange, onRemove, idx, currency }: {
   line: any; inventory: InventoryItem[]; categories: InventoryCategory[]; categoryFields: InventoryCategoryField[]; onChange: (l: any) => void; onRemove: () => void; idx: number; currency: string;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [itemPickerOpen, setItemPickerOpen] = useState(false);
+  const [itemSearch, setItemSearch] = useState("");
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
+  const locked = !!line.locked;
+  const itemChosen = !!line.itemChosen;
+  const isOneOff = itemChosen && line.inventoryItemId == null;
+  const isInventoryItem = itemChosen && line.inventoryItemId != null;
   const inv = line.inventoryItemId ? inventory.find(i => i.id === line.inventoryItemId) : null;
   const categories = Array.from(new Set(inventory.map(i => i.category || "other"))).sort();
-  const selectedCategory = line.category ?? inv?.category ?? categories[0] ?? "other";
-  const filteredInventory = inventory.filter(i => (i.category || "other") === selectedCategory);
-  const selectedCategoryFields = fieldsForCategory(categoryFields, inventoryCategories, selectedCategory);
+  const selectedCategory: string | null = line.category ?? null;
+  const isNonInventoryCategory = selectedCategory === NON_INVENTORY_CATEGORY;
+  const categoryMeta = selectedCategory && !isNonInventoryCategory
+    ? inventoryCategories.find(c => c.name.trim().toLowerCase() === selectedCategory.trim().toLowerCase())
+    : undefined;
+  const categorySearchFilteredList = categories.filter(category =>
+    !categorySearch.trim() || category.toLowerCase().includes(categorySearch.trim().toLowerCase())
+  );
+  const filteredInventory = (selectedCategory && !isNonInventoryCategory) ? inventory.filter(i => (i.category || "other") === selectedCategory) : [];
+  const selectedCategoryFields = (selectedCategory && !isNonInventoryCategory) ? fieldsForCategory(categoryFields, inventoryCategories, selectedCategory) : [];
   const collidingIds = computeKeySpecCollisions(filteredInventory, categoryFields, inventoryCategories);
   const titleFields = titleFieldsForCategory(selectedCategoryFields);
+  const pickerColumns = [
+    ...titleFields.map(field => ({ key: `field-${field.id}`, label: field.name, get: (item: InventoryItem) => getFieldValue(item, field) ?? "—" })),
+    { key: "unit", label: "Unit", get: (item: InventoryItem) => item.unit },
+  ];
   const searchFilteredInventory = filteredInventory.filter(item => {
-    const term = search.trim().toLowerCase();
+    const term = itemSearch.trim().toLowerCase();
     if (!term) return true;
     const haystack = [
       inventoryItemTitle(item, selectedCategoryFields),
       item.partNumber,
       item.sku,
+      item.unit,
       ...titleFields.map(field => getFieldValue(item, field)),
     ].filter(Boolean).join(" ").toLowerCase();
     return haystack.includes(term);
   });
-  const selectedItemLabel = line.inventoryItemId && inv ? inventoryItemTitle(inv, selectedCategoryFields) : "One-off (non-inventory)";
-  const handleSelect = (val: string) => {
-    if (val === NON_INVENTORY) {
-      onChange({ ...line, inventoryItemId: null });
+  const selectedCategoryLabel = !selectedCategory
+    ? "Choose a category"
+    : (isNonInventoryCategory ? "Non-Inventory" : selectedCategory);
+  const selectedItemLabel = !itemChosen ? "Choose an item" : (inv ? inventoryItemTitle(inv, selectedCategoryFields) : "");
+  const lineTotal = isInventoryItem && inv?.costTracking && inv.unitCost != null ? (line.quantity ?? 0) * inv.unitCost : null;
+  const oneOffTotal = isOneOff && line.unitCost != null ? (line.quantity ?? 0) * line.unitCost : null;
+  const isValid = itemChosen && (line.quantity ?? 0) > 0 && (isOneOff ? String(line.itemName ?? "").trim().length > 0 : true);
+  const summaryTitle = isInventoryItem && inv ? inventoryItemTitle(inv, selectedCategoryFields) : (line.itemName || "One-off item");
+
+  const handleCategoryChange = (category: string) => {
+    if (category === NON_INVENTORY_CATEGORY) {
+      onChange({
+        ...line, category, itemChosen: true, inventoryItemId: null,
+        itemName: "", partNumber: "", brand: "", spec: "", unit: "", unitCost: null,
+      });
+      setCategoryPickerOpen(false);
+      setCategorySearch("");
       return;
     }
+    onChange({
+      ...line, category, itemChosen: false, inventoryItemId: null,
+      itemName: "", partNumber: "", brand: "", spec: "", unit: "", unitCost: null,
+    });
+    setCategoryPickerOpen(false);
+    setCategorySearch("");
+  };
+  const handleSelect = (val: string) => {
     const found = inventory.find(i => i.id === Number(val));
     if (found) {
       onChange({
         ...line,
+        itemChosen: true,
         category: found.category || "other",
         inventoryItemId: found.id,
         itemName: found.name,
@@ -507,132 +563,238 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
         unitCost: found.costTracking ? (found.unitCost ?? line.unitCost) : line.unitCost,
       });
     }
+    setItemPickerOpen(false);
+    setItemSearch("");
   };
-  return (
-    <div className="p-3 rounded-md border border-border" data-testid={`line-item-${idx}`}>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div className="lg:col-span-3">
-          <label className="text-xs text-muted-foreground">Category</label>
-          <Select value={selectedCategory} onValueChange={category => onChange({ ...line, category, inventoryItemId: null, itemName: "", partNumber: "", unitCost: null })}>
-            <SelectTrigger data-testid={`select-line-category-${idx}`}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {categories.map(category => <SelectItem key={category} value={category}>{category}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
+  const categoryBadge = selectedCategory && (
+    categoryMeta ? (
+      <Badge variant="outline" className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide shrink-0" style={tintedBadgeStyle(categoryMeta.color)}>
+        <InventoryCategoryIcon icon={categoryMeta.icon} className="size-3" />
+        {categoryMeta.name}
+      </Badge>
+    ) : (
+      <Badge variant="outline" className="text-[10px] tracking-wide shrink-0">{selectedCategoryLabel}</Badge>
+    )
+  );
+
+  if (locked) {
+    return (
+      <div className="p-3 rounded-md border border-border flex items-center justify-between gap-3 flex-wrap" data-testid={`line-item-${idx}`}>
+        <div className="min-w-0 flex items-center gap-3 flex-wrap">
+          {categoryBadge}
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate" data-testid={`text-line-summary-${idx}`}>{summaryTitle}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {isOneOff && line.partNumber ? `P/N ${line.partNumber} · ` : ""}
+              Qty {line.quantity ?? 1} {isInventoryItem ? (inv?.unit ?? "") : (line.unit ?? "")}
+              {lineTotal != null && ` · ${formatCurrency(lineTotal, currency)}`}
+              {oneOffTotal != null && ` · ${formatCurrency(oneOffTotal, currency)}`}
+            </div>
+          </div>
         </div>
-        <div className="lg:col-span-3">
-          <label className="text-xs text-muted-foreground">Item</label>
-          <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setSearch(""); }}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                role="combobox"
-                aria-expanded={pickerOpen}
-                className="w-full justify-between font-normal"
-                data-testid={`select-line-source-${idx}`}
-              >
-                <span className="truncate">{selectedItemLabel}</span>
-                <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[420px] p-0" align="start">
-              <Command shouldFilter={false}>
-                <CommandInput
-                  placeholder="Search items…"
-                  value={search}
-                  onValueChange={setSearch}
-                  data-testid={`input-line-search-${idx}`}
-                />
-                <CommandList>
-                  <CommandGroup>
-                    <CommandItem
-                      value={NON_INVENTORY}
-                      onSelect={() => { handleSelect(NON_INVENTORY); setPickerOpen(false); }}
-                      data-testid={`option-line-source-${idx}-one-off`}
-                    >
-                      One-off (non-inventory)
-                    </CommandItem>
-                  </CommandGroup>
-                  {titleFields.length > 0 && (
-                    <div
-                      className="grid gap-2 px-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground"
-                      style={{ gridTemplateColumns: `repeat(${titleFields.length}, minmax(0,1fr))` }}
-                    >
-                      {titleFields.map(field => <div key={field.id} className="truncate">{field.name}</div>)}
-                    </div>
-                  )}
-                  <CommandGroup>
-                    {searchFilteredInventory.length === 0 && (
-                      <div className="py-4 text-center text-sm text-muted-foreground">
-                        {search.trim() ? `No items match "${search.trim()}".` : "No items in this category."}
-                      </div>
-                    )}
-                    {searchFilteredInventory.map(item => (
-                      <CommandItem
-                        key={item.id}
-                        value={String(item.id)}
-                        onSelect={() => { handleSelect(String(item.id)); setPickerOpen(false); }}
-                        className="flex items-center gap-2"
-                        data-testid={`option-line-source-${idx}-${item.id}`}
-                      >
-                        {titleFields.length > 0 ? (
-                          <div className="grid gap-2 flex-1 min-w-0" style={{ gridTemplateColumns: `repeat(${titleFields.length}, minmax(0,1fr))` }}>
-                            {titleFields.map(field => (
-                              <span key={field.id} className="truncate">{getFieldValue(item, field) ?? "—"}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="truncate flex-1">{inventoryItemTitle(item, selectedCategoryFields)}</span>
-                        )}
-                        {collidingIds.has(item.id) && item.partNumber && (
-                          <span className="text-[10px] text-muted-foreground shrink-0">P/N {item.partNumber}</span>
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-        </div>
-        <div className="lg:col-span-4">
-          <label className="text-xs text-muted-foreground">Item Name</label>
-          <Input value={line.itemName ?? ""} onChange={e => onChange({ ...line, itemName: e.target.value })} data-testid={`input-line-name-${idx}`} />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-xs text-muted-foreground">Part #</label>
-          <Input value={line.partNumber ?? ""} onChange={e => onChange({ ...line, partNumber: e.target.value })} data-testid={`input-line-part-${idx}`} />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-xs text-muted-foreground">Brand / Spec</label>
-          <Input value={line.brand ?? ""} onChange={e => onChange({ ...line, brand: e.target.value })} data-testid={`input-line-brand-${idx}`} />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-xs text-muted-foreground">Quantity</label>
-          <Input type="number" step="any" value={line.quantity ?? 1} onChange={e => onChange({ ...line, quantity: Number(e.target.value) })} data-testid={`input-line-qty-${idx}`} />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-xs text-muted-foreground">Unit</label>
-          <Input value={line.unit ?? ""} onChange={e => onChange({ ...line, unit: e.target.value })} data-testid={`input-line-unit-${idx}`} placeholder="qt, each…" />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="text-xs text-muted-foreground">Unit Cost ({currency} {currencySymbol(currency)})</label>
-          <Input type="number" step="any" value={line.unitCost ?? ""} onChange={e => onChange({ ...line, unitCost: e.target.value === "" ? null : Number(e.target.value) })} data-testid={`input-line-cost-${idx}`} />
-        </div>
-        <div className="lg:col-span-4">
-          <label className="text-xs text-muted-foreground">Notes</label>
-          <Input value={line.notes ?? ""} onChange={e => onChange({ ...line, notes: e.target.value })} data-testid={`input-line-notes-${idx}`} />
-        </div>
-        <div className="lg:col-span-2 flex items-end">
-          <Button type="button" variant="ghost" size="sm" onClick={onRemove} data-testid={`button-remove-line-${idx}`}>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange({ ...line, locked: false })} data-testid={`button-edit-line-${idx}`}>
+            <Pencil className="size-4 mr-1.5" /> Edit
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={onRemove} data-testid={`button-remove-line-${idx}`} aria-label="Delete line">
             <Trash2 className="size-4" />
           </Button>
         </div>
       </div>
-      {inv && (
-        <div className="mt-2 text-xs text-muted-foreground">
+    );
+  }
+
+  return (
+    <div className="p-3 rounded-md border border-border" data-testid={`line-item-${idx}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-w-0">
+          <div className="lg:col-span-4">
+            <label className="text-xs text-muted-foreground">Category</label>
+            <Popover open={categoryPickerOpen} onOpenChange={open => { setCategoryPickerOpen(open); if (!open) setCategorySearch(""); }}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={categoryPickerOpen}
+                  className="w-full justify-between font-normal"
+                  data-testid={`select-line-category-${idx}`}
+                >
+                  <span className="truncate">{selectedCategoryLabel}</span>
+                  <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[320px] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Search categories…"
+                    value={categorySearch}
+                    onValueChange={setCategorySearch}
+                    data-testid={`input-line-category-search-${idx}`}
+                  />
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem
+                        value={NON_INVENTORY_CATEGORY}
+                        onSelect={() => handleCategoryChange(NON_INVENTORY_CATEGORY)}
+                        data-testid={`option-line-category-${idx}-non-inventory`}
+                      >
+                        Non-Inventory
+                      </CommandItem>
+                    </CommandGroup>
+                    <CommandGroup heading="Fleet Categories">
+                      {categorySearchFilteredList.length === 0 && (
+                        <div className="py-4 text-center text-sm text-muted-foreground">
+                          No categories match "{categorySearch.trim()}".
+                        </div>
+                      )}
+                      {categorySearchFilteredList.map(category => {
+                        const meta = inventoryCategories.find(c => c.name.trim().toLowerCase() === category.trim().toLowerCase());
+                        return (
+                          <CommandItem
+                            key={category}
+                            value={category}
+                            onSelect={() => handleCategoryChange(category)}
+                            className="flex items-center gap-2"
+                            data-testid={`option-line-category-${idx}-${category}`}
+                          >
+                            {meta && <InventoryCategoryIcon icon={meta.icon} className="size-3.5 shrink-0" />}
+                            <span className="truncate">{category}</span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+          {selectedCategory && !isNonInventoryCategory && (
+            <div className="lg:col-span-4">
+              <label className="text-xs text-muted-foreground">Item</label>
+              <Popover open={itemPickerOpen} onOpenChange={open => { setItemPickerOpen(open); if (!open) setItemSearch(""); }}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={itemPickerOpen}
+                    className="w-full justify-between font-normal"
+                    data-testid={`select-line-source-${idx}`}
+                  >
+                    <span className="truncate">{selectedItemLabel}</span>
+                    <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[420px] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search items…"
+                      value={itemSearch}
+                      onValueChange={setItemSearch}
+                      data-testid={`input-line-search-${idx}`}
+                    />
+                    <CommandList>
+                      <div
+                        className="grid gap-2 px-2 pb-1 pt-2 text-[10px] uppercase tracking-wide text-muted-foreground"
+                        style={{ gridTemplateColumns: `repeat(${pickerColumns.length}, minmax(0,1fr))` }}
+                      >
+                        {pickerColumns.map(col => <div key={col.key} className="truncate">{col.label}</div>)}
+                      </div>
+                      <CommandGroup>
+                        {searchFilteredInventory.length === 0 && (
+                          <div className="py-4 text-center text-sm text-muted-foreground">
+                            {itemSearch.trim() ? `No items match "${itemSearch.trim()}".` : "No items in this category."}
+                          </div>
+                        )}
+                        {searchFilteredInventory.map(item => (
+                          <CommandItem
+                            key={item.id}
+                            value={String(item.id)}
+                            onSelect={() => handleSelect(String(item.id))}
+                            className="flex items-center gap-2"
+                            data-testid={`option-line-source-${idx}-${item.id}`}
+                          >
+                            <div className="grid gap-2 flex-1 min-w-0" style={{ gridTemplateColumns: `repeat(${pickerColumns.length}, minmax(0,1fr))` }}>
+                              {pickerColumns.map(col => (
+                                <span key={col.key} className="truncate">{col.get(item)}</span>
+                              ))}
+                            </div>
+                            {collidingIds.has(item.id) && item.partNumber && (
+                              <span className="text-[10px] text-muted-foreground shrink-0">P/N {item.partNumber}</span>
+                            )}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+          {isOneOff && (
+            <>
+              <div className="lg:col-span-4">
+                <label className="text-xs text-muted-foreground">Item Name</label>
+                <Input value={line.itemName ?? ""} onChange={e => onChange({ ...line, itemName: e.target.value })} data-testid={`input-line-name-${idx}`} />
+              </div>
+              <div className="lg:col-span-3">
+                <label className="text-xs text-muted-foreground">Part #</label>
+                <Input value={line.partNumber ?? ""} onChange={e => onChange({ ...line, partNumber: e.target.value })} data-testid={`input-line-part-${idx}`} />
+              </div>
+              <div className="lg:col-span-3">
+                <label className="text-xs text-muted-foreground">Brand / Spec</label>
+                <Input value={line.brand ?? ""} onChange={e => onChange({ ...line, brand: e.target.value })} data-testid={`input-line-brand-${idx}`} />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs text-muted-foreground">Quantity</label>
+                <Input type="number" step="any" value={line.quantity ?? 1} onChange={e => onChange({ ...line, quantity: Number(e.target.value) })} data-testid={`input-line-qty-${idx}`} />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs text-muted-foreground">Unit</label>
+                <Input value={line.unit ?? ""} onChange={e => onChange({ ...line, unit: e.target.value })} data-testid={`input-line-unit-${idx}`} placeholder="qt, each…" />
+              </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs text-muted-foreground">Unit Cost ({currency} {currencySymbol(currency)})</label>
+                <Input type="number" step="any" value={line.unitCost ?? ""} onChange={e => onChange({ ...line, unitCost: e.target.value === "" ? null : Number(e.target.value) })} data-testid={`input-line-cost-${idx}`} />
+              </div>
+              <div className="lg:col-span-8">
+                <label className="text-xs text-muted-foreground">Notes</label>
+                <Input value={line.notes ?? ""} onChange={e => onChange({ ...line, notes: e.target.value })} data-testid={`input-line-notes-${idx}`} />
+              </div>
+            </>
+          )}
+          {isInventoryItem && (
+            <div className="lg:col-span-4">
+              <label className="text-xs text-muted-foreground">Quantity</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  step="any"
+                  className="w-28"
+                  value={line.quantity ?? 1}
+                  onChange={e => onChange({ ...line, quantity: Number(e.target.value) })}
+                  data-testid={`input-line-qty-${idx}`}
+                />
+                <span className="text-sm text-muted-foreground" data-testid={`text-line-unit-${idx}`}>{inv?.unit}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button type="button" variant="outline" size="sm" disabled={!isValid} onClick={() => onChange({ ...line, locked: true })} data-testid={`button-save-line-${idx}`}>
+            <SaveIcon className="size-4 mr-1.5" /> Save
+          </Button>
+          <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={onRemove} data-testid={`button-remove-line-${idx}`} aria-label="Delete line">
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+      {isInventoryItem && inv && (
+        <div className="text-xs text-muted-foreground mt-3">
           Stock: {inv.onHand} {inv.unit}{inv.reorderReminder && inv.reorderPoint != null ? ` · reorder below ${inv.reorderPoint}` : ""}
+          {inv.costTracking && inv.unitCost != null && ` · ${formatCurrency(inv.unitCost, currency)}/${inv.unit}${lineTotal != null ? ` · Line total ${formatCurrency(lineTotal, currency)}` : ""}`}
         </div>
       )}
     </div>
