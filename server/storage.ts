@@ -13,6 +13,7 @@ import {
   meterReadings,
   maintenanceSchedules,
   maintenanceScheduleAssignments,
+  serviceFacilities,
   serviceEvents,
   serviceLineItems,
   inventoryItems,
@@ -36,6 +37,7 @@ import type {
   MeterReading, InsertMeterReading,
   MaintenanceSchedule, InsertMaintenanceSchedule,
   MaintenanceScheduleAssignment, InsertMaintenanceScheduleAssignment,
+  ServiceFacility, InsertServiceFacility,
   ServiceEvent, InsertServiceEvent,
   ServiceLineItem, InsertServiceLineItem,
   InventoryItem, InsertInventoryItem,
@@ -216,6 +218,11 @@ export interface IStorage {
   createFleetFuelType(input: InsertFleetFuelType): Promise<FleetFuelType>;
   updateFleetFuelType(id: number, input: Partial<InsertFleetFuelType>): Promise<FleetFuelType | undefined>;
   deleteFleetFuelType(id: number): Promise<boolean>;
+  listServiceFacilities(fleetId?: number): Promise<ServiceFacility[]>;
+  getServiceFacility(id: number): Promise<ServiceFacility | undefined>;
+  createServiceFacility(input: InsertServiceFacility): Promise<ServiceFacility>;
+  updateServiceFacility(id: number, input: Partial<InsertServiceFacility>): Promise<ServiceFacility | undefined>;
+  deleteServiceFacility(id: number): Promise<boolean>;
   listFleetRoles(fleetId?: number): Promise<FleetRole[]>;
   getFleetRole(id: number): Promise<FleetRole | undefined>;
   listFleetRolesWithPermissions(fleetId?: number): Promise<(FleetRole & { permissions: string[] })[]>;
@@ -401,6 +408,7 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(fleetEquipmentTypes).where(eq(fleetEquipmentTypes.fleetId, id));
     await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.fleetId, id));
+    await db.delete(serviceFacilities).where(eq(serviceFacilities.fleetId, id));
     await db.delete(oidcGroupMappings).where(eq(oidcGroupMappings.fleetId, id));
     await db.delete(fleetMemberships).where(eq(fleetMemberships.fleetId, id));
     if (roleIds.length) {
@@ -538,6 +546,32 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteFleetFuelType(id: number): Promise<boolean> {
     const result = await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async listServiceFacilities(fleetId?: number): Promise<ServiceFacility[]> {
+    const q = db.select().from(serviceFacilities).orderBy(serviceFacilities.name);
+    return fleetId ? await q.where(eq(serviceFacilities.fleetId, fleetId)) : await q;
+  }
+  async getServiceFacility(id: number): Promise<ServiceFacility | undefined> {
+    const [row] = await db.select().from(serviceFacilities).where(eq(serviceFacilities.id, id));
+    return row;
+  }
+  async createServiceFacility(input: InsertServiceFacility): Promise<ServiceFacility> {
+    const [row] = await db.insert(serviceFacilities).values(input).returning();
+    return row;
+  }
+  async updateServiceFacility(id: number, input: Partial<InsertServiceFacility>): Promise<ServiceFacility | undefined> {
+    const [row] = await db.update(serviceFacilities).set(input).where(eq(serviceFacilities.id, id)).returning();
+    return row;
+  }
+  async deleteServiceFacility(id: number): Promise<boolean> {
+    // No ON DELETE CASCADE/SET NULL is declared at the DB level anywhere in this
+    // codebase (see deleteFleet()'s comment) — clear the live FK on any service
+    // events that reference this facility before deleting it. Their snapshot
+    // columns (vendor/technician/facilityAddress/facilityPhone) already preserve
+    // the historical display independent of this row.
+    await db.update(serviceEvents).set({ serviceFacilityId: null }).where(eq(serviceEvents.serviceFacilityId, id));
+    const result = await db.delete(serviceFacilities).where(eq(serviceFacilities.id, id));
     return (result.rowCount ?? 0) > 0;
   }
   async getFleetRole(id: number): Promise<FleetRole | undefined> {

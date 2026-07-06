@@ -11,14 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { EditablePageActions } from "@/components/EditablePageActions";
-import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2, ChevronsUpDown, Pencil, Save as SaveIcon } from "lucide-react";
+import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, ChevronsUpDown, Pencil, Save as SaveIcon, Copy } from "lucide-react";
 import { z } from "zod";
-import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceLineItem } from "@shared/schema";
+import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceFacility, ServiceLineItem } from "@shared/schema";
 import { scheduleIntervalSummary, formatCurrency } from "@/lib/format";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -29,8 +28,12 @@ import { modeBadgeClass, modeLabel } from "@/lib/mode-styles";
 import { computeKeySpecCollisions, fieldsForCategory, getFieldValue, inventoryItemTitle, titleFieldsForCategory } from "@/lib/inventory-display";
 import { InventoryCategoryIcon } from "@/lib/inventory-category-icons";
 import { tintedBadgeStyle } from "@/lib/badges";
+import { schedulesApplicableToAsset } from "@/lib/schedule";
+import { mapsUrlFor } from "@/lib/maps";
 
 const NON_INVENTORY_CATEGORY = "__non_inventory__";
+const UNSCHEDULED_SERVICE = "__unscheduled_service__";
+const IN_HOUSE = "__in_house__";
 
 const lineSchema = z.object({
   inventoryItemId: z.number().nullable(),
@@ -53,6 +56,9 @@ const formSchema = z.object({
   meterAtService: z.number().nullable(),
   vendor: z.string().optional().nullable(),
   technician: z.string().optional().nullable(),
+  serviceFacilityId: z.number().nullable(),
+  facilityAddress: z.string().optional().nullable(),
+  facilityPhone: z.string().optional().nullable(),
   cost: z.number().nullable(),
   notes: z.string().optional().nullable(),
   lineItems: z.array(lineSchema).default([]),
@@ -77,13 +83,17 @@ export default function ServiceForm() {
   const eventQ = useQuery<ServiceEvent>({ queryKey: ["/api/service-events", editEventId], enabled: !!editEventId });
   const assetId = params ? Number(params.assetId) : (eventQ.data?.assetId ?? 0);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [workSource, setWorkSource] = useState<"in-house" | "outside">("in-house");
-  const [providerOpen, setProviderOpen] = useState(false);
-  const [provider, setProvider] = useState({ name: "", contact: "", phone: "", address: "" });
+  const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
+  const [scheduleSearch, setScheduleSearch] = useState("");
+  const [facilityPickerOpen, setFacilityPickerOpen] = useState(false);
+  const [facilitySearch, setFacilitySearch] = useState("");
 
   const assetQ = useQuery<Asset>({ queryKey: ["/api/assets", assetId], enabled: !!assetId });
   const schedulesQ = useQuery<MaintenanceSchedule[]>({
-    queryKey: ["/api/schedules", { assetId }], enabled: !!assetId,
+    queryKey: ["/api/schedules", { fleetId: assetQ.data?.fleetId }], enabled: !!assetQ.data?.fleetId,
+  });
+  const serviceFacilitiesQ = useQuery<ServiceFacility[]>({
+    queryKey: ["/api/service-facilities", { fleetId: fleet?.id }], enabled: !!fleet,
   });
   const inventoryQ = useQuery<InventoryItem[]>({
     queryKey: ["/api/inventory-items", { fleetId: fleet?.id }], enabled: !!fleet,
@@ -102,9 +112,11 @@ export default function ServiceForm() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      assetId, scheduleId: null, eventType: "scheduled", title: "Oil Change",
+      assetId, scheduleId: null, eventType: "unscheduled", title: "Oil Change",
       performedAt: formatDateInput(new Date()),
-      meterAtService: null, vendor: "", technician: "", cost: null, notes: "", lineItems: [],
+      meterAtService: null, vendor: "In-House", technician: "",
+      serviceFacilityId: null, facilityAddress: null, facilityPhone: null,
+      cost: null, notes: "", lineItems: [],
     },
   });
 
@@ -123,11 +135,13 @@ export default function ServiceForm() {
       meterAtService: event.meterAtService ?? null,
       vendor: event.vendor ?? "",
       technician: event.technician ?? "",
+      serviceFacilityId: event.serviceFacilityId ?? null,
+      facilityAddress: event.facilityAddress ?? null,
+      facilityPhone: event.facilityPhone ?? null,
       cost: event.cost ?? null,
       notes: event.notes ?? "",
       lineItems: [],
     });
-    if (event.vendor && event.vendor !== "In-House") setWorkSource("outside");
   }, [eventQ.data]);
   const linesInitializedRef = useRef(false);
   useEffect(() => {
@@ -178,6 +192,9 @@ export default function ServiceForm() {
         meterAtService: v.meterAtService,
         vendor: v.vendor || null,
         technician: v.technician || null,
+        serviceFacilityId: v.serviceFacilityId,
+        facilityAddress: v.facilityAddress || null,
+        facilityPhone: v.facilityPhone || null,
         cost: v.cost,
         notes: v.notes || null,
       };
@@ -242,16 +259,71 @@ export default function ServiceForm() {
 
   const submit = (v: FormValues) => save.mutate(v);
   const goBack = () => navigate(`/assets/${assetId}`);
-  const applyProvider = () => {
-    form.setValue("vendor", provider.name, { shouldDirty: true });
-    form.setValue("technician", provider.contact, { shouldDirty: true });
-    const existing = form.getValues("notes") || "";
-    const providerNotes = [
-      provider.phone ? `Provider phone: ${provider.phone}` : "",
-      provider.address ? `Provider address: ${provider.address}` : "",
-    ].filter(Boolean).join("\n");
-    if (providerNotes) form.setValue("notes", existing ? `${existing}\n${providerNotes}` : providerNotes, { shouldDirty: true });
-    setProviderOpen(false);
+
+  const scheduleId = form.watch("scheduleId");
+  const applicableSchedules = assetQ.data ? schedulesApplicableToAsset(schedulesQ.data ?? [], assetQ.data) : [];
+  const searchFilteredSchedules = applicableSchedules.filter(s => {
+    const term = scheduleSearch.trim().toLowerCase();
+    if (!term) return true;
+    return s.name.toLowerCase().includes(term) || (s.category ?? "").toLowerCase().includes(term);
+  });
+  const selectedSchedule = scheduleId ? applicableSchedules.find(s => s.id === scheduleId) ?? null : null;
+
+  const handleScheduleSelect = (val: string) => {
+    if (val === UNSCHEDULED_SERVICE) {
+      form.setValue("scheduleId", null, { shouldDirty: true });
+      if (form.getValues("eventType") === "scheduled") form.setValue("eventType", "unscheduled", { shouldDirty: true });
+      setSchedulePickerOpen(false);
+      setScheduleSearch("");
+      return;
+    }
+    const schedule = applicableSchedules.find(s => s.id === Number(val));
+    if (schedule) {
+      form.setValue("scheduleId", schedule.id, { shouldDirty: true });
+      form.setValue("eventType", "scheduled", { shouldDirty: true });
+      form.setValue("title", schedule.name, { shouldDirty: true });
+    }
+    setSchedulePickerOpen(false);
+    setScheduleSearch("");
+  };
+
+  const serviceFacilityId = form.watch("serviceFacilityId");
+  const vendor = form.watch("vendor");
+  const technician = form.watch("technician");
+  const facilityAddress = form.watch("facilityAddress");
+  const facilityPhone = form.watch("facilityPhone");
+  const searchFilteredFacilities = (serviceFacilitiesQ.data ?? []).filter(f => {
+    const term = facilitySearch.trim().toLowerCase();
+    if (!term) return true;
+    return f.name.toLowerCase().includes(term) || (f.address ?? "").toLowerCase().includes(term);
+  });
+
+  const handleFacilitySelect = (val: string) => {
+    if (val === IN_HOUSE) {
+      form.setValue("serviceFacilityId", null, { shouldDirty: true });
+      form.setValue("vendor", "In-House", { shouldDirty: true });
+      form.setValue("technician", "", { shouldDirty: true });
+      form.setValue("facilityAddress", null, { shouldDirty: true });
+      form.setValue("facilityPhone", null, { shouldDirty: true });
+      setFacilityPickerOpen(false);
+      setFacilitySearch("");
+      return;
+    }
+    const facility = (serviceFacilitiesQ.data ?? []).find(f => f.id === Number(val));
+    if (facility) {
+      form.setValue("serviceFacilityId", facility.id, { shouldDirty: true });
+      form.setValue("vendor", facility.name, { shouldDirty: true });
+      form.setValue("technician", facility.technician ?? "", { shouldDirty: true });
+      form.setValue("facilityAddress", facility.address ?? null, { shouldDirty: true });
+      form.setValue("facilityPhone", facility.phone ?? null, { shouldDirty: true });
+    }
+    setFacilityPickerOpen(false);
+    setFacilitySearch("");
+  };
+
+  const copyAddress = async (address: string) => {
+    await navigator.clipboard?.writeText(address);
+    toast({ title: "Address copied" });
   };
   const addAttachments = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -305,34 +377,53 @@ export default function ServiceForm() {
               )}
 
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-end">
+                <div className="xl:col-span-4">
+                  <Label>Service Schedule</Label>
+                  <Popover open={schedulePickerOpen} onOpenChange={open => { setSchedulePickerOpen(open); if (!open) setScheduleSearch(""); }}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" role="combobox" aria-expanded={schedulePickerOpen} className="w-full justify-between font-normal" data-testid="select-schedule">
+                        <span className="truncate">{selectedSchedule ? selectedSchedule.name : "Unscheduled Service"}</span>
+                        <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[380px] p-0" align="start">
+                      <Command shouldFilter={false}>
+                        <CommandInput placeholder="Search schedules…" value={scheduleSearch} onValueChange={setScheduleSearch} data-testid="input-schedule-search" />
+                        <CommandList>
+                          <CommandGroup>
+                            <CommandItem value={UNSCHEDULED_SERVICE} onSelect={() => handleScheduleSelect(UNSCHEDULED_SERVICE)} data-testid="option-schedule-unscheduled">
+                              Unscheduled Service
+                            </CommandItem>
+                          </CommandGroup>
+                          <CommandGroup heading="Assigned Schedules">
+                            {searchFilteredSchedules.length === 0 && (
+                              <div className="py-4 text-center text-sm text-muted-foreground">
+                                {scheduleSearch.trim() ? `No schedules match "${scheduleSearch.trim()}".` : "No schedules configured for this asset."}
+                              </div>
+                            )}
+                            {searchFilteredSchedules.map(s => (
+                              <CommandItem key={s.id} value={String(s.id)} onSelect={() => handleScheduleSelect(String(s.id))} data-testid={`option-schedule-${s.id}`}>
+                                {s.name} — {scheduleIntervalSummary(s, assetQ.data?.meterLabel)}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <FormField name="title" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-3"><FormLabel>Service Title</FormLabel><FormControl><Input data-testid="input-title" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem className="xl:col-span-4"><FormLabel>Service Title</FormLabel><FormControl><Input data-testid="input-title" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField name="eventType" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-2"><FormLabel>Event Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger data-testid="select-event-type"><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="scheduled">Scheduled</SelectItem>
-                        <SelectItem value="repair">Repair</SelectItem>
-                        <SelectItem value="unscheduled">Unscheduled</SelectItem>
-                      </SelectContent>
-                    </Select><FormMessage /></FormItem>
-                )} />
-                <FormField name="scheduleId" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-3"><FormLabel>Linked Schedule</FormLabel>
-                    <Select onValueChange={v => field.onChange(v === "none" ? null : Number(v))} value={field.value ? String(field.value) : "none"}>
-                      <FormControl><SelectTrigger data-testid="select-schedule"><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        {(schedulesQ.data ?? []).map(s => (
-                          <SelectItem key={s.id} value={String(s.id)} data-testid={`option-schedule-${s.id}`}>
-                            {s.name} — {scheduleIntervalSummary(s, assetQ.data?.meterLabel)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select><FormMessage /></FormItem>
-                )} />
+                {!scheduleId && (
+                  <div className="xl:col-span-4">
+                    <Label>Type</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant={form.watch("eventType") === "repair" ? "default" : "outline"} onClick={() => form.setValue("eventType", "repair", { shouldDirty: true })} data-testid="button-event-type-repair">Repair</Button>
+                      <Button type="button" variant={form.watch("eventType") === "unscheduled" ? "default" : "outline"} onClick={() => form.setValue("eventType", "unscheduled", { shouldDirty: true })} data-testid="button-event-type-unscheduled">Unscheduled</Button>
+                    </div>
+                  </div>
+                )}
                 <FormField name="performedAt" control={form.control} render={({ field }) => (
                   <FormItem className="xl:col-span-2"><FormLabel>Performed At</FormLabel><FormControl><Input type="date" data-testid="input-performed-at" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -341,37 +432,74 @@ export default function ServiceForm() {
                     <FormControl><Input type="number" step="any" data-testid="input-meter-at-service" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
                 )} />
 
-                <div className="xl:col-span-3">
+                <div className="xl:col-span-4">
                   <Label>Work Performed By</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button type="button" variant={workSource === "in-house" ? "default" : "outline"} onClick={() => { setWorkSource("in-house"); form.setValue("vendor", "In-House", { shouldDirty: true }); }} data-testid="button-work-in-house">In-House</Button>
-                    <Dialog open={providerOpen} onOpenChange={setProviderOpen}>
-                      <DialogTrigger asChild>
-                        <Button type="button" variant={workSource === "outside" ? "default" : "outline"} onClick={() => setWorkSource("outside")} data-testid="button-work-outside">Outside</Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader><DialogTitle>Outside Service Provider</DialogTitle></DialogHeader>
-                        <div className="grid gap-3">
-                          <div><Label>Business / Person</Label><Input value={provider.name} onChange={e => setProvider(p => ({ ...p, name: e.target.value }))} data-testid="input-provider-name" /></div>
-                          <div><Label>Contact</Label><Input value={provider.contact} onChange={e => setProvider(p => ({ ...p, contact: e.target.value }))} data-testid="input-provider-contact" /></div>
-                          <div><Label>Phone</Label><Input value={provider.phone} onChange={e => setProvider(p => ({ ...p, phone: e.target.value }))} data-testid="input-provider-phone" /></div>
-                          <div><Label>Address</Label><Textarea value={provider.address} onChange={e => setProvider(p => ({ ...p, address: e.target.value }))} data-testid="textarea-provider-address" /></div>
-                          <Button type="button" onClick={applyProvider} data-testid="button-apply-provider"><Building2 className="size-4 mr-1.5" /> Use Provider</Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
+                  <Popover open={facilityPickerOpen} onOpenChange={open => { setFacilityPickerOpen(open); if (!open) setFacilitySearch(""); }}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" role="combobox" aria-expanded={facilityPickerOpen} className="w-full justify-between font-normal" data-testid="select-work-facility">
+                        <span className="truncate">{serviceFacilityId ? (vendor || "Service Facility") : "In-House"}</span>
+                        <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[380px] p-0" align="start">
+                      <Command shouldFilter={false}>
+                        <CommandInput placeholder="Search facilities…" value={facilitySearch} onValueChange={setFacilitySearch} data-testid="input-work-facility-search" />
+                        <CommandList>
+                          <CommandGroup>
+                            <CommandItem value={IN_HOUSE} onSelect={() => handleFacilitySelect(IN_HOUSE)} data-testid="option-work-facility-in-house">
+                              In-House
+                            </CommandItem>
+                          </CommandGroup>
+                          <CommandGroup heading="Service Facilities">
+                            {searchFilteredFacilities.length === 0 && (
+                              <div className="py-4 text-center text-sm text-muted-foreground">
+                                {facilitySearch.trim() ? `No facilities match "${facilitySearch.trim()}".` : "No service facilities configured yet."}
+                              </div>
+                            )}
+                            {searchFilteredFacilities.map(facility => (
+                              <CommandItem key={facility.id} value={String(facility.id)} onSelect={() => handleFacilitySelect(String(facility.id))} data-testid={`option-work-facility-${facility.id}`}>
+                                {facility.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <FormField name="cost" control={form.control} render={({ field }) => (
                   <FormItem className="xl:col-span-2"><FormLabel>{costLabel}</FormLabel>
                     <FormControl><Input type="number" step="any" data-testid="input-cost" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField name="vendor" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-3"><FormLabel>Vendor / Shop</FormLabel><FormControl><Input data-testid="input-vendor" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField name="technician" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-4"><FormLabel>Technician / Contact</FormLabel><FormControl><Input data-testid="input-technician" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
-                )} />
+                {serviceFacilityId ? (
+                  <div className="xl:col-span-6 rounded-md border border-border p-3 space-y-1" data-testid="block-facility-address">
+                    <div className="text-sm font-semibold">{vendor}</div>
+                    {facilityAddress && (
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <span>{facilityAddress}</span>
+                        <Button type="button" variant="ghost" size="icon" className="size-6" onClick={() => copyAddress(facilityAddress)} data-testid="button-copy-facility-address" aria-label="Copy address">
+                          <Copy className="size-3.5" />
+                        </Button>
+                        <a href={mapsUrlFor(facilityAddress)} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline shrink-0" data-testid="link-facility-map">
+                          View on map
+                        </a>
+                      </div>
+                    )}
+                    {facilityPhone && (
+                      <a href={`tel:${facilityPhone}`} className="block text-sm text-primary hover:underline" data-testid="link-facility-phone">{facilityPhone}</a>
+                    )}
+                    {technician && <div className="text-sm text-muted-foreground">Tech: {technician}</div>}
+                  </div>
+                ) : (
+                  <>
+                    <FormField name="vendor" control={form.control} render={({ field }) => (
+                      <FormItem className="xl:col-span-3"><FormLabel>Vendor / Shop</FormLabel><FormControl><Input data-testid="input-vendor" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                    <FormField name="technician" control={form.control} render={({ field }) => (
+                      <FormItem className="xl:col-span-3"><FormLabel>Technician / Contact</FormLabel><FormControl><Input data-testid="input-technician" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                  </>
+                )}
                 <FormField name="notes" control={form.control} render={({ field }) => (
                   <FormItem className="xl:col-span-12"><FormLabel>Notes</FormLabel><FormControl><Textarea rows={2} data-testid="textarea-service-notes" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
                 )} />

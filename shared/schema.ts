@@ -226,6 +226,18 @@ export const maintenanceScheduleAssignments = pgTable("maintenance_schedule_assi
   assetId: integer("asset_id").notNull().references(() => assets.id),
 });
 
+// ----- Service facilities ---------------------------------------------------
+
+export const serviceFacilities = pgTable("service_facilities", {
+  id: serial("id").primaryKey(),
+  fleetId: integer("fleet_id").notNull().references(() => fleets.id),
+  name: text("name").notNull(),
+  address: text("address"),
+  phone: text("phone"),
+  technician: text("technician"),
+  notes: text("notes"),
+});
+
 // ----- Service events ------------------------------------------------------
 
 export const serviceEvents = pgTable("service_events", {
@@ -238,6 +250,12 @@ export const serviceEvents = pgTable("service_events", {
   meterAtService: real("meter_at_service"),
   vendor: text("vendor"),
   technician: text("technician"),
+  // If a saved service facility was picked, its name/technician are snapshotted
+  // into vendor/technician above; address/phone are snapshotted here. Snapshots
+  // keep historical work orders stable if the facility is later edited/deleted.
+  serviceFacilityId: integer("service_facility_id").references(() => serviceFacilities.id),
+  facilityAddress: text("facility_address"),
+  facilityPhone: text("facility_phone"),
   cost: real("cost"),
   notes: text("notes"),
 });
@@ -414,6 +432,10 @@ export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export const insertMaintenanceScheduleAssignmentSchema = createInsertSchema(maintenanceScheduleAssignments).omit({ id: true });
 export type InsertMaintenanceScheduleAssignment = z.infer<typeof insertMaintenanceScheduleAssignmentSchema>;
 export type MaintenanceScheduleAssignment = typeof maintenanceScheduleAssignments.$inferSelect;
+
+export const insertServiceFacilitySchema = createInsertSchema(serviceFacilities).omit({ id: true });
+export type InsertServiceFacility = z.infer<typeof insertServiceFacilitySchema>;
+export type ServiceFacility = typeof serviceFacilities.$inferSelect;
 
 export const insertServiceEventSchema = createInsertSchema(serviceEvents, {
   performedAt: z.coerce.date(),

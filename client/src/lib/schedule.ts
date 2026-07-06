@@ -194,3 +194,29 @@ export function worstStatus(statuses: ScheduleStatus[]): ScheduleStatus {
   if (statuses.length === 0) return "no-history";
   return statuses.reduce((acc, s) => (STATUS_RANK[s] < STATUS_RANK[acc] ? s : acc), statuses[0]);
 }
+
+// ---------------------------------------------------------------------------
+// Schedule picker helpers — "what could this work order plausibly fulfill,"
+// distinct from the assignment-based evaluation above ("what's actually
+// tracked as due"). Based on scope + appliesToAssetTypes, not assignments.
+// ---------------------------------------------------------------------------
+
+export function scheduleAppliesToAssetType(schedule: MaintenanceSchedule, assetType: string): boolean {
+  if (!schedule.appliesToAssetTypes) return true;
+  try {
+    const types = JSON.parse(schedule.appliesToAssetTypes);
+    if (!Array.isArray(types) || types.length === 0) return true;
+    return types.some((t: string) => String(t).toLowerCase() === assetType.toLowerCase());
+  } catch {
+    return true;
+  }
+}
+
+export function schedulesApplicableToAsset(schedules: MaintenanceSchedule[], asset: Asset): MaintenanceSchedule[] {
+  return schedules.filter(s => {
+    if (!s.active) return false;
+    if (s.scope === "asset") return s.assetId === asset.id;
+    if (s.scope === "fleet") return scheduleAppliesToAssetType(s, asset.assetType);
+    return false;
+  });
+}

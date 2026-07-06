@@ -18,6 +18,7 @@ import {
   fleetIdFromInventoryCategory,
   fleetIdFromFleetEquipmentType,
   fleetIdFromFleetFuelType,
+  fleetIdFromServiceFacility,
   fleetIdFromFleetRole,
   fleetIdFromSite,
   fleetIdFromFleet,
@@ -42,6 +43,7 @@ import {
   insertFleetMembershipSchema,
   insertFleetEquipmentTypeSchema,
   insertFleetFuelTypeSchema,
+  insertServiceFacilitySchema,
   insertFleetRoleSchema,
   insertInventoryCategorySchema,
   insertInventoryCategoryFieldSchema,
@@ -539,6 +541,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/fleet-fuel-types/:id", requirePermission("fleets.manage_settings", fleetIdFromFleetFuelType), async (req, res) => {
     try {
       const ok = await storage.deleteFleetFuelType(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
+  app.get("/api/service-facilities", requireFleetMember(fleetIdFromQuery), async (req, res) => {
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    res.json(await storage.listServiceFacilities(fleetId));
+  });
+  app.post("/api/service-facilities", requirePermission("fleets.manage_settings", fleetIdFromQuery), async (req, res) => {
+    try { res.json(await storage.createServiceFacility(insertServiceFacilitySchema.parse(req.body))); }
+    catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/service-facilities/:id", requirePermission("fleets.manage_settings", fleetIdFromServiceFacility), async (req, res) => {
+    try {
+      const updated = await storage.updateServiceFacility(Number(req.params.id), insertServiceFacilitySchema.partial().parse(req.body));
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.delete("/api/service-facilities/:id", requirePermission("fleets.manage_settings", fleetIdFromServiceFacility), async (req, res) => {
+    try {
+      const ok = await storage.deleteServiceFacility(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
