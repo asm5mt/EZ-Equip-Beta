@@ -18,6 +18,7 @@ import { useAppContext } from "@/lib/app-context";
 import { currencySymbol } from "@/lib/currencies";
 import { insertInventoryItemSchema, type InsertInventoryItem, type InventoryCategory, type InventoryCategoryField, type InventoryItem } from "@shared/schema";
 import { EditablePageActions } from "@/components/EditablePageActions";
+import { inventoryItemTitle } from "@/lib/inventory-display";
 
 interface Props {
   mode: "new" | "edit";
@@ -47,6 +48,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
     defaultValues: {
       fleetId: fleet?.id ?? 0,
       name: "",
+      displayName: null,
       category: "part",
       sku: null,
       partNumber: null,
@@ -129,6 +131,13 @@ export default function InventoryForm({ mode, itemId }: Props) {
     () => (fieldsQ.data ?? []).filter(field => field.categoryId === selectedCategoryDef?.id),
     [fieldsQ.data, selectedCategoryDef?.id],
   );
+  const displayNameRaw = form.watch("displayName");
+  const partNumberRaw = form.watch("partNumber");
+  const nameRaw = form.watch("name");
+  const titlePreview = useMemo(
+    () => inventoryItemTitle({ displayName: displayNameRaw ?? null, partNumber: partNumberRaw ?? null, customFields: customFieldsRaw ?? null, name: nameRaw ?? "" }, selectedCategoryFields),
+    [displayNameRaw, partNumberRaw, nameRaw, customFieldsRaw, selectedCategoryFields],
+  );
   const generatedName = useMemo(() => {
     const categoryName = selectedCategory?.trim();
     const fieldParts = selectedCategoryFields
@@ -163,6 +172,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
     const payload: InsertInventoryItem = {
       ...data,
       name: computedName,
+      displayName: data.displayName?.trim() || null,
       category: categoryName,
       sku: null,
       partNumber: null,
@@ -219,6 +229,24 @@ export default function InventoryForm({ mode, itemId }: Props) {
                     {selectedCategoryFields.length > 0
                       ? "Auto-built from the selected category and its configured fields."
                       : "No category fields are configured, so you can enter this item name manually."}
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField name="displayName" control={form.control} render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Display Name (nickname)</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={e => field.onChange(e.target.value || null)}
+                      data-testid="input-inventory-display-name"
+                      placeholder="Optional — overrides the title shown everywhere"
+                    />
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground" data-testid="text-inventory-title-preview">
+                    Shown as: <span className="font-medium text-foreground">{titlePreview}</span>
                   </p>
                   <FormMessage />
                 </FormItem>

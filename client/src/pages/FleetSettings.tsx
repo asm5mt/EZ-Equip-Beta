@@ -21,8 +21,9 @@ import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
+import { INVENTORY_ICON_OPTIONS, InventoryCategoryIcon, normalizeInventoryIcon } from "@/lib/inventory-category-icons";
 import type { FleetEquipmentType, FleetFuelType, InventoryCategory, InventoryCategoryField } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, Boxes, Fuel, Plus, Save, Tags, Trash2, X } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, Boxes, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, X } from "lucide-react";
 import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
@@ -96,6 +97,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [deletedInventoryFieldIds, setDeletedInventoryFieldIds] = useState<number[]>([]);
   const [categoryName, setCategoryName] = useState("");
   const [categoryDescription, setCategoryDescription] = useState("");
+  const [categoryColor, setCategoryColor] = useState("#64748b");
+  const [categoryIcon, setCategoryIcon] = useState("package");
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState("text");
 
@@ -129,6 +132,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     setDeletedInventoryFieldIds([]);
     setCategoryName("");
     setCategoryDescription("");
+    setCategoryColor("#64748b");
+    setCategoryIcon("package");
     setFieldName("");
     setFieldType("text");
     setAddInventoryCategoryOpen(false);
@@ -233,6 +238,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
             name: category.name.trim(),
             description: category.description?.trim() || null,
             active: true,
+            sortOrder: category.sortOrder,
+            color: category.color,
+            icon: normalizeInventoryIcon(category.icon),
           });
           const created = await res.json();
           createdCategoryMap.set(category.id, created.id);
@@ -245,6 +253,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         if (category.name.trim() !== original.name) patch.name = category.name.trim();
         if ((category.description ?? "").trim() !== (original.description ?? "")) patch.description = category.description?.trim() || null;
         if (category.active !== original.active) patch.active = category.active;
+        if (category.sortOrder !== original.sortOrder) patch.sortOrder = category.sortOrder;
+        if (category.color !== original.color) patch.color = category.color;
+        if (normalizeInventoryIcon(category.icon) !== normalizeInventoryIcon(original.icon)) patch.icon = normalizeInventoryIcon(category.icon);
         if (Object.keys(patch).length) {
           await apiRequest("PATCH", `/api/inventory-categories/${category.id}`, patch);
         }
@@ -261,6 +272,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               fieldType: field.fieldType,
               required: field.required,
               sortOrder: field.sortOrder,
+              highlightField: field.highlightField,
             });
             continue;
           }
@@ -271,6 +283,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
           if (field.fieldType !== original.fieldType) patch.fieldType = field.fieldType;
           if (field.required !== original.required) patch.required = field.required;
           if (field.sortOrder !== original.sortOrder) patch.sortOrder = field.sortOrder;
+          if (field.highlightField !== original.highlightField) patch.highlightField = field.highlightField;
           if (Object.keys(patch).length) {
             await apiRequest("PATCH", `/api/inventory-category-fields/${field.id}`, patch);
           }
@@ -350,17 +363,33 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         name: categoryName.trim(),
         description: categoryDescription.trim() || null,
         active: true,
+        sortOrder: categories.length,
+        color: categoryColor,
+        icon: normalizeInventoryIcon(categoryIcon),
         isNew: true,
         fields: [],
       },
     ]);
     setCategoryName("");
     setCategoryDescription("");
+    setCategoryColor("#64748b");
+    setCategoryIcon("package");
     setAddInventoryCategoryOpen(false);
   };
 
   const updateDraftInventoryCategory = (id: number, patch: Partial<InventoryCategory>) => {
     setDraftInventoryCategories(categories => categories.map(category => category.id === id ? { ...category, ...patch } : category));
+  };
+
+  const moveDraftInventoryCategory = (id: number, direction: -1 | 1) => {
+    setDraftInventoryCategories(categories => {
+      const index = categories.findIndex(c => c.id === id);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= categories.length) return categories;
+      const next = [...categories];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next.map((category, i) => ({ ...category, sortOrder: i }));
+    });
   };
 
   const removeDraftInventoryCategory = (category: DraftInventoryCategory) => {
@@ -386,6 +415,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
             fieldType,
             required: false,
             sortOrder: category.fields.length + 1,
+            highlightField: false,
             isNew: true,
           },
         ],
@@ -399,6 +429,25 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const updateDraftInventoryField = (categoryId: number, fieldId: number, patch: Partial<InventoryCategoryField>) => {
     setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
       ? { ...category, fields: category.fields.map(field => field.id === fieldId ? { ...field, ...patch } : field) }
+      : category
+    ));
+  };
+
+  const moveDraftInventoryField = (categoryId: number, fieldId: number, direction: -1 | 1) => {
+    setDraftInventoryCategories(categories => categories.map(category => {
+      if (category.id !== categoryId) return category;
+      const index = category.fields.findIndex(f => f.id === fieldId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= category.fields.length) return category;
+      const nextFields = [...category.fields];
+      [nextFields[index], nextFields[targetIndex]] = [nextFields[targetIndex], nextFields[index]];
+      return { ...category, fields: nextFields.map((field, i) => ({ ...field, sortOrder: i })) };
+    }));
+  };
+
+  const setHighlightField = (categoryId: number, fieldId: number) => {
+    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
+      ? { ...category, fields: category.fields.map(field => ({ ...field, highlightField: field.id === fieldId })) }
       : category
     ));
   };
@@ -442,6 +491,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       return !original
         || category.name.trim() !== original.name
         || (category.description ?? "").trim() !== (original.description ?? "")
+        || category.sortOrder !== original.sortOrder
+        || category.color !== original.color
+        || normalizeInventoryIcon(category.icon) !== normalizeInventoryIcon(original.icon)
         || category.fields.some(field => {
           if (field.isNew) return true;
           const originalField = (inventoryFieldsQ.data ?? []).find(f => f.id === field.id);
@@ -449,7 +501,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
             || field.name.trim() !== originalField.name
             || field.fieldType !== originalField.fieldType
             || field.required !== originalField.required
-            || field.sortOrder !== originalField.sortOrder;
+            || field.sortOrder !== originalField.sortOrder
+            || field.highlightField !== originalField.highlightField;
         });
     })
   );
@@ -755,6 +808,19 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                     <Label>Description</Label>
                     <Input value={categoryDescription} onChange={e => setCategoryDescription(e.target.value)} placeholder="Optional note shown to admins" data-testid="input-new-inventory-category-description" />
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label>Color</Label>
+                      <Input type="color" value={categoryColor} onChange={e => setCategoryColor(e.target.value)} data-testid="input-new-inventory-category-color" />
+                    </div>
+                    <InventoryIconSelect value={categoryIcon} onChange={setCategoryIcon} testid="select-new-inventory-category-icon" />
+                  </div>
+                  <div className="rounded-md border border-border bg-muted/50 p-3">
+                    <span className="inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium" style={tintedBadgeStyle(categoryColor)}>
+                      <InventoryCategoryIcon icon={categoryIcon} className="size-4" style={{ color: categoryColor }} />
+                      {categoryName.trim() || "Inventory Type"}
+                    </span>
+                  </div>
                   <div className="rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
                     You can create the type with zero fields, then add as many custom fields as needed from the type row.
                   </div>
@@ -783,9 +849,14 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 No inventory types are configured yet. Inventory items can still use free-form categories until you add saved types.
               </div>
             )}
-            {draftInventoryCategories.map(category => (
+            {draftInventoryCategories.map((category, categoryIndex) => (
               <div key={category.id} className="rounded-md border border-border p-3 space-y-3" data-testid={`row-inventory-category-${category.id}`}>
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(180px,0.7fr)_minmax(220px,1fr)_auto_auto] gap-2 items-center">
+                <div className="grid grid-cols-1 lg:grid-cols-[140px_minmax(160px,0.6fr)_minmax(200px,1fr)_auto_auto_auto] gap-2 items-center">
+                  <InventoryCategoryStylePopover
+                    category={category}
+                    disabled={!canAdmin || saveSettings.isPending}
+                    onChange={patch => updateDraftInventoryCategory(category.id, patch)}
+                  />
                   <Input
                     className="h-9"
                     value={category.name}
@@ -801,6 +872,14 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                     onChange={e => updateDraftInventoryCategory(category.id, { description: e.target.value })}
                     data-testid={`input-inventory-category-description-${category.id}`}
                   />
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending || categoryIndex === 0} onClick={() => moveDraftInventoryCategory(category.id, -1)} data-testid={`button-move-up-inventory-category-${category.id}`} aria-label="Move category up">
+                      <ChevronUp className="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending || categoryIndex === draftInventoryCategories.length - 1} onClick={() => moveDraftInventoryCategory(category.id, 1)} data-testid={`button-move-down-inventory-category-${category.id}`} aria-label="Move category down">
+                      <ChevronDown className="size-4" />
+                    </Button>
+                  </div>
                   <Button variant="secondary" size="sm" disabled={!canAdmin || saveSettings.isPending} onClick={() => setFieldDialogCategoryId(category.id)} data-testid={`button-open-add-inventory-field-${category.id}`}>
                     <Plus className="size-4 mr-1.5" /> Add Field
                   </Button>
@@ -817,8 +896,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">No custom fields. Items in this category will use the standard inventory form only.</div>
                 ) : (
                   <div className="grid gap-2">
-                    {category.fields.map(field => (
-                      <div key={field.id} className="grid grid-cols-1 md:grid-cols-[minmax(180px,1fr)_150px_120px_40px] gap-2 items-center rounded-md bg-muted/45 px-2 py-2" data-testid={`row-inventory-field-${field.id}`}>
+                    {category.fields.map((field, fieldIndex) => (
+                      <div key={field.id} className="grid grid-cols-1 md:grid-cols-[minmax(160px,1fr)_130px_110px_auto_auto_40px] gap-2 items-center rounded-md bg-muted/45 px-2 py-2" data-testid={`row-inventory-field-${field.id}`}>
                         <Input
                           className="h-8"
                           value={field.name}
@@ -837,6 +916,34 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                             <SelectItem value="required">Required</SelectItem>
                           </SelectContent>
                         </Select>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending || fieldIndex === 0} onClick={() => moveDraftInventoryField(category.id, field.id, -1)} data-testid={`button-move-up-inventory-field-${field.id}`} aria-label="Move field up">
+                            <ChevronUp className="size-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending || fieldIndex === category.fields.length - 1} onClick={() => moveDraftInventoryField(category.id, field.id, 1)} data-testid={`button-move-down-inventory-field-${field.id}`} aria-label="Move field down">
+                            <ChevronDown className="size-4" />
+                          </Button>
+                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 ${field.highlightField ? "text-[hsl(var(--primary))]" : ""}`}
+                              disabled={!canAdmin || saveSettings.isPending}
+                              onClick={() => setHighlightField(category.id, field.id)}
+                              data-testid={`button-key-spec-inventory-field-${field.id}`}
+                              aria-label="Set as key spec"
+                              aria-pressed={field.highlightField}
+                            >
+                              <Star className="size-4" fill={field.highlightField ? "currentColor" : "none"} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            Key spec — shown as a highlight badge on this category's items. Only one field per category can be the key spec.
+                          </TooltipContent>
+                        </Tooltip>
                         <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending} onClick={() => removeDraftInventoryField(category.id, field)} data-testid={`button-delete-inventory-field-${field.id}`}>
                           <Trash2 className="size-4" />
                         </Button>
@@ -926,6 +1033,34 @@ function FuelIconSelect({ value, onChange, testid, disabled = false }: {
         </SelectTrigger>
         <SelectContent>
           {FUEL_ICON_OPTIONS.map(option => (
+            <SelectItem key={option.value} value={option.value}>
+              <span className="inline-flex items-center gap-2">
+                <option.Icon className="size-4" />
+                {option.label}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function InventoryIconSelect({ value, onChange, testid, disabled = false }: {
+  value: string;
+  onChange: (v: string) => void;
+  testid: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <Label>Icon</Label>
+      <Select value={normalizeInventoryIcon(value)} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger data-testid={testid}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {INVENTORY_ICON_OPTIONS.map(option => (
             <SelectItem key={option.value} value={option.value}>
               <span className="inline-flex items-center gap-2">
                 <option.Icon className="size-4" />
@@ -1107,6 +1242,91 @@ function FuelTypeStylePopover({
                 className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeFuelIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
                 onClick={() => onChange({ icon: normalizeFuelIcon(option.value) })}
                 data-testid={`button-fuel-type-icon-${type.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+                <span className="max-w-full truncate">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function InventoryCategoryStylePopover({
+  category,
+  disabled,
+  onChange,
+}: {
+  category: DraftInventoryCategory;
+  disabled: boolean;
+  onChange: (patch: Partial<InventoryCategory>) => void;
+}) {
+  const [iconSearch, setIconSearch] = useState("");
+  const filteredIcons = INVENTORY_ICON_OPTIONS.filter(option =>
+    option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
+    || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
+  );
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className="inline-flex w-full max-w-[140px] items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid={`button-inventory-category-style-${category.id}`}
+        >
+          <Badge
+            variant="outline"
+            className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide transition-shadow hover:shadow-sm"
+            style={tintedBadgeStyle(category.color)}
+          >
+            <InventoryCategoryIcon icon={category.icon} className="size-3 shrink-0" />
+            <span className="truncate">{category.name || "Inventory Type"}</span>
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[340px] space-y-4" data-testid={`popover-inventory-category-style-${category.id}`}>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Color</div>
+          <div className="mt-2 grid grid-cols-[56px_1fr] items-center gap-3 rounded-md border border-border bg-muted/35 p-2">
+            <Input
+              type="color"
+              className="h-10 w-14 cursor-pointer p-1"
+              value={badgeColorValue(category.color)}
+              onChange={event => onChange({ color: event.target.value })}
+              data-testid={`input-inventory-category-color-${category.id}`}
+              aria-label="Choose inventory category color"
+            />
+            <Badge
+              variant="outline"
+              className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide"
+              style={tintedBadgeStyle(category.color)}
+            >
+              <InventoryCategoryIcon icon={category.icon} className="size-3 shrink-0" />
+              <span className="truncate">{category.name || "Inventory Type"}</span>
+            </Badge>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
+          <Input
+            className="mt-2 h-8"
+            value={iconSearch}
+            onChange={event => setIconSearch(event.target.value)}
+            placeholder="Search icons"
+            data-testid={`input-inventory-category-icon-search-${category.id}`}
+          />
+          <div className="mt-2 grid max-h-56 grid-cols-4 gap-1.5 overflow-y-auto pr-1">
+            {filteredIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeInventoryIcon(category.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeInventoryIcon(option.value) })}
+                data-testid={`button-inventory-category-icon-${category.id}-${option.value}`}
               >
                 <option.Icon className="size-4" />
                 <span className="max-w-full truncate">{option.label}</span>

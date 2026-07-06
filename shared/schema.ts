@@ -104,6 +104,9 @@ export const inventoryCategories = pgTable("inventory_categories", {
   name: text("name").notNull(),
   description: text("description"),
   active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  color: text("color").notNull().default("#64748b"),
+  icon: text("icon").notNull().default("package"),
 });
 
 export const inventoryCategoryFields = pgTable("inventory_category_fields", {
@@ -113,6 +116,8 @@ export const inventoryCategoryFields = pgTable("inventory_category_fields", {
   fieldType: text("field_type").notNull().default("text"),
   required: boolean("required").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
+  // At most one per category — enforced in server/storage.ts, not the DB.
+  highlightField: boolean("highlight_field").notNull().default(false),
 });
 
 export const fleetFuelTypes = pgTable("fleet_fuel_types", {
@@ -260,6 +265,8 @@ export const inventoryItems = pgTable("inventory_items", {
   id: serial("id").primaryKey(),
   fleetId: integer("fleet_id").notNull().references(() => fleets.id),
   name: text("name").notNull(),
+  // Optional user-set nickname. Overrides the auto-generated `name` for display everywhere except search.
+  displayName: text("display_name"),
   category: text("category"), // oil | filter | fluid | wiper | spark plug | grease | part | other
   sku: text("sku"),
   partNumber: text("part_number"),

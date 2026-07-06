@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { EditablePageActions } from "@/components/EditablePageActions";
 import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2 } from "lucide-react";
 import { z } from "zod";
-import type { Asset, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceLineItem } from "@shared/schema";
+import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceLineItem } from "@shared/schema";
 import { scheduleIntervalSummary } from "@/lib/format";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +23,7 @@ import { useAppContext } from "@/lib/app-context";
 import { formatDateInput } from "@/lib/format";
 import { currencySymbol } from "@/lib/currencies";
 import { modeBadgeClass, modeLabel } from "@/lib/mode-styles";
+import { computeKeySpecCollisions, fieldsForCategory, inventoryItemTitle } from "@/lib/inventory-display";
 
 const NON_INVENTORY = "__one_off__";
 
@@ -81,6 +82,12 @@ export default function ServiceForm() {
   });
   const inventoryQ = useQuery<InventoryItem[]>({
     queryKey: ["/api/inventory-items", { fleetId: fleet?.id }], enabled: !!fleet,
+  });
+  const inventoryCategoriesQ = useQuery<InventoryCategory[]>({
+    queryKey: ["/api/inventory-categories", { fleetId: fleet?.id }], enabled: !!fleet,
+  });
+  const inventoryFieldsQ = useQuery<InventoryCategoryField[]>({
+    queryKey: ["/api/inventory-category-fields", { fleetId: fleet?.id }], enabled: !!fleet,
   });
   const existingLinesQ = useQuery<ServiceLineItem[]>({
     queryKey: ["/api/service-line-items", { serviceEventId: editEventId }],
@@ -370,6 +377,8 @@ export default function ServiceForm() {
                     key={idx}
                     line={line}
                     inventory={inventoryQ.data ?? []}
+                    categories={inventoryCategoriesQ.data ?? []}
+                    categoryFields={inventoryFieldsQ.data ?? []}
                     onChange={updated => {
                       const next = [...lineItems];
                       next[idx] = updated;
@@ -455,13 +464,15 @@ function AttachmentPreview({ attachment, onRemove, idx }: {
   );
 }
 
-function LineItemRow({ line, inventory, onChange, onRemove, idx, currency }: {
-  line: any; inventory: InventoryItem[]; onChange: (l: any) => void; onRemove: () => void; idx: number; currency: string;
+function LineItemRow({ line, inventory, categories: inventoryCategories, categoryFields, onChange, onRemove, idx, currency }: {
+  line: any; inventory: InventoryItem[]; categories: InventoryCategory[]; categoryFields: InventoryCategoryField[]; onChange: (l: any) => void; onRemove: () => void; idx: number; currency: string;
 }) {
   const inv = line.inventoryItemId ? inventory.find(i => i.id === line.inventoryItemId) : null;
   const categories = Array.from(new Set(inventory.map(i => i.category || "other"))).sort();
   const selectedCategory = line.category ?? inv?.category ?? categories[0] ?? "other";
   const filteredInventory = inventory.filter(i => (i.category || "other") === selectedCategory);
+  const selectedCategoryFields = fieldsForCategory(categoryFields, inventoryCategories, selectedCategory);
+  const collidingIds = computeKeySpecCollisions(filteredInventory, categoryFields, inventoryCategories);
   const handleSelect = (val: string) => {
     if (val === NON_INVENTORY) {
       onChange({ ...line, inventoryItemId: null });
@@ -498,7 +509,16 @@ function LineItemRow({ line, inventory, onChange, onRemove, idx, currency }: {
             <SelectTrigger data-testid={`select-line-source-${idx}`}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={NON_INVENTORY}>One-off (non-inventory)</SelectItem>
-              {filteredInventory.map(i => <SelectItem key={i.id} value={String(i.id)}>{i.name}</SelectItem>)}
+              {filteredInventory.map(i => (
+                <SelectItem key={i.id} value={String(i.id)}>
+                  <span className="inline-flex items-center gap-2">
+                    <span>{inventoryItemTitle(i, selectedCategoryFields)}</span>
+                    {collidingIds.has(i.id) && i.partNumber && (
+                      <span className="text-[10px] text-muted-foreground">P/N {i.partNumber}</span>
+                    )}
+                  </span>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

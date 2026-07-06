@@ -323,13 +323,13 @@ export class DatabaseStorage implements IStorage {
     for (const type of DEFAULT_EQUIPMENT_TYPE_ROWS) {
       await db.insert(fleetEquipmentTypes).values({ fleetId: fleet.id, active: true, ...type });
     }
-    const oilCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "oil", description: "Engine oil, hydraulic oil, and other lubricants.", active: true });
-    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Viscosity", fieldType: "text", required: false, sortOrder: 1 });
-    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Container Size", fieldType: "text", required: false, sortOrder: 2 });
-    const filterCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "filter", description: "Oil, air, fuel, cabin, and hydraulic filters.", active: true });
-    await this.createInventoryCategoryField({ categoryId: filterCategory.id, name: "Filter Type", fieldType: "text", required: false, sortOrder: 1 });
-    await this.createInventoryCategory({ fleetId: fleet.id, name: "fluid", description: "ATF, coolant, brake fluid, gear oil, and additives.", active: true });
-    await this.createInventoryCategory({ fleetId: fleet.id, name: "part", description: "General replacement parts and ad-hoc items.", active: true });
+    const oilCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "oil", description: "Engine oil, hydraulic oil, and other lubricants.", active: true, sortOrder: 0, color: "#2563eb", icon: "droplet" });
+    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Viscosity", fieldType: "text", required: false, sortOrder: 1, highlightField: true });
+    await this.createInventoryCategoryField({ categoryId: oilCategory.id, name: "Container Size", fieldType: "text", required: false, sortOrder: 2, highlightField: false });
+    const filterCategory = await this.createInventoryCategory({ fleetId: fleet.id, name: "filter", description: "Oil, air, fuel, cabin, and hydraulic filters.", active: true, sortOrder: 1, color: "#0d9488", icon: "filter" });
+    await this.createInventoryCategoryField({ categoryId: filterCategory.id, name: "Filter Type", fieldType: "text", required: false, sortOrder: 1, highlightField: true });
+    await this.createInventoryCategory({ fleetId: fleet.id, name: "fluid", description: "ATF, coolant, brake fluid, gear oil, and additives.", active: true, sortOrder: 2, color: "#0891b2", icon: "waves" });
+    await this.createInventoryCategory({ fleetId: fleet.id, name: "part", description: "General replacement parts and ad-hoc items.", active: true, sortOrder: 3, color: "#7c3aed", icon: "wrench" });
     return fleet;
   }
 
@@ -614,7 +614,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async listInventoryCategories(fleetId?: number): Promise<InventoryCategory[]> {
-    const q = db.select().from(inventoryCategories).orderBy(inventoryCategories.name);
+    const q = db.select().from(inventoryCategories).orderBy(inventoryCategories.sortOrder, inventoryCategories.name);
     return fleetId ? await q.where(eq(inventoryCategories.fleetId, fleetId)) : await q;
   }
   async getInventoryCategory(id: number): Promise<InventoryCategory | undefined> {
@@ -653,10 +653,21 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async createInventoryCategoryField(input: InsertInventoryCategoryField): Promise<InventoryCategoryField> {
+    if (input.highlightField) {
+      await db.update(inventoryCategoryFields).set({ highlightField: false }).where(eq(inventoryCategoryFields.categoryId, input.categoryId));
+    }
     const [row] = await db.insert(inventoryCategoryFields).values(input).returning();
     return row;
   }
   async updateInventoryCategoryField(id: number, input: Partial<InsertInventoryCategoryField>): Promise<InventoryCategoryField | undefined> {
+    if (input.highlightField) {
+      const [existing] = await db.select().from(inventoryCategoryFields).where(eq(inventoryCategoryFields.id, id));
+      if (existing) {
+        await db.update(inventoryCategoryFields)
+          .set({ highlightField: false })
+          .where(and(eq(inventoryCategoryFields.categoryId, existing.categoryId), ne(inventoryCategoryFields.id, id)));
+      }
+    }
     const [row] = await db.update(inventoryCategoryFields).set(input).where(eq(inventoryCategoryFields.id, id)).returning();
     return row;
   }
