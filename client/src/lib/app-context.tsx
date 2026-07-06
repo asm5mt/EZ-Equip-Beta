@@ -12,6 +12,7 @@ export interface CurrentUser {
   displayName: string;
   email: string | null;
   systemAdmin: boolean;
+  authProvider: string;
   fleetIds: number[];
 }
 

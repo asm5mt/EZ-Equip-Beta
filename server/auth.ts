@@ -64,6 +64,15 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const changeOwnPasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+  confirmPassword: z.string().min(1),
+}).refine(data => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
 const setupSchema = z.object({
   fleetName: z.string().min(1),
   displayName: z.string().min(1),
@@ -161,7 +170,30 @@ export function registerAuthRoutes(app: Express) {
       displayName: req.user.displayName,
       email: req.user.email,
       systemAdmin: req.user.systemAdmin,
+      authProvider: req.user.authProvider,
       fleetIds: memberships.map(m => m.fleetId),
     });
+  });
+
+  // Self-service password change — distinct from the admin-only
+  // PATCH /api/users/:id/password. Always targets req.session.userId (via
+  // req.user, which attachCurrentUser derives solely from the session); the
+  // request body can never name a different target user.
+  app.patch("/api/auth/me/password", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "not_authenticated" });
+    const parsed = changeOwnPasswordSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "validation_error" });
+    const { currentPassword, newPassword } = parsed.data;
+
+    if (req.user.authProvider !== "local") {
+      return res.status(403).json({ error: "not_local_account" });
+    }
+    if (!req.user.passwordHash || !(await argon2.verify(req.user.passwordHash, currentPassword))) {
+      return res.status(401).json({ error: "invalid_current_password" });
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+    await storage.updateUser(req.user.id, { passwordHash });
+    res.json({ ok: true });
   });
 }
