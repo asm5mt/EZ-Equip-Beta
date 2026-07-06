@@ -7,6 +7,8 @@ import argon2 from "argon2";
 import { storage } from "./storage";
 import { registerAuthRoutes } from "./auth";
 import { registerOidcRoutes, testOidcConnection } from "./oidc";
+import { geocodeAddress } from "./geocode";
+import { composeAddress } from "@shared/address";
 import {
   requireAuth,
   requireSystemAdmin,
@@ -551,12 +553,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(await storage.listServiceFacilities());
   });
   app.post("/api/service-facilities", requireSystemAdmin, async (req, res) => {
-    try { res.json(await storage.createServiceFacility(insertServiceFacilitySchema.parse(req.body))); }
-    catch (err) { handleError(res, err); }
+    try {
+      const parsed = insertServiceFacilitySchema.parse(req.body);
+      const geo = await geocodeAddress(composeAddress(parsed));
+      res.json(await storage.createServiceFacility({ ...parsed, ...geo }));
+    } catch (err) { handleError(res, err); }
   });
   app.patch("/api/service-facilities/:id", requireSystemAdmin, async (req, res) => {
     try {
-      const updated = await storage.updateServiceFacility(Number(req.params.id), insertServiceFacilitySchema.partial().parse(req.body));
+      const patch = insertServiceFacilitySchema.partial().parse(req.body);
+      const addressFieldsChanged = (["addressLine", "city", "state", "zip"] as const).some(key => key in patch);
+      let geo: { latitude?: number | null; longitude?: number | null } = {};
+      if (addressFieldsChanged) {
+        const existing = await storage.getServiceFacility(Number(req.params.id));
+        geo = await geocodeAddress(composeAddress({ ...existing, ...patch }));
+      }
+      const updated = await storage.updateServiceFacility(Number(req.params.id), { ...patch, ...geo });
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }

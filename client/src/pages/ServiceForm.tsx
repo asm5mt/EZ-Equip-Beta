@@ -30,6 +30,7 @@ import { InventoryCategoryIcon } from "@/lib/inventory-category-icons";
 import { tintedBadgeStyle } from "@/lib/badges";
 import { schedulesApplicableToAsset } from "@/lib/schedule";
 import { mapsUrlFor } from "@/lib/maps";
+import { composeAddress } from "@shared/address";
 
 const NON_INVENTORY_CATEGORY = "__non_inventory__";
 const UNSCHEDULED_SERVICE = "__unscheduled_service__";
@@ -295,7 +296,7 @@ export default function ServiceForm() {
   const searchFilteredFacilities = (serviceFacilitiesQ.data ?? []).filter(f => {
     const term = facilitySearch.trim().toLowerCase();
     if (!term) return true;
-    return f.name.toLowerCase().includes(term) || (f.address ?? "").toLowerCase().includes(term);
+    return f.name.toLowerCase().includes(term) || composeAddress(f).toLowerCase().includes(term);
   });
 
   const handleFacilitySelect = (val: string) => {
@@ -314,7 +315,7 @@ export default function ServiceForm() {
       form.setValue("serviceFacilityId", facility.id, { shouldDirty: true });
       form.setValue("vendor", facility.name, { shouldDirty: true });
       form.setValue("technician", facility.technician ?? "", { shouldDirty: true });
-      form.setValue("facilityAddress", facility.address ?? null, { shouldDirty: true });
+      form.setValue("facilityAddress", composeAddress(facility) || null, { shouldDirty: true });
       form.setValue("facilityPhone", facility.phone ?? null, { shouldDirty: true });
     }
     setFacilityPickerOpen(false);

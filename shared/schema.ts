@@ -242,7 +242,13 @@ export const serviceFacilities = pgTable("service_facilities", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   type: text("type"),
-  address: text("address"),
+  addressLine: text("address_line"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  // Auto-geocoded server-side from the address fields above (Nominatim) —
+  // never manually entered. Null when geocoding fails; distance sort/display
+  // simply treats the facility as unlocatable.
   latitude: real("latitude"),
   longitude: real("longitude"),
   phone: text("phone"),

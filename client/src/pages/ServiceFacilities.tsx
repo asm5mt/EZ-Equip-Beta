@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
-  Copy, Filter, LocateFixed, MapPin, Phone, Plus, Save, Settings2, Trash2, X,
+  Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -20,8 +20,10 @@ import { useAppContext } from "@/lib/app-context";
 import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { FACILITY_TYPE_ICON_OPTIONS, FacilityTypeIcon, facilityTypeByName, normalizeFacilityTypeIcon } from "@/lib/facility-types";
 import { distanceMiles, formatDistanceMiles, mapsUrlFor } from "@/lib/maps";
+import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
 import { ViewToggle, FilterGroup, CheckboxRow, FilterChip } from "@/pages/Assets";
 import type { ViewMode } from "@/pages/Assets";
+import { composeAddress } from "@shared/address";
 import type { ServiceFacility, ServiceFacilityType } from "@shared/schema";
 
 type SortKey = "name-asc" | "name-desc" | "type-asc" | "distance-asc";
@@ -311,21 +313,22 @@ function FacilityTypeBadge({ type }: { type?: ServiceFacilityType }) {
 }
 
 function AddressLine({ facility, onCopy, revealOnHover }: { facility: ServiceFacility; onCopy: (address: string) => void; revealOnHover: boolean }) {
-  if (!facility.address) return null;
+  const address = composeAddress(facility);
+  if (!address) return null;
   return (
     <div className={`group/addr flex items-center gap-1.5 text-sm text-muted-foreground ${revealOnHover ? "" : ""}`}>
-      <span className="truncate">{facility.address}</span>
+      <span className="truncate">{address}</span>
       <button
         type="button"
         className={`inline-flex size-5 shrink-0 items-center justify-center rounded transition-opacity hover:bg-muted focus:opacity-100 ${revealOnHover ? "opacity-0 group-hover/addr:opacity-100" : ""}`}
-        onClick={(event) => { event.preventDefault(); event.stopPropagation(); onCopy(facility.address!); }}
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); onCopy(address); }}
         aria-label="Copy address"
         data-testid={`button-copy-facility-address-${facility.id}`}
       >
         <Copy className="size-3" />
       </button>
       <a
-        href={mapsUrlFor(facility.address)}
+        href={mapsUrlFor(address)}
         target="_blank"
         rel="noreferrer"
         className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
@@ -355,7 +358,7 @@ function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, 
             <div className="text-lg font-semibold leading-tight truncate" data-testid={`text-facility-name-${facility.id}`}>{facility.name}</div>
             <div className="mt-1"><FacilityTypeBadge type={configuredType} /></div>
           </div>
-          <FacilityRowActions onEdit={onEdit} onDelete={onDelete} canAdmin={canAdmin} />
+          <FacilityRowActions facilityName={facility.name} onEdit={onEdit} onDelete={onDelete} canAdmin={canAdmin} />
         </div>
         <AddressLine facility={facility} onCopy={onCopy} revealOnHover />
         {distance != null && <div className="text-[11px] text-muted-foreground">{formatDistanceMiles(distance)} away</div>}
@@ -398,18 +401,20 @@ function FacilityListRow({ facility, configuredType, distance, onCopy, onEdit, o
             {distance != null && <div className="text-[11px] text-muted-foreground">{formatDistanceMiles(distance)} away</div>}
           </div>
         </div>
-        <FacilityRowActions onEdit={onEdit} onDelete={onDelete} canAdmin={canAdmin} />
+        <FacilityRowActions facilityName={facility.name} onEdit={onEdit} onDelete={onDelete} canAdmin={canAdmin} />
       </div>
     </div>
   );
 }
 
-function FacilityRowActions({ onEdit, onDelete, canAdmin }: { onEdit: () => void; onDelete: () => void; canAdmin: boolean }) {
+function FacilityRowActions({ facilityName, onEdit, onDelete, canAdmin }: { facilityName: string; onEdit: () => void; onDelete: () => void; canAdmin: boolean }) {
   if (!canAdmin) return null;
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Button variant="ghost" size="sm" onClick={onEdit} data-testid="button-edit-facility">Edit</Button>
-      <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={onDelete} aria-label="Delete facility" data-testid="button-delete-facility">
+      <Button variant="ghost" size="icon" onClick={onEdit} aria-label={`Edit ${facilityName}`} data-testid="button-edit-facility">
+        <Pencil className="size-4" />
+      </Button>
+      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={onDelete} aria-label={`Delete ${facilityName}`} data-testid="button-delete-facility">
         <Trash2 className="size-4" />
       </Button>
     </div>
@@ -424,26 +429,44 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
   onSave: (input: Partial<ServiceFacility> & { id?: number }) => void;
   saving: boolean;
 }) {
+  const { toast } = useToast();
   const [name, setName] = useState("");
   const [type, setType] = useState(NO_TYPE);
-  const [address, setAddress] = useState("");
+  const [addressLine, setAddressLine] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
   const [phone, setPhone] = useState("");
   const [technician, setTechnician] = useState("");
   const [notes, setNotes] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setName(facility?.name ?? "");
     setType(facility?.type ?? NO_TYPE);
-    setAddress(facility?.address ?? "");
+    setAddressLine(facility?.addressLine ?? "");
+    setCity(facility?.city ?? "");
+    setState(facility?.state ?? "");
+    setZip(facility?.zip ?? "");
     setPhone(facility?.phone ?? "");
     setTechnician(facility?.technician ?? "");
     setNotes(facility?.notes ?? "");
-    setLatitude(facility?.latitude != null ? String(facility.latitude) : "");
-    setLongitude(facility?.longitude != null ? String(facility.longitude) : "");
   }, [open, facility]);
+
+  const handleZipBlur = async () => {
+    const trimmed = zip.trim();
+    if (!/^\d{5}$/.test(trimmed)) return;
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${trimmed}`);
+      if (!res.ok) return;
+      const place = (await res.json())?.places?.[0];
+      if (!place) return;
+      if (place["place name"]) setCity(place["place name"]);
+      if (place["state abbreviation"]) setState(place["state abbreviation"]);
+    } catch {
+      toast({ title: "Couldn't look up that ZIP code", description: "You can still enter City/State manually.", variant: "destructive" });
+    }
+  };
 
   const submit = () => {
     if (!name.trim()) return;
@@ -451,12 +474,13 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
       id: facility?.id,
       name: name.trim(),
       type: type === NO_TYPE ? null : type,
-      address: address.trim() || null,
+      addressLine: addressLine.trim() || null,
+      city: city.trim() || null,
+      state: state.trim() || null,
+      zip: zip.trim() || null,
       phone: phone.trim() || null,
       technician: technician.trim() || null,
       notes: notes.trim() || null,
-      latitude: latitude.trim() ? Number(latitude) : null,
-      longitude: longitude.trim() ? Number(longitude) : null,
     });
   };
 
@@ -480,8 +504,38 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
             </Select>
           </div>
           <div>
-            <Label>Address</Label>
-            <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, Springfield, IL" data-testid="input-facility-address" />
+            <Label>Address Line</Label>
+            <Input value={addressLine} onChange={e => setAddressLine(e.target.value)} placeholder="123 Main St" data-testid="input-facility-address-line" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px_120px] gap-3">
+            <div>
+              <Label>City</Label>
+              <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Springfield" data-testid="input-facility-city" />
+            </div>
+            <div>
+              <Label>State/Province</Label>
+              <Select value={state} onValueChange={setState}>
+                <SelectTrigger data-testid="select-facility-state"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>United States</SelectLabel>
+                    {STATE_PROVINCE_OPTIONS.filter(option => option.group === "United States").map(option => (
+                      <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Canada</SelectLabel>
+                    {STATE_PROVINCE_OPTIONS.filter(option => option.group === "Canada").map(option => (
+                      <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>ZIP/Postal Code</Label>
+              <Input value={zip} onChange={e => setZip(e.target.value)} onBlur={handleZipBlur} placeholder="62701" data-testid="input-facility-zip" />
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -496,13 +550,6 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
           <div>
             <Label>Notes</Label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" data-testid="input-facility-notes" />
-          </div>
-          <div>
-            <Label>Coordinates <span className="font-normal text-muted-foreground">(optional — enables distance sorting)</span></Label>
-            <div className="grid grid-cols-2 gap-3">
-              <Input value={latitude} onChange={e => setLatitude(e.target.value)} placeholder="Latitude" type="number" step="any" data-testid="input-facility-latitude" />
-              <Input value={longitude} onChange={e => setLongitude(e.target.value)} placeholder="Longitude" type="number" step="any" data-testid="input-facility-longitude" />
-            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="cancel" onClick={() => onOpenChange(false)} data-testid="button-cancel-facility-form">
