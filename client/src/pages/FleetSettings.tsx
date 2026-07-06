@@ -23,7 +23,7 @@ import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } fro
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
 import { INVENTORY_ICON_OPTIONS, InventoryCategoryIcon, normalizeInventoryIcon } from "@/lib/inventory-category-icons";
 import type { FleetEquipmentType, FleetFuelType, InventoryCategory, InventoryCategoryField } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, Boxes, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, X } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, Boxes, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, Type as TypeIcon, X } from "lucide-react";
 import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
@@ -273,6 +273,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               required: field.required,
               sortOrder: field.sortOrder,
               highlightField: field.highlightField,
+              inTitle: field.inTitle,
             });
             continue;
           }
@@ -284,6 +285,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
           if (field.required !== original.required) patch.required = field.required;
           if (field.sortOrder !== original.sortOrder) patch.sortOrder = field.sortOrder;
           if (field.highlightField !== original.highlightField) patch.highlightField = field.highlightField;
+          if (field.inTitle !== original.inTitle) patch.inTitle = field.inTitle;
           if (Object.keys(patch).length) {
             await apiRequest("PATCH", `/api/inventory-category-fields/${field.id}`, patch);
           }
@@ -416,6 +418,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
             required: false,
             sortOrder: category.fields.length + 1,
             highlightField: false,
+            inTitle: false,
             isNew: true,
           },
         ],
@@ -448,6 +451,13 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const setHighlightField = (categoryId: number, fieldId: number) => {
     setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
       ? { ...category, fields: category.fields.map(field => ({ ...field, highlightField: field.id === fieldId })) }
+      : category
+    ));
+  };
+
+  const toggleInTitle = (categoryId: number, fieldId: number) => {
+    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
+      ? { ...category, fields: category.fields.map(field => field.id === fieldId ? { ...field, inTitle: !field.inTitle } : field) }
       : category
     ));
   };
@@ -502,7 +512,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
             || field.fieldType !== originalField.fieldType
             || field.required !== originalField.required
             || field.sortOrder !== originalField.sortOrder
-            || field.highlightField !== originalField.highlightField;
+            || field.highlightField !== originalField.highlightField
+            || field.inTitle !== originalField.inTitle;
         });
     })
   );
@@ -897,7 +908,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 ) : (
                   <div className="grid gap-2">
                     {category.fields.map((field, fieldIndex) => (
-                      <div key={field.id} className="grid grid-cols-1 md:grid-cols-[minmax(160px,1fr)_130px_110px_auto_auto_40px] gap-2 items-center rounded-md bg-muted/45 px-2 py-2" data-testid={`row-inventory-field-${field.id}`}>
+                      <div key={field.id} className="grid grid-cols-1 md:grid-cols-[minmax(150px,1fr)_120px_100px_auto_auto_auto_40px] gap-2 items-center rounded-md bg-muted/45 px-2 py-2" data-testid={`row-inventory-field-${field.id}`}>
                         <Input
                           className="h-8"
                           value={field.name}
@@ -924,6 +935,26 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                             <ChevronDown className="size-4" />
                           </Button>
                         </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 ${field.inTitle ? "text-[hsl(var(--primary))]" : ""}`}
+                              disabled={!canAdmin || saveSettings.isPending}
+                              onClick={() => toggleInTitle(category.id, field.id)}
+                              data-testid={`button-in-title-inventory-field-${field.id}`}
+                              aria-label="Include in fallback title"
+                              aria-pressed={field.inTitle}
+                            >
+                              <TypeIcon className="size-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            In Title — include this field's value in the fallback title (used when an item has no nickname). Multiple fields can be checked; their values join in this field order.
+                          </TooltipContent>
+                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button

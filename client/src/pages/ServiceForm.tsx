@@ -12,8 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { EditablePageActions } from "@/components/EditablePageActions";
-import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2 } from "lucide-react";
+import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, Building2, ChevronsUpDown } from "lucide-react";
 import { z } from "zod";
 import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceLineItem } from "@shared/schema";
 import { scheduleIntervalSummary } from "@/lib/format";
@@ -23,7 +25,7 @@ import { useAppContext } from "@/lib/app-context";
 import { formatDateInput } from "@/lib/format";
 import { currencySymbol } from "@/lib/currencies";
 import { modeBadgeClass, modeLabel } from "@/lib/mode-styles";
-import { computeKeySpecCollisions, fieldsForCategory, inventoryItemTitle } from "@/lib/inventory-display";
+import { computeKeySpecCollisions, fieldsForCategory, getFieldValue, inventoryItemTitle, titleFieldsForCategory } from "@/lib/inventory-display";
 
 const NON_INVENTORY = "__one_off__";
 
@@ -467,12 +469,27 @@ function AttachmentPreview({ attachment, onRemove, idx }: {
 function LineItemRow({ line, inventory, categories: inventoryCategories, categoryFields, onChange, onRemove, idx, currency }: {
   line: any; inventory: InventoryItem[]; categories: InventoryCategory[]; categoryFields: InventoryCategoryField[]; onChange: (l: any) => void; onRemove: () => void; idx: number; currency: string;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const inv = line.inventoryItemId ? inventory.find(i => i.id === line.inventoryItemId) : null;
   const categories = Array.from(new Set(inventory.map(i => i.category || "other"))).sort();
   const selectedCategory = line.category ?? inv?.category ?? categories[0] ?? "other";
   const filteredInventory = inventory.filter(i => (i.category || "other") === selectedCategory);
   const selectedCategoryFields = fieldsForCategory(categoryFields, inventoryCategories, selectedCategory);
   const collidingIds = computeKeySpecCollisions(filteredInventory, categoryFields, inventoryCategories);
+  const titleFields = titleFieldsForCategory(selectedCategoryFields);
+  const searchFilteredInventory = filteredInventory.filter(item => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    const haystack = [
+      inventoryItemTitle(item, selectedCategoryFields),
+      item.partNumber,
+      item.sku,
+      ...titleFields.map(field => getFieldValue(item, field)),
+    ].filter(Boolean).join(" ").toLowerCase();
+    return haystack.includes(term);
+  });
+  const selectedItemLabel = line.inventoryItemId && inv ? inventoryItemTitle(inv, selectedCategoryFields) : "One-off (non-inventory)";
   const handleSelect = (val: string) => {
     if (val === NON_INVENTORY) {
       onChange({ ...line, inventoryItemId: null });
@@ -505,22 +522,79 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
         </div>
         <div className="lg:col-span-3">
           <label className="text-xs text-muted-foreground">Item</label>
-          <Select value={line.inventoryItemId ? String(line.inventoryItemId) : NON_INVENTORY} onValueChange={handleSelect}>
-            <SelectTrigger data-testid={`select-line-source-${idx}`}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NON_INVENTORY}>One-off (non-inventory)</SelectItem>
-              {filteredInventory.map(i => (
-                <SelectItem key={i.id} value={String(i.id)}>
-                  <span className="inline-flex items-center gap-2">
-                    <span>{inventoryItemTitle(i, selectedCategoryFields)}</span>
-                    {collidingIds.has(i.id) && i.partNumber && (
-                      <span className="text-[10px] text-muted-foreground">P/N {i.partNumber}</span>
+          <Popover open={pickerOpen} onOpenChange={open => { setPickerOpen(open); if (!open) setSearch(""); }}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={pickerOpen}
+                className="w-full justify-between font-normal"
+                data-testid={`select-line-source-${idx}`}
+              >
+                <span className="truncate">{selectedItemLabel}</span>
+                <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[420px] p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Search items…"
+                  value={search}
+                  onValueChange={setSearch}
+                  data-testid={`input-line-search-${idx}`}
+                />
+                <CommandList>
+                  <CommandGroup>
+                    <CommandItem
+                      value={NON_INVENTORY}
+                      onSelect={() => { handleSelect(NON_INVENTORY); setPickerOpen(false); }}
+                      data-testid={`option-line-source-${idx}-one-off`}
+                    >
+                      One-off (non-inventory)
+                    </CommandItem>
+                  </CommandGroup>
+                  {titleFields.length > 0 && (
+                    <div
+                      className="grid gap-2 px-2 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+                      style={{ gridTemplateColumns: `repeat(${titleFields.length}, minmax(0,1fr))` }}
+                    >
+                      {titleFields.map(field => <div key={field.id} className="truncate">{field.name}</div>)}
+                    </div>
+                  )}
+                  <CommandGroup>
+                    {searchFilteredInventory.length === 0 && (
+                      <div className="py-4 text-center text-sm text-muted-foreground">
+                        {search.trim() ? `No items match "${search.trim()}".` : "No items in this category."}
+                      </div>
                     )}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                    {searchFilteredInventory.map(item => (
+                      <CommandItem
+                        key={item.id}
+                        value={String(item.id)}
+                        onSelect={() => { handleSelect(String(item.id)); setPickerOpen(false); }}
+                        className="flex items-center gap-2"
+                        data-testid={`option-line-source-${idx}-${item.id}`}
+                      >
+                        {titleFields.length > 0 ? (
+                          <div className="grid gap-2 flex-1 min-w-0" style={{ gridTemplateColumns: `repeat(${titleFields.length}, minmax(0,1fr))` }}>
+                            {titleFields.map(field => (
+                              <span key={field.id} className="truncate">{getFieldValue(item, field) ?? "—"}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="truncate flex-1">{inventoryItemTitle(item, selectedCategoryFields)}</span>
+                        )}
+                        {collidingIds.has(item.id) && item.partNumber && (
+                          <span className="text-[10px] text-muted-foreground shrink-0">P/N {item.partNumber}</span>
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
         <div className="lg:col-span-4">
           <label className="text-xs text-muted-foreground">Item Name</label>

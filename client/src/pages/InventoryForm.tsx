@@ -132,11 +132,10 @@ export default function InventoryForm({ mode, itemId }: Props) {
     [fieldsQ.data, selectedCategoryDef?.id],
   );
   const displayNameRaw = form.watch("displayName");
-  const partNumberRaw = form.watch("partNumber");
   const nameRaw = form.watch("name");
   const titlePreview = useMemo(
-    () => inventoryItemTitle({ displayName: displayNameRaw ?? null, partNumber: partNumberRaw ?? null, customFields: customFieldsRaw ?? null, name: nameRaw ?? "" }, selectedCategoryFields),
-    [displayNameRaw, partNumberRaw, nameRaw, customFieldsRaw, selectedCategoryFields],
+    () => inventoryItemTitle({ displayName: displayNameRaw ?? null, customFields: customFieldsRaw ?? null, name: nameRaw ?? "" }, selectedCategoryFields),
+    [displayNameRaw, nameRaw, customFieldsRaw, selectedCategoryFields],
   );
   const generatedName = useMemo(() => {
     const categoryName = selectedCategory?.trim();

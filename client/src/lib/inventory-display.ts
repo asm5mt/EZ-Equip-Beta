@@ -20,22 +20,28 @@ export function fieldsForCategory(allFields: InventoryCategoryField[], categorie
   return allFields.filter(f => f.categoryId === category.id);
 }
 
-type TitleSourceItem = Pick<InventoryItem, "displayName" | "partNumber" | "customFields" | "name">;
+type TitleSourceItem = Pick<InventoryItem, "displayName" | "customFields" | "name">;
 type BadgeSourceItem = Pick<InventoryItem, "customFields">;
 
-export function getCategoryFieldValue(item: BadgeSourceItem, categoryFields: InventoryCategoryField[], fieldName: string): string | null {
-  const field = categoryFields.find(f => f.name.trim().toLowerCase() === fieldName.trim().toLowerCase());
-  if (!field) return null;
+// Generic per-field lookup — works for any category's field set, not just
+// specific hardcoded field names, so this fills in correctly regardless of
+// what a category's fields happen to be named (e.g. "Model" vs "Part Number").
+export function getFieldValue(item: BadgeSourceItem, field: InventoryCategoryField): string | null {
   const values = parseCustomFields(item.customFields);
   const value = values[field.id]?.trim();
   return value ? value : null;
 }
 
+export function titleFieldsForCategory(categoryFields: InventoryCategoryField[]): InventoryCategoryField[] {
+  return categoryFields.filter(f => f.inTitle).sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
 export function inventoryItemTitle(item: TitleSourceItem, categoryFields: InventoryCategoryField[]): string {
   if (item.displayName?.trim()) return item.displayName.trim();
-  const brand = getCategoryFieldValue(item, categoryFields, "Brand");
-  if (brand) return item.partNumber ? `${brand} ${item.partNumber}` : brand;
-  if (item.partNumber) return item.partNumber;
+  const parts = titleFieldsForCategory(categoryFields)
+    .map(field => getFieldValue(item, field))
+    .filter((v): v is string => !!v);
+  if (parts.length > 0) return parts.join(" ");
   return item.name;
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "inventory_category_fields" ADD COLUMN "in_title" boolean DEFAULT false NOT NULL;

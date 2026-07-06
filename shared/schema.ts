@@ -118,6 +118,9 @@ export const inventoryCategoryFields = pgTable("inventory_category_fields", {
   sortOrder: integer("sort_order").notNull().default(0),
   // At most one per category — enforced in server/storage.ts, not the DB.
   highlightField: boolean("highlight_field").notNull().default(false),
+  // Any number per category. Values of checked fields are joined (in sortOrder)
+  // as the fallback title when an item has no displayName. See client/src/lib/inventory-display.ts.
+  inTitle: boolean("in_title").notNull().default(false),
 });
 
 export const fleetFuelTypes = pgTable("fleet_fuel_types", {
