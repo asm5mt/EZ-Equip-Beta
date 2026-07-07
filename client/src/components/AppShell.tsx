@@ -137,11 +137,11 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
   }, []);
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
+    <div className="h-screen overflow-hidden flex bg-background text-foreground">
       {/* Sidebar */}
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-40 w-[220px]
+          fixed inset-y-0 left-0 z-40 w-[220px]
           bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))]
           border-r border-[hsl(var(--sidebar-border))]
           flex flex-col transition-transform
@@ -196,10 +196,10 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
         />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 lg:ml-[220px]">
         {/* Top bar */}
         <header
-          className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm"
+          className="shrink-0 sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm"
           data-testid="header-topbar"
         >
           <div className="flex items-center gap-2 sm:gap-4 px-4 sm:px-6 lg:px-8 py-3.5">
@@ -258,7 +258,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             </div>
           </div>
         </header>
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6">{children}</main>
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">{children}</main>
       </div>
 
       <QuickAddSheet open={quickAddOpen} onOpenChange={setQuickAddOpen} />

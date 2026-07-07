@@ -13,9 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { EditablePageActions } from "@/components/EditablePageActions";
 import {
-  ArrowLeft, ChevronDown, ChevronRight, ChevronUp, PackagePlus, Pencil, Plus, Save, Settings2, Star,
-  Trash2, Type as TypeIcon, X,
+  ArrowLeft, ChevronDown, ChevronRight, ChevronUp, PackagePlus, Pencil, Plus, Settings2, Star,
+  Trash2, Type as TypeIcon,
 } from "lucide-react";
 import type { InventoryCategory, InventoryCategoryField, InventoryItem } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
@@ -452,14 +453,14 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                       {categoryName.trim() || "Inventory Type"}
                     </span>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="cancel" onClick={() => setAddCategoryOpen(false)} data-testid="button-cancel-add-inventory-category">
-                      <X className="size-4 mr-1.5" /> Cancel
-                    </Button>
-                    <Button variant="success" disabled={!canAdmin || !fleetId || !categoryName.trim() || createCategory.isPending} onClick={() => createCategory.mutate()} data-testid="button-create-inventory-category">
-                      <Save className="size-4 mr-1.5" /> Save
-                    </Button>
-                  </div>
+                  <EditablePageActions
+                    showBack={false}
+                    hasChanges={Boolean(categoryName.trim() || categoryDescription.trim())}
+                    isSaving={createCategory.isPending}
+                    canSave={!!canAdmin && !!fleetId && !!categoryName.trim()}
+                    onCancel={() => setAddCategoryOpen(false)}
+                    onSave={() => createCategory.mutate()}
+                  />
                 </div>
               </DialogContent>
             </Dialog>
@@ -631,14 +632,14 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                   <SelectContent>{FIELD_TYPE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="cancel" onClick={() => setFieldDialogCategoryId(null)} data-testid="button-cancel-add-inventory-field">
-                  <X className="size-4 mr-1.5" /> Cancel
-                </Button>
-                <Button variant="success" disabled={!canAdmin || !fieldName.trim() || createField.isPending} onClick={() => createField.mutate()} data-testid="button-create-inventory-field">
-                  <Save className="size-4 mr-1.5" /> Save
-                </Button>
-              </div>
+              <EditablePageActions
+                showBack={false}
+                hasChanges={Boolean(fieldName.trim())}
+                isSaving={createField.isPending}
+                canSave={!!canAdmin && !!fieldName.trim()}
+                onCancel={() => setFieldDialogCategoryId(null)}
+                onSave={() => createField.mutate()}
+              />
             </div>
           </DialogContent>
         </Dialog>

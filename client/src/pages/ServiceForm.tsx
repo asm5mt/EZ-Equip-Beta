@@ -356,20 +356,18 @@ export default function ServiceForm() {
           onBack={goBack}
           onCancel={goBack}
           onSave={form.handleSubmit(submit)}
-        />
+          description={formMode === "edit" ? "You're editing this work order" : undefined}
+        >
+          <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground" data-testid="text-work-order-identity">
+            {workOrderIdentity}
+          </div>
+          <div className={`rounded-md border px-3 py-2 text-xs font-semibold tracking-wide ${modeBadgeClass(formMode)}`} data-testid="text-work-order-mode">
+            {modeLabel(formMode)}
+          </div>
+        </EditablePageActions>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(submit)}>
             <Card className="p-5 space-y-5">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground" data-testid="text-work-order-identity">
-                    {workOrderIdentity}
-                  </div>
-                  <div className={`rounded-md border px-3 py-2 text-xs font-semibold tracking-wide ${modeBadgeClass(formMode)}`} data-testid="text-work-order-mode">
-                    {modeLabel(formMode)}
-                  </div>
-                </div>
-              </div>
 
               {!canEdit && (
                 <div className="rounded-md border border-[hsl(var(--status-warn)/0.35)] bg-[hsl(var(--status-warn)/0.08)] p-3 text-sm">

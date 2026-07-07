@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,14 @@ import {
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { EditablePageActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
 import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping } from "@shared/schema";
 import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
-  ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
+  Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
   Palette,
 } from "lucide-react";
@@ -147,13 +147,15 @@ export default function Admin() {
   return (
     <AppShell title="Settings" subtitle="Theme, units, fleets, local users, and access control">
       <div className="space-y-6 max-w-6xl">
-        <div className="flex items-center justify-start">
-          <Link href="/">
-            <Button variant="outline" size="sm" data-testid="button-back-dashboard">
-              <ArrowLeft className="size-4 mr-1.5" /> Back
-            </Button>
-          </Link>
-        </div>
+        <EditablePageActions
+          hasChanges={dirty}
+          isSaving={saveSettings.isPending}
+          canSave={dirty}
+          onBack={() => navigate("/")}
+          onCancel={cancelDraft}
+          onSave={() => saveSettings.mutate()}
+          description={dirty ? "You have unsaved settings changes" : undefined}
+        />
 
         <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
           <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-settings">
@@ -300,18 +302,6 @@ export default function Admin() {
             <AuthenticationSection />
           </TabsContent>
         </Tabs>
-
-        {dirty && (
-          <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border p-4 shadow-lg status-warn" data-testid="panel-unsaved-settings">
-            <div className="font-semibold">You have unsaved changes</div>
-            <p className="text-sm text-muted-foreground mt-1">Save these settings or cancel to return to the last saved configuration.</p>
-            <div className="flex justify-end gap-2 mt-3">
-              <Button variant="cancel" size="sm" onClick={cancelDraft} data-testid="button-cancel-settings"><X className="size-4 mr-1.5" /> Cancel</Button>
-              <Button variant="success" size="sm" onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending} data-testid="button-save-settings"><Save className="size-4 mr-1.5" /> Save</Button>
-            </div>
-          </div>
-        )}
-
       </div>
     </AppShell>
   );

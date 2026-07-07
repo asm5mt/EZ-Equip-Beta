@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { ArrowLeft, Save, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,6 +80,9 @@ export function EditablePageActions({
   savePendingLabel = "Saving…",
   backLabel = "Back",
   showBack = true,
+  label,
+  description,
+  children,
 }: {
   hasChanges: boolean;
   isSaving?: boolean;
@@ -90,23 +94,37 @@ export function EditablePageActions({
   savePendingLabel?: string;
   backLabel?: string;
   showBack?: boolean;
+  /** Overrides the badge text shown when hasChanges is true (default "Unsaved changes"). */
+  label?: string;
+  /** Optional contextual line shown next to the Back button, e.g. "You're editing this work order". */
+  description?: string;
+  /** Extra content rendered inline next to the Back button, e.g. a page-identity pill. */
+  children?: ReactNode;
 }) {
   const { confirmOrRun, dialog } = useUnsavedChangeGuard({ hasChanges, onSave });
 
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-2">
-          {showBack && onBack && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => confirmOrRun(onBack)}
-              data-testid="button-back"
-            >
-              <ArrowLeft className="size-4 mr-1.5" /> {backLabel}
-            </Button>
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {showBack && onBack && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => confirmOrRun(onBack)}
+                data-testid="button-back"
+              >
+                <ArrowLeft className="size-4 mr-1.5" /> {backLabel}
+              </Button>
+            )}
+            {children}
+          </div>
+          {description && (
+            <p className="text-xs text-muted-foreground" data-testid="text-editable-page-description">
+              {description}
+            </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
@@ -114,7 +132,7 @@ export function EditablePageActions({
             className={`rounded-md border px-3 py-1.5 text-[10px] font-semibold tracking-wide ${hasChanges ? "status-warn" : "border-border bg-card text-muted-foreground"}`}
             data-testid="badge-unsaved-page-state"
           >
-            {hasChanges ? "Unsaved changes" : "No pending changes"}
+            {hasChanges ? (label ?? "Unsaved changes") : "No pending changes"}
           </div>
           <Button
             type="button"

@@ -23,8 +23,8 @@ import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } fro
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
 import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
 import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Plus, Save, Tags, Trash2, X } from "lucide-react";
-import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Save, Tags, Trash2, X } from "lucide-react";
+import { EditablePageActions } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
@@ -55,6 +55,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     queryKey: ["/api/fleet-fuel-types", { fleetId }],
     enabled: Number.isFinite(fleetId),
   });
+  const [draftName, setDraftName] = useState("");
+  const [editingName, setEditingName] = useState(false);
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftAddressLine, setDraftAddressLine] = useState("");
   const [draftCity, setDraftCity] = useState("");
@@ -81,6 +83,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   }, [fleetId, setFleetId]);
 
   const resetDraft = () => {
+    setDraftName(fleet?.name ?? "");
+    setEditingName(false);
     setDraftCurrency(fleet?.currency ?? "USD");
     setDraftAddressLine(fleet?.addressLine ?? "");
     setDraftCity(fleet?.city ?? "");
@@ -104,7 +108,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.currency, fleet?.addressLine, fleet?.city, fleet?.state, fleet?.zip, typesQ.data, fuelTypesQ.data]);
+  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.city, fleet?.state, fleet?.zip, typesQ.data, fuelTypesQ.data]);
 
   const handleAddressZipBlur = async () => {
     const trimmed = draftZip.trim();
@@ -137,6 +141,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const work: Promise<unknown>[] = [];
 
       const fleetPatch: Record<string, unknown> = {};
+      if (draftName.trim() && draftName.trim() !== fleet.name) fleetPatch.name = draftName.trim();
       if (draftCurrency !== (fleet.currency ?? "USD")) fleetPatch.currency = draftCurrency;
       if (draftAddressLine !== (fleet.addressLine ?? "")) fleetPatch.addressLine = draftAddressLine || null;
       if (draftCity !== (fleet.city ?? "")) fleetPatch.city = draftCity || null;
@@ -269,7 +274,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   };
 
   const hasChanges = !!fleet && (
-    draftCurrency !== (fleet.currency ?? "USD")
+    (!!draftName.trim() && draftName.trim() !== fleet.name)
+    || draftCurrency !== (fleet.currency ?? "USD")
     || draftAddressLine !== (fleet.addressLine ?? "")
     || draftCity !== (fleet.city ?? "")
     || draftState !== (fleet.state ?? "")
@@ -296,11 +302,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         || type.active !== original.active;
     })
   );
-  const { confirmOrRun, dialog: unsavedDialog } = useUnsavedChangeGuard({
-    hasChanges,
-    onSave: () => saveSettings.mutate(),
-  });
-
   if (!fleet) {
     return (
       <AppShell title="Fleet Settings" subtitle="FLEET SETTINGS">
@@ -318,35 +319,56 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   return (
     <AppShell title={fleet.name} subtitle="FLEET SETTINGS">
       <div className="max-w-6xl space-y-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            <Button variant="outline" onClick={() => confirmOrRun(() => navigate("/fleets"))} data-testid="button-back-settings">
-              <ArrowLeft className="size-4 mr-1.5" /> Back
-            </Button>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate">{fleet.name}</div>
-              <div className="text-xs text-muted-foreground truncate">/{fleet.slug}</div>
-            </div>
+        <EditablePageActions
+          hasChanges={hasChanges}
+          isSaving={saveSettings.isPending}
+          canSave={!!canAdmin && hasChanges}
+          onBack={() => navigate("/fleets")}
+          onCancel={resetDraft}
+          onSave={() => saveSettings.mutate()}
+          description={hasChanges ? "You have unsaved fleet settings changes" : undefined}
+        >
+          <div className="min-w-0">
+            {editingName ? (
+              <Input
+                autoFocus
+                value={draftName}
+                onChange={e => setDraftName(e.target.value)}
+                onBlur={() => setEditingName(false)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { e.preventDefault(); setEditingName(false); }
+                  if (e.key === "Escape") { setDraftName(fleet.name); setEditingName(false); }
+                }}
+                className="h-7 text-sm font-semibold"
+                data-testid="input-fleet-name"
+              />
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <div className="text-sm font-semibold truncate" data-testid="text-fleet-name">{draftName || fleet.name}</div>
+                {canAdmin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    onClick={() => setEditingName(true)}
+                    aria-label="Rename fleet"
+                    data-testid="button-rename-fleet"
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                )}
+              </div>
+            )}
+            <div className="text-xs text-muted-foreground truncate">/{fleet.slug}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`text-[10px] tracking-wide ${hasChanges ? "status-warn" : ""}`} data-testid="badge-fleet-settings-state">
-              {hasChanges ? "Unsaved changes" : "No pending changes"}
-            </Badge>
-            <Button variant="cancel" disabled={saveSettings.isPending} onClick={resetDraft} data-testid="button-cancel-fleet-settings">
-              <X className="size-4 mr-1.5" /> Cancel
-            </Button>
-            <Button variant="success" disabled={!canAdmin || !hasChanges || saveSettings.isPending} onClick={() => saveSettings.mutate()} data-testid="button-save-fleet-settings">
-              <Save className="size-4 mr-1.5" /> {saveSettings.isPending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </div>
+        </EditablePageActions>
 
         {!canAdmin && (
           <Card className="p-4 status-warn">
             Your current fleet role can view these settings, but only Fleet Admins can save changes.
           </Card>
         )}
-        {unsavedDialog}
 
         <Tabs defaultValue="general" className="w-full">
           <TabsList className="grid w-full grid-cols-3 h-auto" data-testid="tabs-fleet-settings">
