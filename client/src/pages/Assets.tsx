@@ -18,6 +18,7 @@ import { EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons
 import { FuelTypeIcon, fuelTypeByName, tintedFuelStyle } from "@/lib/fuel-types";
 import { plateJurisdictionShort } from "@/lib/plates";
 import { useToast } from "@/hooks/use-toast";
+import { VinDisplay } from "@/components/VinDisplay";
 
 export type ViewMode = "list" | "grid";
 type StatusFilter = "active" | "inactive" | "all";
@@ -374,7 +375,7 @@ function IdentifierLine({ asset, onCopy }: { asset: Asset; onCopy: (value: strin
     <div className="group/ids flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
       {identifiers.map((item, index) => (
         <span key={item.key} className={`inline-flex items-center gap-1 ${index > 0 ? "ml-1" : ""}`}>
-          <span>{item.displayValue}</span>
+          {item.label === "VIN" ? <VinDisplay vin={item.displayValue} /> : <span>{item.displayValue}</span>}
           <button
             type="button"
             className="inline-flex size-5 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover/ids:opacity-100 focus:opacity-100"

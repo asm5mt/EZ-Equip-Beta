@@ -96,6 +96,8 @@ export const systemSettings = pgTable("system_settings", {
   oidcClientId: text("oidc_client_id"),
   oidcClientSecret: text("oidc_client_secret"),
   oidcRedirectUri: text("oidc_redirect_uri"),
+  orgName: text("org_name"),
+  orgLogoUrl: text("org_logo_url"),
 });
 
 export const inventoryCategories = pgTable("inventory_categories", {

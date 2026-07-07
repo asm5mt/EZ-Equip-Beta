@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown, Info, KeyRound, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +97,7 @@ function ChangePasswordDialog() {
 export function UserSwitcher() {
   const { currentUser, fleet, fleets, setFleetId, role, logout } = useAppContext();
   const display = currentUser.displayName;
+  const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -145,6 +146,9 @@ export function UserSwitcher() {
               <Logo size={40} withWordmark={false} />
               <div className="text-lg font-semibold">EZ-Equip</div>
               <div className="text-sm text-muted-foreground">Sessanna Consulting</div>
+              {orgInfoQ.data?.orgName && (
+                <div className="text-sm font-medium mt-1" data-testid="text-about-org-name">{orgInfoQ.data.orgName}</div>
+              )}
               <div className="mt-3 text-xs text-muted-foreground space-y-1">
                 <div>Version {APP_VERSION} · Build {BUILD_NUMBER}</div>
                 <div>Built {new Date(BUILD_TIME).toLocaleString()}</div>

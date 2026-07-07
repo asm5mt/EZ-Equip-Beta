@@ -21,6 +21,7 @@ import { formatDate, formatNumber, meterFullLabel, meterUnitLabel } from "@/lib/
 import { assetTypeBadgeClass, tintedBadgeStyle } from "@/lib/badges";
 import { useAppContext } from "@/lib/app-context";
 import { LicensePlateDisplay } from "@/components/LicensePlateDisplay";
+import { VinDisplay } from "@/components/VinDisplay";
 import { EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FuelTypeIcon, fuelTypeByName, tintedFuelStyle } from "@/lib/fuel-types";
 import { fetchRecallCacheEntry, getRecallCacheEntry, isRecallCacheEntryForVehicle, isRecallCacheFresh, type RecallCacheEntry, type VehicleSafetyLookup, type NhtsaRecallRecord, type NhtsaComplaintRecord } from "@/lib/recall-cache";
@@ -421,7 +422,7 @@ export default function AssetDetail() {
                       <div className="group/vin">
                         <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">VIN</div>
                         <div className="flex items-center gap-1.5">
-                          <div className="font-mono text-[15px] font-semibold tracking-[0.12em]" data-testid="text-asset-vin">{asset.vin}</div>
+                          <VinDisplay vin={asset.vin} className="text-[15px]" testId="text-asset-vin" />
                           <Button
                             variant="ghost"
                             size="icon"

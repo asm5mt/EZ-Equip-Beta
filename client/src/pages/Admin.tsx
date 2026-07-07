@@ -31,7 +31,7 @@ import type { PermissionCatalogEntry } from "@shared/permissions";
 import { BADGE_COLORS } from "@/lib/badges";
 import {
   ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, Tags, ShieldCheck, KeyRound,
-  Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil,
+  Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
 } from "lucide-react";
 
 type ThemeMode = "auto" | "dark" | "light";
@@ -49,6 +49,7 @@ export default function Admin() {
   const search = useSearch();
   const activeTab = new URLSearchParams(search).get("tab") ?? "general";
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
+  const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
 
   const persisted = useMemo(() => {
     const map = new Map((settingsQ.data ?? []).map(s => [s.key, s.value]));
@@ -58,14 +59,18 @@ export default function Admin() {
       distanceUnit: map.get("distanceUnit") || "mi",
       volumeUnit: map.get("volumeUnit") || "qt",
       defaultMeter: map.get("defaultMeter") || "mileage",
+      orgName: orgInfoQ.data?.orgName ?? "",
+      orgLogoUrl: orgInfoQ.data?.orgLogoUrl ?? "",
     };
-  }, [settingsQ.data]);
+  }, [settingsQ.data, orgInfoQ.data]);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [unitSystem, setUnitSystem] = useState("imperial");
   const [distanceUnit, setDistanceUnit] = useState("mi");
   const [volumeUnit, setVolumeUnit] = useState("qt");
   const [defaultMeter, setDefaultMeter] = useState("mileage");
+  const [orgName, setOrgName] = useState("");
+  const [orgLogoUrl, setOrgLogoUrl] = useState("");
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -86,9 +91,11 @@ export default function Admin() {
     setDistanceUnit(persisted.distanceUnit);
     setVolumeUnit(persisted.volumeUnit);
     setDefaultMeter(persisted.defaultMeter);
+    setOrgName(persisted.orgName);
+    setOrgLogoUrl(persisted.orgLogoUrl);
   }, [persisted]);
 
-  const draft = { themeMode, unitSystem, distanceUnit, volumeUnit, defaultMeter };
+  const draft = { themeMode, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
   const previewTheme = (value: ThemeMode) => {
@@ -97,9 +104,13 @@ export default function Admin() {
   };
 
   const saveSettings = useMutation({
-    mutationFn: async () => apiRequest("PATCH", "/api/app-settings", draft),
+    mutationFn: async () => {
+      await apiRequest("PATCH", "/api/app-settings", { themeMode, unitSystem, distanceUnit, volumeUnit, defaultMeter });
+      await apiRequest("PATCH", "/api/system-settings", { orgName: orgName.trim(), orgLogoUrl: orgLogoUrl.trim() });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/app-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/org-info"] });
       toast({ title: "Settings saved" });
     },
     onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
@@ -111,6 +122,8 @@ export default function Admin() {
     setDistanceUnit(persisted.distanceUnit);
     setVolumeUnit(persisted.volumeUnit);
     setDefaultMeter(persisted.defaultMeter);
+    setOrgName(persisted.orgName);
+    setOrgLogoUrl(persisted.orgLogoUrl);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
   };
 
@@ -195,6 +208,26 @@ export default function Admin() {
           </TabsList>
 
           <TabsContent value="general" className="mt-5 space-y-5">
+            <Card className="p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <Building2 className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+                <div>
+                  <h3 className="font-semibold">Organization</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Optional — identifies which organization this instance belongs to, shown in the About dialog.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Organization Name</Label>
+                  <Input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Your Organization" data-testid="input-org-name" />
+                </div>
+                <div>
+                  <Label>Logo URL</Label>
+                  <Input value={orgLogoUrl} onChange={e => setOrgLogoUrl(e.target.value)} placeholder="https://…" data-testid="input-org-logo-url" />
+                </div>
+              </div>
+            </Card>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card className="p-5 space-y-4">
                 <div className="flex items-start gap-3">

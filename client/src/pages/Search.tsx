@@ -8,6 +8,7 @@ import { Search as SearchIcon } from "lucide-react";
 import type { Asset, InventoryItem, ServiceEvent } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
 import { formatDate, formatNumber, meterUnitLabel } from "@/lib/format";
+import { VinDisplay } from "@/components/VinDisplay";
 
 interface SearchResult {
   assets: Asset[];
@@ -20,8 +21,8 @@ export default function Search() {
   const [q, setQ] = useState("");
 
   const resultsQ = useQuery<SearchResult>({
-    queryKey: ["/api/search", { q }],
-    enabled: q.trim().length >= 1,
+    queryKey: ["/api/search", { q, fleetId: fleet?.id }],
+    enabled: q.trim().length >= 1 && !!fleet?.id,
   });
 
   const data = resultsQ.data ?? { assets: [], inventory: [], serviceEvents: [] };
@@ -62,7 +63,7 @@ export default function Search() {
                           <div className="font-medium">{a.friendlyName}</div>
                           <div className="text-xs text-muted-foreground mt-0.5">
                             {[a.year, a.make, a.model, a.trim].filter(Boolean).join(" ")}
-                            {a.vin && <> &bull; VIN {a.vin}</>}
+                            {a.vin && <> &bull; VIN <VinDisplay vin={a.vin} /></>}
                           </div>
                         </div>
                         <div className="text-xs text-muted-foreground num">{formatNumber(a.currentMeter)} {meterUnitLabel(a.meterType, a.meterLabel)}</div>

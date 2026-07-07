@@ -991,12 +991,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { oidcClientSecret, ...rest } = settings;
     res.json({ ...rest, oidcClientSecretSet: !!oidcClientSecret });
   });
+  // Narrow, non-admin-gated read of instance branding — used by the General
+  // settings tab and the About dialog, both reachable by any authenticated
+  // user. Deliberately excludes the OIDC config that GET /api/system-settings
+  // returns for admins only.
+  app.get("/api/org-info", requireAuth, async (_req, res) => {
+    const settings = await storage.getSystemSettings();
+    res.json({ orgName: settings.orgName, orgLogoUrl: settings.orgLogoUrl });
+  });
   const systemSettingsPatchSchema = z.object({
     authMode: z.enum(["local", "oidc", "both"]).optional(),
     oidcIssuerUrl: z.string().url().optional().or(z.literal("")),
     oidcClientId: z.string().optional().or(z.literal("")),
     oidcClientSecret: z.string().optional(),
     oidcRedirectUri: z.string().url().optional().or(z.literal("")),
+    orgName: z.string().optional().or(z.literal("")),
+    orgLogoUrl: z.string().url().optional().or(z.literal("")),
   });
   app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
     try {
