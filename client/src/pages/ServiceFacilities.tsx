@@ -14,6 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
 } from "lucide-react";
+import { EditablePageActions } from "@/components/EditablePageActions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
@@ -576,19 +577,20 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
   const [color, setColor] = useState("#64748b");
   const [icon, setIcon] = useState("wrench");
 
+  const [draftTypes, setDraftTypes] = useState<ServiceFacilityType[]>(types);
+  useEffect(() => {
+    setDraftTypes(types);
+  }, [types]);
+
+  const onError = (e: any) => toast({ title: "Save failed", description: String(e), variant: "destructive" });
+
   const createType = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/service-facility-types", { name: name.trim(), color, icon }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-facility-types"] });
       setName(""); setColor("#64748b"); setIcon("wrench");
     },
-    onError: (e) => toast({ title: "Save failed", description: String(e), variant: "destructive" }),
-  });
-
-  const updateType = useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: Partial<ServiceFacilityType> }) => apiRequest("PATCH", `/api/service-facility-types/${id}`, patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/service-facility-types"] }),
-    onError: (e) => toast({ title: "Save failed", description: String(e), variant: "destructive" }),
+    onError,
   });
 
   const deleteType = useMutation({
@@ -597,33 +599,76 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
     onError: (e) => toast({ title: "Delete failed", description: String(e), variant: "destructive" }),
   });
 
+  const updateDraftType = (id: number, patch: Partial<ServiceFacilityType>) => {
+    setDraftTypes(dts => dts.map(t => t.id === id ? { ...t, ...patch } : t));
+  };
+
+  const hasChanges = draftTypes.some(dt => {
+    const original = types.find(t => t.id === dt.id);
+    return !original
+      || dt.name !== original.name
+      || dt.color !== original.color
+      || normalizeFacilityTypeIcon(dt.icon) !== normalizeFacilityTypeIcon(original.icon);
+  });
+
+  const saveTypes = useMutation({
+    mutationFn: async () => {
+      const work: Promise<unknown>[] = [];
+      for (const dt of draftTypes) {
+        const original = types.find(t => t.id === dt.id);
+        if (!original) continue;
+        const patch: Partial<ServiceFacilityType> = {};
+        if (dt.name !== original.name) patch.name = dt.name;
+        if (dt.color !== original.color) patch.color = dt.color;
+        if (normalizeFacilityTypeIcon(dt.icon) !== normalizeFacilityTypeIcon(original.icon)) patch.icon = normalizeFacilityTypeIcon(dt.icon);
+        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/service-facility-types/${dt.id}`, patch));
+      }
+      await Promise.all(work);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/service-facility-types"] });
+      toast({ title: "Facility types saved" });
+    },
+    onError,
+  });
+
+  const cancelDraft = () => setDraftTypes(types);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>Manage Facility Types</DialogTitle></DialogHeader>
         <div className="space-y-4">
+          <EditablePageActions
+            showBack={false}
+            hasChanges={hasChanges}
+            isSaving={saveTypes.isPending}
+            canSave={!!canAdmin && hasChanges}
+            onCancel={cancelDraft}
+            onSave={() => saveTypes.mutate()}
+          />
           <div className="grid gap-2">
-            {types.length === 0 && (
+            {draftTypes.length === 0 && (
               <p className="text-sm text-muted-foreground">No facility types configured yet.</p>
             )}
-            {types.map(type => (
+            {draftTypes.map(type => (
               <div key={type.id} className="grid grid-cols-[56px_1fr_100px_40px] items-center gap-2 rounded-md border border-border px-2.5 py-2" data-testid={`row-facility-type-${type.id}`}>
                 <Input
                   type="color"
                   className="h-9 p-1"
                   value={badgeColorValue(type.color)}
                   disabled={!canAdmin}
-                  onChange={e => updateType.mutate({ id: type.id, patch: { color: e.target.value } })}
+                  onChange={e => updateDraftType(type.id, { color: e.target.value })}
                   data-testid={`input-facility-type-color-${type.id}`}
                 />
                 <Input
                   className="h-9"
                   value={type.name}
                   disabled={!canAdmin}
-                  onChange={e => updateType.mutate({ id: type.id, patch: { name: e.target.value } })}
+                  onChange={e => updateDraftType(type.id, { name: e.target.value })}
                   data-testid={`input-facility-type-name-${type.id}`}
                 />
-                <Select value={normalizeFacilityTypeIcon(type.icon)} onValueChange={(value) => updateType.mutate({ id: type.id, patch: { icon: value } })} disabled={!canAdmin}>
+                <Select value={normalizeFacilityTypeIcon(type.icon)} onValueChange={(value) => updateDraftType(type.id, { icon: value })} disabled={!canAdmin}>
                   <SelectTrigger className="h-9" data-testid={`select-facility-type-icon-${type.id}`}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {FACILITY_TYPE_ICON_OPTIONS.map(option => (

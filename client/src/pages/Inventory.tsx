@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
@@ -335,6 +335,16 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState("text");
 
+  const [draftCategories, setDraftCategories] = useState<InventoryCategory[]>(categories);
+  const [draftFields, setDraftFields] = useState<InventoryCategoryField[]>(fields);
+
+  useEffect(() => {
+    setDraftCategories(categories);
+  }, [categories]);
+  useEffect(() => {
+    setDraftFields(fields);
+  }, [fields]);
+
   const onError = (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" });
 
   const createCategory = useMutation({
@@ -413,6 +423,74 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
     updateField.mutate({ id: categoryFields[targetIndex].id, patch: { sortOrder: index } });
   };
 
+  const updateDraftCategory = (id: number, patch: Partial<InventoryCategory>) => {
+    setDraftCategories(cats => cats.map(c => c.id === id ? { ...c, ...patch } : c));
+  };
+
+  const updateDraftField = (id: number, patch: Partial<InventoryCategoryField>) => {
+    setDraftFields(flds => flds.map(f => f.id === id ? { ...f, ...patch } : f));
+  };
+
+  const setDraftKeySpec = (categoryId: number, fieldId: number) => {
+    setDraftFields(flds => flds.map(f => f.categoryId === categoryId ? { ...f, highlightField: f.id === fieldId } : f));
+  };
+
+  const hasChanges = draftCategories.some(dc => {
+    const original = categories.find(c => c.id === dc.id);
+    return !original
+      || dc.name !== original.name
+      || (dc.description ?? "") !== (original.description ?? "")
+      || dc.color !== original.color
+      || normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon);
+  }) || draftFields.some(df => {
+    const original = fields.find(f => f.id === df.id);
+    return !original
+      || df.name !== original.name
+      || df.fieldType !== original.fieldType
+      || df.required !== original.required
+      || df.inTitle !== original.inTitle
+      || df.highlightField !== original.highlightField;
+  });
+
+  const saveTypes = useMutation({
+    mutationFn: async () => {
+      const work: Promise<unknown>[] = [];
+      for (const dc of draftCategories) {
+        const original = categories.find(c => c.id === dc.id);
+        if (!original) continue;
+        const patch: Partial<InventoryCategory> = {};
+        if (dc.name !== original.name) patch.name = dc.name;
+        if ((dc.description ?? "") !== (original.description ?? "")) patch.description = dc.description;
+        if (dc.color !== original.color) patch.color = dc.color;
+        if (normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon)) patch.icon = normalizeInventoryIcon(dc.icon);
+        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-categories/${dc.id}`, patch));
+      }
+      for (const df of draftFields) {
+        const original = fields.find(f => f.id === df.id);
+        if (!original) continue;
+        const patch: Partial<InventoryCategoryField> = {};
+        if (df.name !== original.name) patch.name = df.name;
+        if (df.fieldType !== original.fieldType) patch.fieldType = df.fieldType;
+        if (df.required !== original.required) patch.required = df.required;
+        if (df.inTitle !== original.inTitle) patch.inTitle = df.inTitle;
+        if (df.highlightField !== original.highlightField) patch.highlightField = df.highlightField;
+        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-category-fields/${df.id}`, patch));
+      }
+      await Promise.all(work);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] });
+      toast({ title: "Inventory types saved" });
+    },
+    onError,
+  });
+
+  const cancelDraft = () => {
+    setDraftCategories(categories);
+    setDraftFields(fields);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
@@ -466,32 +544,41 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
             </Dialog>
           </div>
 
+          <EditablePageActions
+            showBack={false}
+            hasChanges={hasChanges}
+            isSaving={saveTypes.isPending}
+            canSave={!!canAdmin && hasChanges}
+            onCancel={cancelDraft}
+            onSave={() => saveTypes.mutate()}
+          />
+
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium">Configured Inventory Types</div>
-            <Badge variant="outline" className="ml-auto text-[10px] tracking-wide" data-testid="badge-inventory-category-count">{categories.length} total</Badge>
+            <Badge variant="outline" className="ml-auto text-[10px] tracking-wide" data-testid="badge-inventory-category-count">{draftCategories.length} total</Badge>
           </div>
 
           <div className="grid gap-2">
-            {categories.length === 0 && (
+            {draftCategories.length === 0 && (
               <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="empty-inventory-categories">
                 No inventory types are configured yet. Inventory items can still use free-form categories until you add saved types.
               </div>
             )}
-            {categories.map((category, categoryIndex) => {
-              const categoryFields = fields.filter(f => f.categoryId === category.id);
+            {draftCategories.map((category, categoryIndex) => {
+              const categoryFields = draftFields.filter(f => f.categoryId === category.id);
               return (
                 <div key={category.id} className="rounded-md border border-border p-3 space-y-3" data-testid={`row-inventory-category-${category.id}`}>
                   <div className="grid grid-cols-1 lg:grid-cols-[140px_minmax(160px,0.6fr)_minmax(200px,1fr)_auto_auto_auto] gap-2 items-center">
                     <InventoryCategoryStylePopover
                       category={category}
                       disabled={!canAdmin}
-                      onChange={patch => updateCategory.mutate({ id: category.id, patch })}
+                      onChange={patch => updateDraftCategory(category.id, patch)}
                     />
                     <Input
                       className="h-9"
                       value={category.name}
                       disabled={!canAdmin}
-                      onChange={e => updateCategory.mutate({ id: category.id, patch: { name: e.target.value } })}
+                      onChange={e => updateDraftCategory(category.id, { name: e.target.value })}
                       data-testid={`input-inventory-category-name-${category.id}`}
                     />
                     <Input
@@ -499,14 +586,14 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                       value={category.description ?? ""}
                       placeholder="Description"
                       disabled={!canAdmin}
-                      onChange={e => updateCategory.mutate({ id: category.id, patch: { description: e.target.value } })}
+                      onChange={e => updateDraftCategory(category.id, { description: e.target.value })}
                       data-testid={`input-inventory-category-description-${category.id}`}
                     />
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || categoryIndex === 0} onClick={() => moveCategory(categoryIndex, -1)} data-testid={`button-move-up-inventory-category-${category.id}`} aria-label="Move category up">
                         <ChevronUp className="size-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || categoryIndex === categories.length - 1} onClick={() => moveCategory(categoryIndex, 1)} data-testid={`button-move-down-inventory-category-${category.id}`} aria-label="Move category down">
+                      <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || categoryIndex === draftCategories.length - 1} onClick={() => moveCategory(categoryIndex, 1)} data-testid={`button-move-down-inventory-category-${category.id}`} aria-label="Move category down">
                         <ChevronDown className="size-4" />
                       </Button>
                     </div>
@@ -531,14 +618,14 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                             className="h-8"
                             value={field.name}
                             disabled={!canAdmin}
-                            onChange={e => updateField.mutate({ id: field.id, patch: { name: e.target.value } })}
+                            onChange={e => updateDraftField(field.id, { name: e.target.value })}
                             data-testid={`input-inventory-field-name-${field.id}`}
                           />
-                          <Select value={field.fieldType} onValueChange={value => updateField.mutate({ id: field.id, patch: { fieldType: value } })} disabled={!canAdmin}>
+                          <Select value={field.fieldType} onValueChange={value => updateDraftField(field.id, { fieldType: value })} disabled={!canAdmin}>
                             <SelectTrigger className="h-8" data-testid={`select-inventory-field-type-${field.id}`}><SelectValue /></SelectTrigger>
                             <SelectContent>{FIELD_TYPE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                           </Select>
-                          <Select value={field.required ? "required" : "optional"} onValueChange={value => updateField.mutate({ id: field.id, patch: { required: value === "required" } })} disabled={!canAdmin}>
+                          <Select value={field.required ? "required" : "optional"} onValueChange={value => updateDraftField(field.id, { required: value === "required" })} disabled={!canAdmin}>
                             <SelectTrigger className="h-8" data-testid={`select-inventory-field-required-${field.id}`}><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="optional">Optional</SelectItem>
@@ -561,7 +648,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                                 size="icon"
                                 className={`h-8 w-8 ${field.inTitle ? "text-[hsl(var(--primary))]" : ""}`}
                                 disabled={!canAdmin}
-                                onClick={() => updateField.mutate({ id: field.id, patch: { inTitle: !field.inTitle } })}
+                                onClick={() => updateDraftField(field.id, { inTitle: !field.inTitle })}
                                 data-testid={`button-in-title-inventory-field-${field.id}`}
                                 aria-label="Include in fallback title"
                                 aria-pressed={field.inTitle}
@@ -581,12 +668,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                                 size="icon"
                                 className={`h-8 w-8 ${field.highlightField ? "text-[hsl(var(--primary))]" : ""}`}
                                 disabled={!canAdmin}
-                                onClick={() => {
-                                  for (const f of categoryFields) {
-                                    if (f.highlightField && f.id !== field.id) updateField.mutate({ id: f.id, patch: { highlightField: false } });
-                                  }
-                                  updateField.mutate({ id: field.id, patch: { highlightField: true } });
-                                }}
+                                onClick={() => setDraftKeySpec(category.id, field.id)}
                                 data-testid={`button-key-spec-inventory-field-${field.id}`}
                                 aria-label="Set as key spec"
                                 aria-pressed={field.highlightField}

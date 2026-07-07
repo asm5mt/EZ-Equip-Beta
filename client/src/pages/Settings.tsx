@@ -37,7 +37,7 @@ import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 
 type ThemeMode = "auto" | "dark" | "light";
 
-export default function Admin() {
+export default function Settings() {
   const { users, canAdmin } = useAppContext();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -796,6 +796,11 @@ function GroupMappingsCard() {
   const [newRoleId, setNewRoleId] = useState<number | null>(null);
   const newFleetRolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles", { fleetId: newFleetId }], enabled: !!newFleetId });
 
+  const [draftMappings, setDraftMappings] = useState<OidcGroupMapping[]>(mappings);
+  useEffect(() => {
+    setDraftMappings(mappings);
+  }, [mappings]);
+
   const createMut = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/oidc-group-mappings", { groupName: newGroupName, fleetId: newFleetId, roleId: newRoleId })).json(),
     onSuccess: () => {
@@ -805,11 +810,6 @@ function GroupMappingsCard() {
     },
     onError: (e: any) => toast({ title: "Failed to add mapping", description: String(e?.message ?? e), variant: "destructive" }),
   });
-  const updateMut = useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: Partial<OidcGroupMapping> }) => (await apiRequest("PATCH", `/api/oidc-group-mappings/${id}`, patch)).json(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/oidc-group-mappings"] }),
-    onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
-  });
   const deleteMut = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/oidc-group-mappings/${id}`)).json(),
     onSuccess: () => {
@@ -817,6 +817,41 @@ function GroupMappingsCard() {
       toast({ title: "Group mapping removed" });
     },
   });
+
+  const updateDraftMapping = (id: number, patch: Partial<OidcGroupMapping>) => {
+    setDraftMappings(dms => dms.map(m => m.id === id ? { ...m, ...patch } : m));
+  };
+
+  const hasChanges = draftMappings.some(dm => {
+    const original = mappings.find(m => m.id === dm.id);
+    return !original
+      || dm.groupName !== original.groupName
+      || dm.fleetId !== original.fleetId
+      || dm.roleId !== original.roleId;
+  });
+
+  const saveMappings = useMutation({
+    mutationFn: async () => {
+      const work: Promise<unknown>[] = [];
+      for (const dm of draftMappings) {
+        const original = mappings.find(m => m.id === dm.id);
+        if (!original) continue;
+        const patch: Partial<OidcGroupMapping> = {};
+        if (dm.groupName !== original.groupName) patch.groupName = dm.groupName;
+        if (dm.fleetId !== original.fleetId) patch.fleetId = dm.fleetId;
+        if (dm.roleId !== original.roleId) patch.roleId = dm.roleId;
+        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/oidc-group-mappings/${dm.id}`, patch));
+      }
+      await Promise.all(work);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/oidc-group-mappings"] });
+      toast({ title: "Group mappings saved" });
+    },
+    onError: (e: any) => toast({ title: "Update failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const cancelDraft = () => setDraftMappings(mappings);
 
   return (
     <Card className="p-5 space-y-4">
@@ -828,6 +863,15 @@ function GroupMappingsCard() {
         </div>
       </div>
 
+      <EditablePageActions
+        showBack={false}
+        hasChanges={hasChanges}
+        isSaving={saveMappings.isPending}
+        canSave={hasChanges}
+        onCancel={cancelDraft}
+        onSave={() => saveMappings.mutate()}
+      />
+
       <Table>
         <TableHeader>
           <TableRow>
@@ -838,19 +882,19 @@ function GroupMappingsCard() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {mappings.map(mapping => (
+          {draftMappings.map(mapping => (
             <GroupMappingRow
               key={mapping.id}
               mapping={mapping}
               fleets={fleets}
-              onUpdate={patch => updateMut.mutate({ id: mapping.id, patch })}
+              onUpdate={patch => updateDraftMapping(mapping.id, patch)}
               onDelete={() => deleteMut.mutate(mapping.id)}
               isDeleting={deleteMut.isPending}
             />
           ))}
         </TableBody>
       </Table>
-      {mappings.length === 0 && (
+      {draftMappings.length === 0 && (
         <p className="text-sm text-muted-foreground py-2" data-testid="text-no-group-mappings">
           No group mappings yet — add one to auto-assign fleet access from your identity provider.
         </p>
@@ -901,8 +945,8 @@ function GroupMappingRow({ mapping, fleets, onUpdate, onDelete, isDeleting }: {
     <TableRow data-testid={`row-group-mapping-${mapping.id}`}>
       <TableCell>
         <Input
-          defaultValue={mapping.groupName}
-          onBlur={e => e.target.value !== mapping.groupName && onUpdate({ groupName: e.target.value })}
+          value={mapping.groupName}
+          onChange={e => onUpdate({ groupName: e.target.value })}
           data-testid={`input-mapping-group-${mapping.id}`}
         />
       </TableCell>

@@ -30,7 +30,7 @@ import InventoryForm from "@/pages/InventoryForm";
 import InventoryStockForm from "@/pages/InventoryStockForm";
 import Reports from "@/pages/Reports";
 import Search from "@/pages/Search";
-import Admin from "@/pages/Admin";
+import Settings from "@/pages/Settings";
 import FleetSettings from "@/pages/FleetSettings";
 import Fleets from "@/pages/Fleets";
 
@@ -76,8 +76,8 @@ function AppRouter() {
       <Route path="/search" component={Search} />
       <Route path="/fleets" component={Fleets} />
       <Route path="/settings/fleets/:id">{(params) => <FleetSettings fleetId={Number(params.id)} />}</Route>
-      <Route path="/settings" component={Admin} />
-      <Route path="/admin" component={Admin} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/admin" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );
