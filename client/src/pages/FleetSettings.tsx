@@ -406,17 +406,17 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                       onChange={e => setDraftCity(e.target.value)}
                       placeholder="Springfield"
                       disabled={!canAdmin || saveSettings.isPending}
-                      className={addressAutoFilled.has("city") ? "border-emerald-500/40 bg-emerald-500/10 pr-9 transition-colors" : undefined}
+                      className={addressAutoFilled.has("city") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] pr-9 transition-colors" : undefined}
                       data-testid="input-fleet-city"
                     />
-                    {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-emerald-600 dark:text-emerald-300" />}
+                    {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--status-ok))]" />}
                   </div>
                 </div>
                 <div>
                   <Label>State/Province</Label>
                   <Select value={draftState} onValueChange={setDraftState} disabled={!canAdmin || saveSettings.isPending}>
                     <SelectTrigger
-                      className={addressAutoFilled.has("state") ? "border-emerald-500/40 bg-emerald-500/10 transition-colors" : undefined}
+                      className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
                       data-testid="select-fleet-state"
                     >
                       <SelectValue placeholder="Select" />

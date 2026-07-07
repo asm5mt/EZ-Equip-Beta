@@ -57,8 +57,17 @@
   --chart-5: 268 40% 55%;
 
   --status-ok: 142 55% 42%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 38 90% 50%;
   --status-overdue: 0 70% 50%;
+
+  --overlay: 0 0% 0%;
+  --action-meter: 272 71% 47%;
+  --action-meter-foreground: 0 0% 100%;
+  --action-service: 17 88% 40%;
+  --action-service-foreground: 0 0% 100%;
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-serif: Georgia, serif;
@@ -129,8 +138,16 @@
   --chart-5: 268 55% 65%;
 
   --status-ok: 158 60% 50%;
+  --status-ok-foreground: 220 20% 7%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 220 20% 7%;
   --status-warn: 38 90% 56%;
   --status-overdue: 0 70% 58%;
+
+  --action-meter: 271 91% 65%;
+  --action-meter-foreground: 273 87% 21%;
+  --action-service: 25 95% 53%;
+  --action-service-foreground: 13 81% 14%;
 
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
@@ -200,6 +217,9 @@
   --chart-5: 150 55% 40%;
 
   --status-ok: 150 55% 36%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 38 90% 42%;
   --status-overdue: 350 75% 45%;
 }
@@ -246,6 +266,9 @@
   --chart-5: 150 60% 50%;
 
   --status-ok: 150 65% 52%;
+  --status-ok-foreground: 265 45% 7%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 265 45% 7%;
   --status-warn: 45 90% 58%;
   --status-overdue: 350 90% 62%;
 }
@@ -292,6 +315,9 @@
   --chart-5: 100 40% 34%;
 
   --status-ok: 100 40% 34%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 38 90% 42%;
   --status-overdue: 6 70% 45%;
 }
@@ -338,6 +364,9 @@
   --chart-5: 100 45% 45%;
 
   --status-ok: 100 45% 45%;
+  --status-ok-foreground: 220 15% 10%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 38 95% 52%;
   --status-overdue: 6 75% 50%;
 }
@@ -384,6 +413,9 @@
   --chart-5: 70 35% 40%;
 
   --status-ok: 100 40% 32%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 40 55% 38%;
   --status-overdue: 10 55% 40%;
 }
@@ -430,6 +462,9 @@
   --chart-5: 70 40% 50%;
 
   --status-ok: 100 40% 45%;
+  --status-ok-foreground: 140 25% 8%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 40 55% 50%;
   --status-overdue: 10 55% 48%;
 }
@@ -479,6 +514,9 @@
   --chart-5: 40 70% 50%;
 
   --status-ok: 150 55% 38%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 38 85% 45%;
   --status-overdue: 355 70% 45%;
 }
@@ -525,6 +563,9 @@
   --chart-5: 40 75% 58%;
 
   --status-ok: 150 55% 50%;
+  --status-ok-foreground: 215 40% 8%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 215 40% 8%;
   --status-warn: 38 85% 55%;
   --status-overdue: 355 80% 58%;
 }
@@ -627,6 +668,9 @@
   --chart-5: 170 35% 32%;
 
   --status-ok: 120 40% 30%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 45 80% 40%;
   --status-overdue: 0 70% 35%;
 
@@ -677,6 +721,9 @@
   --chart-5: 170 35% 45%;
 
   --status-ok: 120 40% 45%;
+  --status-ok-foreground: 0 0% 12%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
   --status-warn: 45 75% 50%;
   --status-overdue: 0 70% 50%;
 

@@ -16,7 +16,7 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground border border-destructive-border",
         success:
-          "bg-[hsl(var(--status-ok))] text-white border border-[hsl(var(--status-ok))]",
+          "bg-[hsl(var(--status-ok))] text-[hsl(var(--status-ok-foreground))] border border-[hsl(var(--status-ok))]",
         cancel:
           "bg-destructive text-destructive-foreground border border-destructive-border",
         outline:

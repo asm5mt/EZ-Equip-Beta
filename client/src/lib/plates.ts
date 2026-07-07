@@ -46,7 +46,7 @@ export function plateAccentClass(code?: string | null) {
   if (code === "US-PA") return "from-blue-100 via-white to-yellow-100 text-blue-950 border-blue-300";
   if (code === "CA-ON") return "from-sky-100 via-white to-blue-100 text-blue-950 border-sky-300";
   if (code?.startsWith("CA-")) return "from-red-50 via-white to-red-100 text-red-950 border-red-200";
-  return "from-slate-100 via-white to-slate-50 text-slate-900 border-slate-300";
+  return "from-[hsl(var(--muted))] via-[hsl(var(--background))] to-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] border-[hsl(var(--border))]";
 }
 
 export type PlateBadgeStyle = {
@@ -71,9 +71,9 @@ const PLATE_BADGE_STYLES: Record<string, PlateBadgeStyle> = {
 
 export function plateBadgeStyle(code?: string | null): PlateBadgeStyle {
   return PLATE_BADGE_STYLES[code ?? ""] ?? {
-    background: "#f3f4f6",
-    band: "#9ca3af",
-    accent: "#d1d5db",
-    text: "#374151",
+    background: "hsl(var(--muted))",
+    band: "hsl(var(--muted-foreground))",
+    accent: "hsl(var(--border))",
+    text: "hsl(var(--foreground))",
   };
 }

@@ -50,13 +50,13 @@ import {
 } from "@/components/AssetHistoryModals";
 
 const meterPrimaryActionClass =
-  "h-10 w-36 border-purple-700/25 bg-purple-700 text-white hover:bg-purple-800 dark:border-purple-400/25 dark:bg-purple-500 dark:text-purple-950 dark:hover:bg-purple-400";
+  "h-10 w-36 border-[hsl(var(--action-meter)/0.3)] bg-[hsl(var(--action-meter))] text-[hsl(var(--action-meter-foreground))] hover:opacity-90";
 const meterSecondaryActionClass =
-  "h-10 w-36 border-purple-300/70 bg-purple-50 text-purple-950 hover:bg-purple-100 dark:border-purple-400/30 dark:bg-purple-950/35 dark:text-purple-100 dark:hover:bg-purple-900/60";
+  "h-10 w-36 border-[hsl(var(--action-meter)/0.35)] bg-[hsl(var(--action-meter)/0.12)] text-[hsl(var(--action-meter))] hover:bg-[hsl(var(--action-meter)/0.2)]";
 const servicePrimaryActionClass =
-  "h-10 w-36 border-orange-700/25 bg-orange-700 text-white hover:bg-orange-800 dark:border-orange-400/25 dark:bg-orange-500 dark:text-orange-950 dark:hover:bg-orange-400";
+  "h-10 w-36 border-[hsl(var(--action-service)/0.3)] bg-[hsl(var(--action-service))] text-[hsl(var(--action-service-foreground))] hover:opacity-90";
 const serviceSecondaryActionClass =
-  "h-10 w-36 border-orange-300/70 bg-orange-50 text-orange-950 hover:bg-orange-100 dark:border-orange-400/30 dark:bg-orange-950/35 dark:text-orange-100 dark:hover:bg-orange-900/60";
+  "h-10 w-36 border-[hsl(var(--action-service)/0.35)] bg-[hsl(var(--action-service)/0.12)] text-[hsl(var(--action-service))] hover:bg-[hsl(var(--action-service)/0.2)]";
 
 type VinDecodeField = {
   Variable?: string;
@@ -1076,23 +1076,23 @@ function RecallsComplaintsButton({
   }
   if (recallCount > 0) {
     return (
-      <Button variant="outline" size="sm" className={`${base} border-red-500/25 bg-red-500/10 text-red-700 hover:bg-red-500/15 dark:text-red-300`} onClick={onClick} data-testid="button-safety-open">
+      <Button variant="outline" size="sm" className={`${base} border-[hsl(var(--status-overdue)/0.25)] bg-[hsl(var(--status-overdue)/0.1)] text-[hsl(var(--status-overdue))] hover:bg-[hsl(var(--status-overdue)/0.15)]`} onClick={onClick} data-testid="button-safety-open">
         <AlertTriangle className="mr-1.5 size-3" /> Recalls & Complaints
-        <span className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{recallCount}</span>
+        <span className="ml-1.5 rounded-full bg-[hsl(var(--status-overdue))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--status-overdue-foreground))]">{recallCount}</span>
       </Button>
     );
   }
   if (complaintCount > 0) {
     return (
-      <Button variant="outline" size="sm" className={`${base} border-amber-500/30 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300`} onClick={onClick} data-testid="button-safety-open">
+      <Button variant="outline" size="sm" className={`${base} border-[hsl(var(--status-warn)/0.3)] bg-[hsl(var(--status-warn)/0.1)] text-[hsl(var(--status-warn))] hover:bg-[hsl(var(--status-warn)/0.15)]`} onClick={onClick} data-testid="button-safety-open">
         <MessageSquareWarning className="mr-1.5 size-3" /> Recalls & Complaints
-        <span className="ml-1.5 rounded-full bg-amber-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{complaintCount}</span>
+        <span className="ml-1.5 rounded-full bg-[hsl(var(--status-warn))] px-1.5 py-0.5 text-[10px] font-bold leading-none text-[hsl(var(--status-warn-foreground))]">{complaintCount}</span>
       </Button>
     );
   }
   return (
     <Button variant="outline" size="sm" className={`${base} border-border bg-muted/35 text-muted-foreground hover:text-foreground`} onClick={onClick} data-testid="button-safety-open">
-      <CheckCircle2 className="mr-1.5 size-3 text-emerald-600 dark:text-emerald-300" /> Recalls & Complaints
+      <CheckCircle2 className="mr-1.5 size-3 text-[hsl(var(--status-ok))]" /> Recalls & Complaints
     </Button>
   );
 }
@@ -1132,7 +1132,7 @@ function SafetyPanel({
       )}
 
       {!loading && error && (
-        <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300" data-testid="state-safety-error">
+        <div className="rounded-lg border border-[hsl(var(--status-overdue)/0.25)] bg-[hsl(var(--status-overdue)/0.1)] p-4 text-sm text-[hsl(var(--status-overdue))]" data-testid="state-safety-error">
           {error}
         </div>
       )}
@@ -1175,7 +1175,7 @@ function RecallList({ recalls }: { recalls: NhtsaRecallRecord[] }) {
           <article key={`${campaign}-${index}`} className="rounded-lg border border-border bg-background p-3 text-xs shadow-sm" data-testid={`card-recall-${index}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-mono text-[11px] font-semibold text-red-700 dark:text-red-300">{campaign}</div>
+                <div className="font-mono text-[11px] font-semibold text-[hsl(var(--status-overdue))]">{campaign}</div>
                 {component && <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{component}</div>}
               </div>
               <a className="shrink-0 text-[11px] font-medium text-[hsl(var(--primary))] underline-offset-4 hover:underline" href={`https://www.nhtsa.gov/recalls?nhtsaId=${encodeURIComponent(campaign)}`} target="_blank" rel="noreferrer">
@@ -1318,7 +1318,7 @@ function VinDecodeDrawer({
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="vin-decode-title" data-testid="drawer-vin-decode">
       <button
         type="button"
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-[hsl(var(--overlay)/0.45)] backdrop-blur-[1px]"
         aria-label="Close VIN decode panel"
         onClick={onClose}
         data-testid="overlay-vin-decode"
@@ -1342,7 +1342,7 @@ function VinDecodeDrawer({
           )}
 
           {!state.loading && state.error && (
-            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300" data-testid="state-vin-decode-error">
+            <div className="rounded-lg border border-[hsl(var(--status-overdue)/0.25)] bg-[hsl(var(--status-overdue)/0.1)] p-4 text-sm text-[hsl(var(--status-overdue))]" data-testid="state-vin-decode-error">
               {state.error}
             </div>
           )}

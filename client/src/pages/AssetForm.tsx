@@ -319,9 +319,9 @@ export default function AssetForm({ mode }: { mode: "new" | "edit" }) {
                           Decode VIN
                         </Button>
                       </div>
-                      {vinError && <p className="text-xs font-medium text-red-700 dark:text-red-300" data-testid="error-vin-decode">{vinError}</p>}
-                      {vinSuccess && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300" data-testid="success-vin-decode">{vinSuccess}</p>}
-                      {vinFuelWarning && <p className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-300" data-testid="warning-vin-fuel">{vinFuelWarning}</p>}
+                      {vinError && <p className="text-xs font-medium text-[hsl(var(--status-overdue))]" data-testid="error-vin-decode">{vinError}</p>}
+                      {vinSuccess && <p className="text-xs font-medium text-[hsl(var(--status-ok))]" data-testid="success-vin-decode">{vinSuccess}</p>}
+                      {vinFuelWarning && <p className="rounded-md border border-[hsl(var(--status-warn)/0.25)] bg-[hsl(var(--status-warn)/0.1)] px-3 py-2 text-xs font-medium text-[hsl(var(--status-warn))]" data-testid="warning-vin-fuel">{vinFuelWarning}</p>}
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -567,7 +567,7 @@ function SectionCard({ title, description, children }: { title: string; descript
 function FieldLabel({ label, required, tooltip, vinSource }: { label: string; required?: boolean; tooltip?: string; vinSource?: boolean }) {
   return (
     <FormLabel className="flex items-center gap-1.5">
-      <span>{label}{required && <span className="text-red-600 dark:text-red-300"> *</span>}</span>
+      <span>{label}{required && <span className="text-[hsl(var(--status-overdue))]"> *</span>}</span>
       {vinSource && (
         <span className="rounded-full border border-[hsl(var(--primary)/0.25)] bg-[hsl(var(--primary)/0.12)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[hsl(var(--primary))]">
           VIN
@@ -625,9 +625,9 @@ function AutoFillField({
                 if (type === "number") field.onChange(event.target.value === "" ? null : Number(event.target.value));
                 else field.onChange(event.target.value);
               }}
-              className={autoFilled ? "border-emerald-500/40 bg-emerald-500/10 pr-9 transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
+              className={autoFilled ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] pr-9 transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
             />
-            {autoFilled && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-emerald-600 dark:text-emerald-300" />}
+            {autoFilled && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--status-ok))]" />}
           </div>
         </FormControl>
         <FormMessage />
@@ -656,7 +656,7 @@ function FuelTypeField({
           <Select value={field.value || "none"} onValueChange={value => field.onChange(value === "none" ? "" : value)}>
             <FormControl>
               <SelectTrigger
-                className={autoFilled ? "border-emerald-500/40 bg-emerald-500/10 transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
+                className={autoFilled ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
                 data-testid="select-fuel-type"
               >
                 <SelectValue placeholder="Select fuel type">
@@ -704,7 +704,7 @@ function EngineConfigurationField({
         <Select value={field.value || "none"} onValueChange={value => field.onChange(value === "none" ? "" : value)}>
           <FormControl>
             <SelectTrigger
-              className={autoFilled ? "border-emerald-500/40 bg-emerald-500/10 transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
+              className={autoFilled ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : vinSource ? "bg-[hsl(var(--primary)/0.06)] italic" : undefined}
               data-testid="select-engine-configuration"
             >
               <SelectValue placeholder="Select engine configuration" />

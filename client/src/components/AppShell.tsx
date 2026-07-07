@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Truck, Wrench, Boxes, Building2, Network, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText, ChevronDown } from "lucide-react";
+import { LayoutDashboard, Truck, Wrench, Boxes, Building2, Network, Search as SearchIcon, Plus, Sun, Moon, Monitor, SlidersHorizontal, FileText, ChevronDown } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Logo } from "./Logo";
 import { QuickAddSheet } from "./QuickAddSheet";
@@ -118,8 +118,8 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     return () => window.removeEventListener("ez-equip-save-settings", handler);
   }, []);
 
-  const toggleTheme = () => {
-    const next: ThemeMode = resolvedTheme === "dark" ? "light" : "dark";
+  const cycleTheme = () => {
+    const next: ThemeMode = theme === "auto" ? "light" : theme === "light" ? "dark" : "auto";
     setTheme(next);
     void saveSettings.mutate({ themeMode: next });
   };
@@ -191,7 +191,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
       {mobileNavOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          className="fixed inset-0 bg-[hsl(var(--overlay)/0.6)] z-30 lg:hidden"
           onClick={() => setMobileNavOpen(false)}
         />
       )}
@@ -248,10 +248,11 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
                 size="sm"
                 className="w-9 px-0 md:w-auto md:px-3"
                 data-testid="button-toggle-theme"
-                onClick={toggleTheme}
-                aria-label="Toggle theme"
+                onClick={cycleTheme}
+                aria-label={`Theme mode: ${theme}. Click to switch.`}
+                title={`Theme mode: ${theme}`}
               >
-                {resolvedTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                {theme === "auto" ? <Monitor className="size-4" /> : theme === "light" ? <Sun className="size-4" /> : <Moon className="size-4" />}
               </Button>
               <UserSwitcher />
             </div>
