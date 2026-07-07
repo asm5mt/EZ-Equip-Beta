@@ -31,7 +31,9 @@ import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
   ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
+  Palette,
 } from "lucide-react";
+import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 
 type ThemeMode = "auto" | "dark" | "light";
 
@@ -48,6 +50,7 @@ export default function Admin() {
     const map = new Map((settingsQ.data ?? []).map(s => [s.key, s.value]));
     return {
       themeMode: ((map.get("themeMode") as ThemeMode) || "auto") as ThemeMode,
+      themePack: map.get("themePack") || "ezequip",
       unitSystem: map.get("unitSystem") || "imperial",
       distanceUnit: map.get("distanceUnit") || "mi",
       volumeUnit: map.get("volumeUnit") || "qt",
@@ -58,6 +61,7 @@ export default function Admin() {
   }, [settingsQ.data, orgInfoQ.data]);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
+  const [themePack, setThemePack] = useState<string>("ezequip");
   const [unitSystem, setUnitSystem] = useState("imperial");
   const [distanceUnit, setDistanceUnit] = useState("mi");
   const [volumeUnit, setVolumeUnit] = useState("qt");
@@ -72,6 +76,7 @@ export default function Admin() {
 
   useEffect(() => {
     setThemeMode(persisted.themeMode);
+    setThemePack(persisted.themePack);
     setUnitSystem(persisted.unitSystem);
     setDistanceUnit(persisted.distanceUnit);
     setVolumeUnit(persisted.volumeUnit);
@@ -80,7 +85,7 @@ export default function Admin() {
     setOrgLogoUrl(persisted.orgLogoUrl);
   }, [persisted]);
 
-  const draft = { themeMode, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl };
+  const draft = { themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
   const previewTheme = (value: ThemeMode) => {
@@ -88,9 +93,14 @@ export default function Admin() {
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: value }));
   };
 
+  const previewThemePack = (value: string) => {
+    setThemePack(value);
+    window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: value }));
+  };
+
   const saveSettings = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", "/api/app-settings", { themeMode, unitSystem, distanceUnit, volumeUnit, defaultMeter });
+      await apiRequest("PATCH", "/api/app-settings", { themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter });
       await apiRequest("PATCH", "/api/system-settings", { orgName: orgName.trim(), orgLogoUrl: orgLogoUrl.trim() });
     },
     onSuccess: () => {
@@ -103,6 +113,7 @@ export default function Admin() {
 
   const cancelDraft = () => {
     setThemeMode(persisted.themeMode);
+    setThemePack(persisted.themePack);
     setUnitSystem(persisted.unitSystem);
     setDistanceUnit(persisted.distanceUnit);
     setVolumeUnit(persisted.volumeUnit);
@@ -110,6 +121,7 @@ export default function Admin() {
     setOrgName(persisted.orgName);
     setOrgLogoUrl(persisted.orgLogoUrl);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
+    window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
 
   const createUserMut = useMutation({
@@ -191,6 +203,41 @@ export default function Admin() {
                   <Button type="button" variant={themeMode === "dark" ? "default" : "outline"} onClick={() => previewTheme("dark")} data-testid="button-theme-dark">
                     <Moon className="size-4 mr-1.5" /> Dark
                   </Button>
+                </div>
+
+                <div className="pt-4 border-t border-border space-y-4">
+                  <div className="flex items-start gap-3">
+                    <Palette className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+                    <div>
+                      <h3 className="font-semibold">Theme Pack</h3>
+                      <p className="text-sm text-muted-foreground mt-1">A color palette, independent of Auto/Light/Dark mode.</p>
+                    </div>
+                  </div>
+                  <Select value={themePack} onValueChange={previewThemePack}>
+                    <SelectTrigger data-testid="select-theme-pack"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {THEME_PACKS.map(pack => (
+                        <SelectItem key={pack.id} value={pack.id}>{pack.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {(() => {
+                    const pack = findThemePack(themePack);
+                    return (
+                      <div className="mt-3 flex items-start gap-3" data-testid={`preview-theme-pack-${pack.id}`}>
+                        <span className="flex shrink-0 gap-1">
+                          <span className="relative flex size-7 items-center justify-center rounded-md border border-border/60" style={{ backgroundColor: pack.swatch.light.background }}>
+                            <span className="size-3 rounded-full border border-black/10" style={{ backgroundColor: pack.swatch.light.primary }} />
+                          </span>
+                          <span className="relative flex size-7 items-center justify-center rounded-md border border-border/60" style={{ backgroundColor: pack.swatch.dark.background }}>
+                            <span className="size-3 rounded-full border border-white/10" style={{ backgroundColor: pack.swatch.dark.primary }} />
+                          </span>
+                        </span>
+                        <p className="text-xs text-muted-foreground">{pack.description}</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </Card>
 

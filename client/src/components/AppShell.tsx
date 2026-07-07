@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Truck, Wrench, Boxes, Building2, Network, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText } from "lucide-react";
+import { LayoutDashboard, Truck, Wrench, Boxes, Building2, Network, Search as SearchIcon, Plus, Sun, Moon, SlidersHorizontal, FileText, ChevronDown } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Logo } from "./Logo";
 import { QuickAddSheet } from "./QuickAddSheet";
@@ -8,9 +8,14 @@ import { GlobalSearch } from "./GlobalSearch";
 import { UserSwitcher } from "./UserSwitcher";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
 import { useAppContext } from "@/lib/app-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { versionString, APP_VERSION, BUILD_NUMBER, BUILD_TIME } from "@/lib/version";
+import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 import type { AppSetting } from "@shared/schema";
 
 interface AppShellProps {
@@ -39,7 +44,8 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>("auto");
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
-  const { fleet, canEdit } = useAppContext();
+  const [themePack, setThemePack] = useState("ezequip");
+  const { canEdit } = useAppContext();
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
   const saveSettings = useMutation({
     mutationFn: async (settings: Record<string, string>) => apiRequest("PATCH", "/api/app-settings", settings),
@@ -50,6 +56,34 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     const stored = settingsQ.data?.find(s => s.key === "themeMode")?.value as ThemeMode | undefined;
     if (stored === "auto" || stored === "dark" || stored === "light") setTheme(stored);
   }, [settingsQ.data]);
+
+  useEffect(() => {
+    const stored = settingsQ.data?.find(s => s.key === "themePack")?.value;
+    if (stored && THEME_PACKS.some(p => p.id === stored)) setThemePack(stored);
+  }, [settingsQ.data]);
+
+  // Theme Pack is layered independently of Auto/Light/Dark mode — it just
+  // toggles an extra class on top of whatever "dark"/no-class the mode
+  // effect above already applied.
+  useEffect(() => {
+    const packClassNames = THEME_PACKS.map(p => p.className).filter((c): c is string => !!c);
+    document.documentElement.classList.remove(...packClassNames);
+    document.body.classList.remove(...packClassNames);
+    const className = findThemePack(themePack).className;
+    if (className) {
+      document.documentElement.classList.add(className);
+      document.body.classList.add(className);
+    }
+  }, [themePack]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const next = (event as CustomEvent<string>).detail;
+      if (THEME_PACKS.some(p => p.id === next)) setThemePack(next);
+    };
+    window.addEventListener("ez-equip-theme-pack", handler);
+    return () => window.removeEventListener("ez-equip-theme-pack", handler);
+  }, []);
 
   useEffect(() => {
     const apply = () => {
@@ -117,9 +151,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
       >
         <div className="px-5 pt-6 pb-5 border-b border-[hsl(var(--sidebar-border))]">
           <Logo size={28} />
-          <div className="mt-3 text-[11px] uppercase tracking-[0.18em] text-[hsl(var(--sidebar-foreground))]/55">
-            {fleet?.name ?? "Instance"}
-          </div>
+          <FleetSwitcher />
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {NAV.map(item => {
@@ -231,6 +263,36 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
       <QuickAddSheet open={quickAddOpen} onOpenChange={setQuickAddOpen} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
+  );
+}
+
+function FleetSwitcher() {
+  const { fleet, fleets, setFleetId } = useAppContext();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="mt-3 flex w-full items-center justify-between gap-2 rounded-full border border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-accent)/0.5)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[hsl(var(--sidebar-foreground))]/80 transition-colors hover:text-[hsl(var(--sidebar-foreground))] hover-elevate"
+          data-testid="button-fleet-switcher"
+        >
+          <span className="truncate">{fleet?.name ?? "Instance"}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel>Active Fleet</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={fleet ? String(fleet.id) : ""}
+          onValueChange={v => setFleetId(Number(v))}
+        >
+          {fleets.map(f => (
+            <DropdownMenuRadioItem key={f.id} value={String(f.id)} data-testid={`menuitem-fleet-${f.id}`}>
+              {f.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

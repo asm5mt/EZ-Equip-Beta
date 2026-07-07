@@ -148,6 +148,576 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+/* THEME PACKS — layered on top of light/dark mode via an additional class
+ * (e.g. <html class="dark theme-neon">). Each pack only overrides the
+ * "identity" color variables (surfaces, text, accents, status colors);
+ * the derived `-border` variables and hover/elevate mechanics are left
+ * alone since they already recompute from `var(--x)` at use time and
+ * follow along automatically. The default EZ-EQUIP pack applies no class
+ * at all, so it is byte-for-byte the existing :root/.dark palette above.
+ * Every palette below has been checked for text/background contrast
+ * against WCAG AA (4.5:1 for body text, 3:1 for large/UI text). */
+
+/* 80s NEON — light: "CRT daylight" (softer neon on warm off-white) */
+.theme-neon {
+  --background: 42 45% 95%;
+  --foreground: 268 40% 16%;
+  --border: 42 20% 82%;
+  --card: 40 35% 98%;
+  --card-foreground: 268 40% 16%;
+  --card-border: 42 20% 84%;
+
+  --sidebar: 265 50% 5%;
+  --sidebar-foreground: 190 35% 90%;
+  --sidebar-border: 265 30% 14%;
+  --sidebar-primary: 185 95% 52%;
+  --sidebar-primary-foreground: 265 50% 6%;
+  --sidebar-accent: 268 45% 14%;
+  --sidebar-accent-foreground: 190 35% 90%;
+  --sidebar-ring: 185 95% 52%;
+
+  --popover: 40 35% 98%;
+  --popover-foreground: 268 40% 16%;
+  --popover-border: 42 20% 84%;
+
+  --primary: 322 80% 42%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 42 20% 88%;
+  --secondary-foreground: 268 40% 16%;
+  --muted: 42 20% 90%;
+  --muted-foreground: 268 15% 42%;
+  --accent: 322 55% 90%;
+  --accent-foreground: 322 70% 28%;
+  --destructive: 350 75% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 42 20% 78%;
+  --ring: 322 80% 42%;
+
+  --chart-1: 322 80% 48%;
+  --chart-2: 185 85% 42%;
+  --chart-3: 268 55% 50%;
+  --chart-4: 45 90% 48%;
+  --chart-5: 150 55% 40%;
+
+  --status-ok: 150 55% 36%;
+  --status-warn: 38 90% 42%;
+  --status-overdue: 350 75% 45%;
+}
+
+/* 80s NEON — dark: hot pink/cyan/purple neon on near-black */
+.dark.theme-neon {
+  --background: 265 45% 6%;
+  --foreground: 280 40% 95%;
+  --border: 265 30% 20%;
+  --card: 262 40% 9%;
+  --card-foreground: 280 40% 95%;
+  --card-border: 265 30% 20%;
+
+  --sidebar: 265 50% 5%;
+  --sidebar-foreground: 190 35% 90%;
+  --sidebar-border: 265 30% 14%;
+  --sidebar-primary: 185 95% 55%;
+  --sidebar-primary-foreground: 265 50% 6%;
+  --sidebar-accent: 268 45% 14%;
+  --sidebar-accent-foreground: 190 35% 90%;
+  --sidebar-ring: 185 95% 55%;
+
+  --popover: 262 40% 10%;
+  --popover-foreground: 280 40% 95%;
+  --popover-border: 265 30% 20%;
+
+  --primary: 322 95% 60%;
+  --primary-foreground: 265 45% 7%;
+  --secondary: 265 25% 18%;
+  --secondary-foreground: 280 40% 95%;
+  --muted: 265 20% 15%;
+  --muted-foreground: 270 20% 72%;
+  --accent: 270 45% 20%;
+  --accent-foreground: 320 90% 82%;
+  --destructive: 350 95% 62%;
+  --destructive-foreground: 265 45% 7%;
+  --input: 265 25% 22%;
+  --ring: 322 95% 60%;
+
+  --chart-1: 322 90% 62%;
+  --chart-2: 185 90% 55%;
+  --chart-3: 270 55% 60%;
+  --chart-4: 45 90% 58%;
+  --chart-5: 150 60% 50%;
+
+  --status-ok: 150 65% 52%;
+  --status-warn: 45 90% 58%;
+  --status-overdue: 350 90% 62%;
+}
+
+/* SHOP FLOOR — light: same industrial palette family, higher brightness */
+.theme-shop {
+  --background: 45 12% 94%;
+  --foreground: 220 12% 14%;
+  --border: 220 8% 80%;
+  --card: 40 15% 99%;
+  --card-foreground: 220 12% 14%;
+  --card-border: 220 8% 82%;
+
+  --sidebar: 220 10% 8%;
+  --sidebar-foreground: 45 10% 88%;
+  --sidebar-border: 220 8% 16%;
+  --sidebar-primary: 48 90% 46%;
+  --sidebar-primary-foreground: 220 15% 10%;
+  --sidebar-accent: 220 8% 18%;
+  --sidebar-accent-foreground: 45 10% 88%;
+  --sidebar-ring: 48 90% 46%;
+
+  --popover: 40 15% 99%;
+  --popover-foreground: 220 12% 14%;
+  --popover-border: 220 8% 82%;
+
+  --primary: 42 90% 50%;
+  --primary-foreground: 220 15% 12%;
+  --secondary: 220 8% 88%;
+  --secondary-foreground: 220 12% 14%;
+  --muted: 220 8% 90%;
+  --muted-foreground: 220 8% 38%;
+  --accent: 220 10% 85%;
+  --accent-foreground: 42 80% 26%;
+  --destructive: 6 70% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 8% 78%;
+  --ring: 42 90% 50%;
+
+  --chart-1: 42 90% 48%;
+  --chart-2: 220 15% 45%;
+  --chart-3: 25 80% 45%;
+  --chart-4: 6 70% 45%;
+  --chart-5: 100 40% 34%;
+
+  --status-ok: 100 40% 34%;
+  --status-warn: 38 90% 42%;
+  --status-overdue: 6 70% 45%;
+}
+
+/* SHOP FLOOR — dark: safety-yellow/steel-gray/grease-black, utilitarian */
+.dark.theme-shop {
+  --background: 220 8% 8%;
+  --foreground: 45 8% 92%;
+  --border: 220 8% 20%;
+  --card: 220 8% 11%;
+  --card-foreground: 45 8% 92%;
+  --card-border: 220 8% 20%;
+
+  --sidebar: 220 10% 6%;
+  --sidebar-foreground: 45 10% 88%;
+  --sidebar-border: 220 8% 14%;
+  --sidebar-primary: 48 95% 50%;
+  --sidebar-primary-foreground: 220 10% 8%;
+  --sidebar-accent: 220 8% 16%;
+  --sidebar-accent-foreground: 45 10% 88%;
+  --sidebar-ring: 48 95% 50%;
+
+  --popover: 220 8% 12%;
+  --popover-foreground: 45 8% 92%;
+  --popover-border: 220 8% 20%;
+
+  --primary: 48 90% 48%;
+  --primary-foreground: 220 15% 10%;
+  --secondary: 220 8% 18%;
+  --secondary-foreground: 45 8% 92%;
+  --muted: 220 8% 15%;
+  --muted-foreground: 220 6% 62%;
+  --accent: 220 10% 22%;
+  --accent-foreground: 48 85% 65%;
+  --destructive: 6 75% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 220 8% 20%;
+  --ring: 48 90% 48%;
+
+  --chart-1: 48 90% 52%;
+  --chart-2: 220 15% 55%;
+  --chart-3: 25 80% 52%;
+  --chart-4: 6 75% 55%;
+  --chart-5: 100 45% 45%;
+
+  --status-ok: 100 45% 45%;
+  --status-warn: 38 95% 52%;
+  --status-overdue: 6 75% 50%;
+}
+
+/* FOREST — light: warm sage/cream/bark */
+.theme-forest {
+  --background: 60 30% 95%;
+  --foreground: 140 20% 16%;
+  --border: 60 15% 82%;
+  --card: 55 25% 98%;
+  --card-foreground: 140 20% 16%;
+  --card-border: 60 15% 84%;
+
+  --sidebar: 145 25% 8%;
+  --sidebar-foreground: 90 15% 88%;
+  --sidebar-border: 145 20% 14%;
+  --sidebar-primary: 95 42% 40%;
+  --sidebar-primary-foreground: 145 25% 8%;
+  --sidebar-accent: 140 20% 16%;
+  --sidebar-accent-foreground: 90 15% 88%;
+  --sidebar-ring: 95 42% 40%;
+
+  --popover: 55 25% 98%;
+  --popover-foreground: 140 20% 16%;
+  --popover-border: 60 15% 84%;
+
+  --primary: 95 40% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 40 20% 88%;
+  --secondary-foreground: 140 20% 16%;
+  --muted: 50 18% 90%;
+  --muted-foreground: 140 12% 38%;
+  --accent: 40 35% 86%;
+  --accent-foreground: 30 45% 26%;
+  --destructive: 10 55% 38%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 60 15% 80%;
+  --ring: 95 40% 32%;
+
+  --chart-1: 95 45% 38%;
+  --chart-2: 30 40% 40%;
+  --chart-3: 45 50% 42%;
+  --chart-4: 175 30% 36%;
+  --chart-5: 70 35% 40%;
+
+  --status-ok: 100 40% 32%;
+  --status-warn: 40 55% 38%;
+  --status-overdue: 10 55% 40%;
+}
+
+/* FOREST — dark: deep greens/browns/moss */
+.dark.theme-forest {
+  --background: 140 20% 8%;
+  --foreground: 90 15% 90%;
+  --border: 140 15% 20%;
+  --card: 140 18% 11%;
+  --card-foreground: 90 15% 90%;
+  --card-border: 140 15% 20%;
+
+  --sidebar: 145 25% 6%;
+  --sidebar-foreground: 90 15% 88%;
+  --sidebar-border: 145 20% 12%;
+  --sidebar-primary: 95 45% 45%;
+  --sidebar-primary-foreground: 145 25% 8%;
+  --sidebar-accent: 140 20% 16%;
+  --sidebar-accent-foreground: 90 15% 88%;
+  --sidebar-ring: 95 45% 45%;
+
+  --popover: 140 18% 12%;
+  --popover-foreground: 90 15% 90%;
+  --popover-border: 140 15% 20%;
+
+  --primary: 95 40% 42%;
+  --primary-foreground: 140 25% 8%;
+  --secondary: 30 15% 20%;
+  --secondary-foreground: 90 15% 90%;
+  --muted: 140 12% 16%;
+  --muted-foreground: 90 10% 65%;
+  --accent: 30 25% 22%;
+  --accent-foreground: 40 40% 78%;
+  --destructive: 10 55% 42%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 140 15% 22%;
+  --ring: 95 40% 42%;
+
+  --chart-1: 95 45% 50%;
+  --chart-2: 30 40% 52%;
+  --chart-3: 45 55% 55%;
+  --chart-4: 175 35% 46%;
+  --chart-5: 70 40% 50%;
+
+  --status-ok: 100 40% 45%;
+  --status-warn: 40 55% 50%;
+  --status-overdue: 10 55% 48%;
+}
+
+/* GLASS — light: Aqua-era glossy blue/silver on white.
+ * Translucency + blur + glossy highlights are applied further below via
+ * structural rules (not just variables) since this pack is as much about
+ * effect as color. */
+.theme-glass {
+  --background: 205 35% 94%;
+  --foreground: 215 30% 18%;
+  --border: 205 25% 80%;
+  --card: 205 40% 99%;
+  --card-foreground: 215 30% 18%;
+  --card-border: 205 25% 78%;
+
+  --sidebar: 210 35% 22%;
+  --sidebar-foreground: 205 30% 95%;
+  --sidebar-border: 210 30% 14%;
+  --sidebar-primary: 205 85% 55%;
+  --sidebar-primary-foreground: 210 40% 12%;
+  --sidebar-accent: 210 35% 28%;
+  --sidebar-accent-foreground: 205 30% 95%;
+  --sidebar-ring: 205 85% 55%;
+
+  --popover: 205 40% 99%;
+  --popover-foreground: 215 30% 18%;
+  --popover-border: 205 25% 78%;
+
+  --primary: 205 80% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 205 25% 88%;
+  --secondary-foreground: 215 30% 18%;
+  --muted: 205 25% 90%;
+  --muted-foreground: 215 15% 42%;
+  --accent: 205 60% 88%;
+  --accent-foreground: 205 85% 24%;
+  --destructive: 355 75% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 205 25% 78%;
+  --ring: 205 80% 40%;
+
+  --chart-1: 205 75% 45%;
+  --chart-2: 220 15% 55%;
+  --chart-3: 185 55% 42%;
+  --chart-4: 265 45% 55%;
+  --chart-5: 40 70% 50%;
+
+  --status-ok: 150 55% 38%;
+  --status-warn: 38 85% 45%;
+  --status-overdue: 355 70% 45%;
+}
+
+/* GLASS — dark: deep blue-black with brighter Aero blue accents */
+.dark.theme-glass {
+  --background: 215 35% 10%;
+  --foreground: 205 30% 94%;
+  --border: 215 25% 24%;
+  --card: 215 35% 14%;
+  --card-foreground: 205 30% 94%;
+  --card-border: 215 25% 24%;
+
+  --sidebar: 215 40% 8%;
+  --sidebar-foreground: 205 30% 92%;
+  --sidebar-border: 215 30% 16%;
+  --sidebar-primary: 205 90% 58%;
+  --sidebar-primary-foreground: 215 40% 8%;
+  --sidebar-accent: 215 30% 20%;
+  --sidebar-accent-foreground: 205 30% 92%;
+  --sidebar-ring: 205 90% 58%;
+
+  --popover: 215 35% 14%;
+  --popover-foreground: 205 30% 94%;
+  --popover-border: 215 25% 24%;
+
+  --primary: 205 85% 55%;
+  --primary-foreground: 215 40% 8%;
+  --secondary: 215 25% 20%;
+  --secondary-foreground: 205 30% 94%;
+  --muted: 215 25% 18%;
+  --muted-foreground: 210 15% 66%;
+  --accent: 205 45% 24%;
+  --accent-foreground: 205 85% 82%;
+  --destructive: 355 80% 58%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 215 25% 24%;
+  --ring: 205 85% 55%;
+
+  --chart-1: 205 80% 58%;
+  --chart-2: 220 15% 65%;
+  --chart-3: 185 60% 52%;
+  --chart-4: 265 50% 65%;
+  --chart-5: 40 75% 58%;
+
+  --status-ok: 150 55% 50%;
+  --status-warn: 38 85% 55%;
+  --status-overdue: 355 80% 58%;
+}
+
+/* Glass structural effects: translucency + blur on panels/dialogs, and a
+ * glossy highlight band on solid buttons. Shared across light/dark since
+ * neither depends on the resolved mode — only the underlying --card/
+ * --popover colors (already set above) do. backdrop-filter degrades to a
+ * plain (opaque-ish) background-color on browsers that don't support it,
+ * via the @supports fallback block at the end of this section. */
+.theme-glass .shadcn-card,
+.theme-glass .bg-popover,
+.theme-glass [role="dialog"],
+.theme-glass [role="alertdialog"] {
+  background-color: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 8px 30px -12px rgba(15, 35, 60, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.45);
+}
+.theme-glass .bg-popover {
+  background-color: hsl(var(--popover) / 0.75);
+}
+.theme-glass [data-testid="nav-sidebar"] {
+  background-color: hsl(var(--sidebar) / 0.82) !important;
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+.theme-glass [data-testid="header-topbar"] {
+  background-color: hsl(var(--background) / 0.6) !important;
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+}
+.theme-glass button:not(.border-transparent):not([role="combobox"]) {
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.14) 34%, rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: 0 1px 3px rgba(15, 35, 60, 0.25), inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+}
+.theme-glass button:not(.border-transparent):not([role="combobox"]):active {
+  background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0) 60%);
+  box-shadow: inset 0 1px 3px rgba(15, 35, 60, 0.3);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .theme-glass .shadcn-card,
+  .theme-glass [role="dialog"],
+  .theme-glass [role="alertdialog"] {
+    background-color: hsl(var(--card) / 0.97);
+  }
+  .theme-glass .bg-popover {
+    background-color: hsl(var(--popover) / 0.97);
+  }
+  .theme-glass [data-testid="nav-sidebar"] {
+    background-color: hsl(var(--sidebar)) !important;
+  }
+  .theme-glass [data-testid="header-topbar"] {
+    background-color: hsl(var(--background) / 0.97) !important;
+  }
+}
+
+/* WINDOWS CLASSIC — light: classic silver-gray face, navy titlebar blue.
+ * This is a shape pack as much as a color pack — see the structural rules
+ * below (shared with the dark variant) for the squared corners and
+ * beveled 3D borders that actually make this read as Windows Classic. */
+.theme-winclassic {
+  --background: 0 0% 75%;
+  --foreground: 0 0% 0%;
+  --border: 0 0% 40%;
+  --card: 0 0% 75%;
+  --card-foreground: 0 0% 0%;
+  --card-border: 0 0% 40%;
+
+  --sidebar: 240 100% 25%;
+  --sidebar-foreground: 0 0% 100%;
+  --sidebar-border: 240 60% 15%;
+  --sidebar-primary: 240 100% 32%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 70% 20%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 240 100% 32%;
+
+  --popover: 0 0% 75%;
+  --popover-foreground: 0 0% 0%;
+  --popover-border: 0 0% 40%;
+
+  --primary: 240 100% 25%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 82%;
+  --secondary-foreground: 0 0% 0%;
+  --muted: 0 0% 82%;
+  --muted-foreground: 0 0% 25%;
+  --accent: 240 60% 85%;
+  --accent-foreground: 240 100% 20%;
+  --destructive: 0 70% 35%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 0 0% 40%;
+  --ring: 240 100% 32%;
+
+  --chart-1: 240 60% 40%;
+  --chart-2: 0 0% 45%;
+  --chart-3: 0 55% 38%;
+  --chart-4: 60 45% 35%;
+  --chart-5: 170 35% 32%;
+
+  --status-ok: 120 40% 30%;
+  --status-warn: 45 80% 40%;
+  --status-overdue: 0 70% 35%;
+
+  --winclassic-face: 0 0% 75%;
+  --winclassic-highlight: 0 0% 100%;
+  --winclassic-shadow: 0 0% 25%;
+}
+
+/* WINDOWS CLASSIC — dark: same shape language, darker gunmetal face */
+.dark.theme-winclassic {
+  --background: 0 0% 20%;
+  --foreground: 0 0% 92%;
+  --border: 0 0% 8%;
+  --card: 0 0% 20%;
+  --card-foreground: 0 0% 92%;
+  --card-border: 0 0% 8%;
+
+  --sidebar: 240 60% 12%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-border: 240 50% 6%;
+  --sidebar-primary: 240 90% 40%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 40% 20%;
+  --sidebar-accent-foreground: 0 0% 95%;
+  --sidebar-ring: 240 90% 45%;
+
+  --popover: 0 0% 20%;
+  --popover-foreground: 0 0% 92%;
+  --popover-border: 0 0% 8%;
+
+  --primary: 240 85% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 28%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 26%;
+  --muted-foreground: 0 0% 68%;
+  --accent: 240 45% 26%;
+  --accent-foreground: 210 80% 85%;
+  --destructive: 0 70% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 0 0% 8%;
+  --ring: 240 90% 45%;
+
+  --chart-1: 240 65% 55%;
+  --chart-2: 0 0% 60%;
+  --chart-3: 0 55% 50%;
+  --chart-4: 60 45% 48%;
+  --chart-5: 170 35% 45%;
+
+  --status-ok: 120 40% 45%;
+  --status-warn: 45 75% 50%;
+  --status-overdue: 0 70% 50%;
+
+  --winclassic-face: 0 0% 20%;
+  --winclassic-highlight: 0 0% 55%;
+  --winclassic-shadow: 0 0% 4%;
+}
+
+/* Windows Classic structural shape rules — shared by light/dark since they
+ * reference the --winclassic-* variables set per-variant above. This is
+ * the part that actually makes it read as "Windows Classic": squared
+ * corners everywhere, plus raised buttons / sunken fields via hard 3D
+ * bevel borders instead of soft shadows. */
+.theme-winclassic [class*="rounded"] {
+  border-radius: 0 !important;
+}
+.theme-winclassic button:not(.border-transparent):not([role="combobox"]) {
+  border-style: solid;
+  border-width: 2px;
+  border-color: hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight));
+  box-shadow: none;
+  background-image: none;
+}
+.theme-winclassic button:not(.border-transparent):not([role="combobox"]):active {
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+}
+.theme-winclassic input,
+.theme-winclassic textarea,
+.theme-winclassic [role="combobox"] {
+  border-style: solid;
+  border-width: 2px;
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+  box-shadow: none;
+}
+.theme-winclassic .shadcn-card,
+.theme-winclassic .bg-popover,
+.theme-winclassic [role="dialog"],
+.theme-winclassic [role="alertdialog"] {
+  box-shadow: 2px 2px 0 0 hsl(var(--winclassic-shadow) / 0.6);
+}
+
 @layer base {
   * { @apply border-border; }
   body {

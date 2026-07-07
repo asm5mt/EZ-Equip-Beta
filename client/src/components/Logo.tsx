@@ -4,10 +4,11 @@
 interface LogoProps {
   size?: number;
   withWordmark?: boolean;
+  trademark?: boolean;
   className?: string;
 }
 
-export function Logo({ size = 28, withWordmark = true, className = "" }: LogoProps) {
+export function Logo({ size = 28, withWordmark = true, trademark = false, className = "" }: LogoProps) {
   return (
     <div className={`flex items-center gap-2 ${className}`} data-testid="logo-ez-equip">
       <svg
@@ -31,6 +32,7 @@ export function Logo({ size = 28, withWordmark = true, className = "" }: LogoPro
       {withWordmark && (
         <span className="text-[15px] font-semibold tracking-[0.16em] text-[hsl(var(--sidebar-primary))]">
           EZ-EQUIP
+          {trademark && <sup className="ml-0.5 text-[9px] font-medium tracking-normal">™</sup>}
         </span>
       )}
     </div>

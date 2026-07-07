@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuSeparator, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Logo } from "./Logo";
@@ -95,31 +95,19 @@ function ChangePasswordDialog() {
 }
 
 export function UserSwitcher() {
-  const { currentUser, fleet, fleets, setFleetId, role, logout } = useAppContext();
+  const { currentUser, role, logout } = useAppContext();
   const display = currentUser.displayName;
   const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="w-9 px-0 md:w-auto md:px-3" data-testid="button-user-menu" aria-label="User and fleet menu">
+        <Button variant="outline" size="sm" className="w-9 px-0 md:w-auto md:px-3" data-testid="button-user-menu" aria-label="User menu">
           <UserIcon className="size-4 md:mr-1.5" />
           <span className="hidden md:inline">{display}</span>
           <ChevronDown className="hidden md:block size-3.5 ml-1 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuLabel>Active Fleet</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={fleet ? String(fleet.id) : ""}
-          onValueChange={v => setFleetId(Number(v))}
-        >
-          {fleets.map(f => (
-            <DropdownMenuRadioItem key={f.id} value={String(f.id)} data-testid={`menuitem-fleet-${f.id}`}>
-              {f.name}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
         <DropdownMenuItem disabled className="text-xs uppercase tracking-wider text-muted-foreground">
           Role: {role}
         </DropdownMenuItem>
@@ -142,16 +130,24 @@ export function UserSwitcher() {
             <DialogHeader>
               <DialogTitle className="sr-only">About EZ-Equip</DialogTitle>
             </DialogHeader>
-            <div className="flex flex-col items-center text-center gap-2 py-2">
-              <Logo size={40} withWordmark={false} />
-              <div className="text-lg font-semibold">EZ-Equip</div>
-              <div className="text-sm text-muted-foreground">Sessanna Consulting</div>
+            <div className="flex flex-col items-center text-center py-2">
+              <Logo size={40} trademark />
+              <div className="mt-2 text-xs text-muted-foreground">© 2026 Sessanna Consulting</div>
+
               {orgInfoQ.data?.orgName && (
-                <div className="text-sm font-medium mt-1" data-testid="text-about-org-name">{orgInfoQ.data.orgName}</div>
+                <div className="mt-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Organization</div>
+                  <div className="mt-0.5 text-sm font-medium" data-testid="text-about-org-name">{orgInfoQ.data.orgName}</div>
+                </div>
               )}
-              <div className="mt-3 text-xs text-muted-foreground space-y-1">
+
+              <div className="mt-4 w-full grid gap-0.5 pt-3 border-t border-border text-xs text-muted-foreground">
                 <div>Version {APP_VERSION} · Build {BUILD_NUMBER}</div>
                 <div>Built {new Date(BUILD_TIME).toLocaleString()}</div>
+              </div>
+
+              <div className="mt-2 text-[10px] leading-relaxed text-muted-foreground/60" data-testid="text-about-license">
+                Open-source software, licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
               </div>
             </div>
           </DialogContent>
