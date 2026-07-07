@@ -446,7 +446,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.patch("/api/fleets/:id", requirePermission("fleets.manage_settings", fleetIdFromFleet), async (req, res) => {
     try {
-      const updated = await storage.updateFleet(Number(req.params.id), insertFleetSchema.partial().parse(req.body));
+      const patch = insertFleetSchema.partial().parse(req.body);
+      const addressFieldsChanged = (["addressLine", "city", "state", "zip"] as const).some(key => key in patch);
+      let geo: { latitude?: number | null; longitude?: number | null } = {};
+      if (addressFieldsChanged) {
+        const existing = await storage.getFleet(Number(req.params.id));
+        geo = await geocodeAddress(composeAddress({ ...existing, ...patch }));
+      }
+      const updated = await storage.updateFleet(Number(req.params.id), { ...patch, ...geo });
       if (!updated) return res.status(404).json({ error: "not_found" });
       res.json(updated);
     } catch (err) { handleError(res, err); }

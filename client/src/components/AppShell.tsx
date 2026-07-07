@@ -123,7 +123,11 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {NAV.map(item => {
-            const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            // Individual fleet settings pages live under /settings/fleets/:id but
+            // conceptually belong to the Fleets nav item, not Settings.
+            const active = location.startsWith("/settings/fleets")
+              ? item.href === "/fleets"
+              : location === item.href || (item.href !== "/" && location.startsWith(item.href));
             const Icon = item.icon;
             return (
               <Link

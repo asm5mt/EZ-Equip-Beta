@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,8 +21,9 @@ import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
+import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
 import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, Fuel, Plus, Save, Tags, Trash2, X } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Plus, Save, Tags, Trash2, X } from "lucide-react";
 import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
@@ -55,6 +56,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     enabled: Number.isFinite(fleetId),
   });
   const [draftCurrency, setDraftCurrency] = useState("USD");
+  const [draftAddressLine, setDraftAddressLine] = useState("");
+  const [draftCity, setDraftCity] = useState("");
+  const [draftState, setDraftState] = useState("");
+  const [draftZip, setDraftZip] = useState("");
+  const [addressAutoFilled, setAddressAutoFilled] = useState<Set<"city" | "state">>(new Set());
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
   const [draftFuelTypes, setDraftFuelTypes] = useState<DraftFuelType[]>([]);
@@ -76,6 +82,10 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   const resetDraft = () => {
     setDraftCurrency(fleet?.currency ?? "USD");
+    setDraftAddressLine(fleet?.addressLine ?? "");
+    setDraftCity(fleet?.city ?? "");
+    setDraftState(fleet?.state ?? "");
+    setDraftZip(fleet?.zip ?? "");
     setDraftTypes((typesQ.data ?? []).map(type => ({ ...type })));
     setDeletedTypeIds([]);
     setDraftFuelTypes((fuelTypesQ.data ?? []).map(type => ({ ...type })));
@@ -94,7 +104,28 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.currency, typesQ.data, fuelTypesQ.data]);
+  }, [fleet?.currency, fleet?.addressLine, fleet?.city, fleet?.state, fleet?.zip, typesQ.data, fuelTypesQ.data]);
+
+  const handleAddressZipBlur = async () => {
+    const trimmed = draftZip.trim();
+    if (!trimmed || trimmed.length < 5) return;
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${trimmed}`);
+      if (!res.ok) return;
+      const place = await res.json();
+      if (place.places?.[0]) {
+        const filled = new Set<"city" | "state">();
+        setDraftCity(place.places[0]["place name"]);
+        filled.add("city");
+        if (place.places[0]["state abbreviation"]) {
+          setDraftState(place.places[0]["state abbreviation"]);
+          filled.add("state");
+        }
+        setAddressAutoFilled(filled);
+        window.setTimeout(() => setAddressAutoFilled(new Set()), 2800);
+      }
+    } catch { }
+  };
 
   const saveSettings = useMutation({
     mutationFn: async () => {
@@ -105,8 +136,14 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const existingFuelById = new Map(existingFuelTypes.map(type => [type.id, type]));
       const work: Promise<unknown>[] = [];
 
-      if (draftCurrency !== (fleet.currency ?? "USD")) {
-        work.push(apiRequest("PATCH", `/api/fleets/${fleet.id}`, { currency: draftCurrency }));
+      const fleetPatch: Record<string, unknown> = {};
+      if (draftCurrency !== (fleet.currency ?? "USD")) fleetPatch.currency = draftCurrency;
+      if (draftAddressLine !== (fleet.addressLine ?? "")) fleetPatch.addressLine = draftAddressLine || null;
+      if (draftCity !== (fleet.city ?? "")) fleetPatch.city = draftCity || null;
+      if (draftState !== (fleet.state ?? "")) fleetPatch.state = draftState || null;
+      if (draftZip !== (fleet.zip ?? "")) fleetPatch.zip = draftZip || null;
+      if (Object.keys(fleetPatch).length) {
+        work.push(apiRequest("PATCH", `/api/fleets/${fleet.id}`, fleetPatch));
       }
 
       for (const id of deletedTypeIds) {
@@ -233,6 +270,10 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   const hasChanges = !!fleet && (
     draftCurrency !== (fleet.currency ?? "USD")
+    || draftAddressLine !== (fleet.addressLine ?? "")
+    || draftCity !== (fleet.city ?? "")
+    || draftState !== (fleet.state ?? "")
+    || draftZip !== (fleet.zip ?? "")
     || deletedTypeIds.length > 0
     || deletedFuelTypeIds.length > 0
     || draftTypes.some(type => {
@@ -338,6 +379,85 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   </SelectContent>
                 </Select>
               </div>
+            </Card>
+
+            <Card className="p-5 space-y-4 mt-5">
+              <SectionHeader
+                icon={<MapPin className="size-4" />}
+                label="Address"
+                description="Used to geocode this fleet's location for maps and distance-aware features."
+              />
+              <div>
+                <Label>Address Line</Label>
+                <Input
+                  value={draftAddressLine}
+                  onChange={e => setDraftAddressLine(e.target.value)}
+                  placeholder="123 Main St"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid="input-fleet-address-line"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px_150px] gap-3">
+                <div>
+                  <Label>City</Label>
+                  <div className="relative">
+                    <Input
+                      value={draftCity}
+                      onChange={e => setDraftCity(e.target.value)}
+                      placeholder="Springfield"
+                      disabled={!canAdmin || saveSettings.isPending}
+                      className={addressAutoFilled.has("city") ? "border-emerald-500/40 bg-emerald-500/10 pr-9 transition-colors" : undefined}
+                      data-testid="input-fleet-city"
+                    />
+                    {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-emerald-600 dark:text-emerald-300" />}
+                  </div>
+                </div>
+                <div>
+                  <Label>State/Province</Label>
+                  <Select value={draftState} onValueChange={setDraftState} disabled={!canAdmin || saveSettings.isPending}>
+                    <SelectTrigger
+                      className={addressAutoFilled.has("state") ? "border-emerald-500/40 bg-emerald-500/10 transition-colors" : undefined}
+                      data-testid="select-fleet-state"
+                    >
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>United States</SelectLabel>
+                        {STATE_PROVINCE_OPTIONS.filter(option => option.group === "United States").map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Canada</SelectLabel>
+                        {STATE_PROVINCE_OPTIONS.filter(option => option.group === "Canada").map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>ZIP/Postal Code</Label>
+                  <Input
+                    value={draftZip}
+                    onChange={e => setDraftZip(e.target.value)}
+                    onBlur={handleAddressZipBlur}
+                    placeholder="62701"
+                    disabled={!canAdmin || saveSettings.isPending}
+                    data-testid="input-fleet-zip"
+                  />
+                </div>
+              </div>
+              {fleet.latitude != null && fleet.longitude != null ? (
+                <p className="text-xs text-muted-foreground" data-testid="text-fleet-geocoded">
+                  Located at {fleet.latitude.toFixed(4)}, {fleet.longitude.toFixed(4)}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground" data-testid="text-fleet-not-geocoded">
+                  Not yet located on a map. Save an address to geocode it.
+                </p>
+              )}
             </Card>
           </TabsContent>
 

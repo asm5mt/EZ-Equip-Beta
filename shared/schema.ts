@@ -14,6 +14,14 @@ export const fleets = pgTable("fleets", {
   slug: text("slug").notNull().unique(),
   currency: text("currency").notNull().default("USD"),
   notes: text("notes"),
+  addressLine: text("address_line"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  // Auto-geocoded server-side from the address fields above (Nominatim) —
+  // never manually entered. Null when geocoding fails.
+  latitude: real("latitude"),
+  longitude: real("longitude"),
 });
 
 export const sites = pgTable("sites", {

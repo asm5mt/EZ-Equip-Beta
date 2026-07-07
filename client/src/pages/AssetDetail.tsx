@@ -11,6 +11,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Asset, MaintenanceSchedule, ServiceEvent, MeterReading, ServiceLineItem, FleetEquipmentType, FleetFuelType } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { ScopeBadge } from "@/pages/Maintenance";
 import { scheduleIntervalSummary, meterIntervalSuffix, formatWithCommas } from "@/lib/format";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -77,7 +87,9 @@ export default function AssetDetail() {
   const [vinDecode, setVinDecode] = useState<VinDecodeState>({ loading: false, error: null, fields: [] });
   const [addScheduleOpen, setAddScheduleOpen] = useState(false);
   const [fleetPickerOpen, setFleetPickerOpen] = useState(false);
-  const [safetyDrawerOpen, setSafetyDrawerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
+  useEffect(() => { setActiveTab("overview"); }, [assetId]);
+  const [pendingDeleteScheduleId, setPendingDeleteScheduleId] = useState<number | null>(null);
   const [safetyEntry, setSafetyEntry] = useState<RecallCacheEntry | null>(null);
   const [safetyLoading, setSafetyLoading] = useState(false);
   const [safetyError, setSafetyError] = useState<string | null>(null);
@@ -201,6 +213,7 @@ export default function AssetDetail() {
   const events = eventsQ.data ?? [];
   const readings = readingsQ.data ?? [];
   const lines = lineItemsQ.data ?? [];
+  const pendingDeleteSchedule = schedules.find(s => s.id === pendingDeleteScheduleId) ?? null;
 
   const evaluations = asset
     ? schedules.map(s => ({ schedule: s, eval: evaluateSchedule(s, asset, events) }))
@@ -243,14 +256,6 @@ export default function AssetDetail() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [vinDrawerOpen]);
-  useEffect(() => {
-    if (!safetyDrawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSafetyDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [safetyDrawerOpen]);
   useEffect(() => {
     if (!vinDrawerOpen) return;
     if (vinDecodeQ.isLoading || vinDecodeQ.isFetching) {
@@ -310,8 +315,7 @@ export default function AssetDetail() {
       void vinDecodeQ.refetch();
     }
   };
-  const openSafetyDrawer = async () => {
-    setSafetyDrawerOpen(true);
+  const loadSafetyDetail = async () => {
     setSafetyError(null);
     let lookup = vehicleSafetyLookup;
     if (!vinFeaturesEnabled) {
@@ -380,133 +384,40 @@ export default function AssetDetail() {
     <AppShell title={asset?.friendlyName ?? "Asset"} subtitle="Asset details, meter, service history, and maintenance rules">
       <div className="space-y-5">
         <Card className="p-5">
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 items-start">
-              <div className="flex items-start gap-4 min-w-0">
-                <Button variant="outline" size="sm" className="h-10 shrink-0" onClick={() => navigate("/assets")} data-testid="button-back-to-assets">
-                  <ArrowLeft className="size-4 mr-1.5" /> Back
-                </Button>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <h2 className="text-xl font-semibold tracking-tight" data-testid="text-asset-name">{asset.friendlyName}</h2>
-                    <Badge
-                      variant="outline"
-                      className={`inline-flex items-center gap-1.5 text-[10px] tracking-wide ${configuredType ? "" : assetTypeBadgeClass(asset.assetType)}`}
-                      style={configuredType ? tintedBadgeStyle(configuredType.color) : undefined}
-                    >
-                      <EquipmentTypeIcon icon={configuredType?.icon ?? normalizeEquipmentIcon(asset.assetType)} className="size-3" />
-                      {asset.assetType}
-                    </Badge>
-                    {asset.isActive === false && (
-                      <Badge variant="outline" className="border-border bg-muted/60 text-[10px] tracking-wide text-muted-foreground" data-testid="badge-asset-inactive">
-                        Inactive{asset.inactiveReason ? ` · ${asset.inactiveReason}` : ""}
-                      </Badge>
-                    )}
-                    {canEdit ? (
-                      <Link href={`/assets/${asset.id}/edit`}>
-                        <Button variant="ghost" size="sm" data-testid="button-edit-asset" aria-label="Edit asset">
-                          <Edit className="size-4" />
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Button variant="ghost" size="sm" disabled data-testid="button-edit-asset" aria-label="Edit asset">
-                        <Edit className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                  {vinFeaturesEnabled && (
-                    <div className="text-sm font-medium">{[asset.year, asset.make, asset.model, asset.trim].filter(Boolean).join(" ")}</div>
-                  )}
-                  <AssetHeaderPills asset={asset} fuelTypes={fuelTypesQ.data ?? []} />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                    {vinFeaturesEnabled && asset.vin && (
-                      <div className="group/vin">
-                        <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">VIN</div>
-                        <div className="flex items-center gap-1.5">
-                          <VinDisplay vin={asset.vin} className="text-[15px]" testId="text-asset-vin" />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 opacity-0 transition-opacity group-hover/vin:opacity-100 focus:opacity-100"
-                            onClick={() => copyToClipboard(asset.vin!, "VIN")}
-                            aria-label="Copy VIN"
-                            data-testid="button-copy-asset-vin"
-                          >
-                            <Copy className="size-3.5" />
-                          </Button>
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                            onClick={() => decodeVin(asset.vin!)}
-                            data-testid="button-decode-vin"
-                          >
-                            <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
-                          </Button>
-                          <RecallsComplaintsButton
-                            entry={safetyEntry}
-                            onClick={openSafetyDrawer}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {vinFeaturesEnabled && asset.plateNumber && (
-                      <div>
-                        <LicensePlateDisplay jurisdiction={asset.plateJurisdiction} plateNumber={asset.plateNumber} />
-                      </div>
-                    )}
-                    {asset.serial && (
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Serial</div>
-                        <div className="font-mono text-sm" data-testid="text-asset-serial">{asset.serial}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 flex-wrap lg:justify-end lg:border-l lg:border-border/70 lg:pl-5">
-                <div className="w-full sm:w-[clamp(198px,18vw,224px)] rounded-md border border-[hsl(var(--primary)/0.32)] bg-gradient-to-br from-[hsl(var(--primary)/0.10)] to-[hsl(var(--card))] p-3 flex flex-col justify-between min-h-[104px]">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground leading-tight">
-                        Current {meterFullLabel(asset.meterType, asset.meterLabel)}
-                      </div>
-                      <Gauge className="size-4 text-[hsl(var(--primary))] shrink-0" />
-                    </div>
-                    <div>
-                      <div className="text-3xl lg:text-[2rem] leading-none font-semibold num text-[hsl(var(--primary))] mt-2" data-testid="text-asset-meter">
-                        {formatNumber(asset.currentMeter)} <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1">As of {formatDate(asset.meterAsOf)}</div>
-                    </div>
-                    {asset.acquisitionDate && (
-                      <div className="text-[11px] text-muted-foreground mt-2">Acquired {formatDate(asset.acquisitionDate)}</div>
-                    )}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="grid gap-2">
-                    {canEdit ? (
-                      <Link href={`/assets/${asset.id}/meter/new`}>
-                        <Button className={meterPrimaryActionClass} data-testid="button-add-meter"><Gauge className="size-4 mr-1.5" /> Add Meter</Button>
-                      </Link>
-                    ) : (
-                      <Button className={meterPrimaryActionClass} disabled data-testid="button-add-meter"><Gauge className="size-4 mr-1.5" /> Add Meter</Button>
-                    )}
-                    <Button className={meterSecondaryActionClass} variant="outline" onClick={() => setMeterModalOpen(true)} data-testid="button-meter-history">Meter History</Button>
-                  </div>
-                  <div className="grid gap-2">
-                    {canEdit ? (
-                      <Link href={`/assets/${asset.id}/services/new`}>
-                        <Button className={servicePrimaryActionClass} data-testid="button-add-service"><Wrench className="size-4 mr-1.5" /> Add Service</Button>
-                      </Link>
-                    ) : (
-                      <Button className={servicePrimaryActionClass} disabled data-testid="button-add-service"><Wrench className="size-4 mr-1.5" /> Add Service</Button>
-                    )}
-                    <Button className={serviceSecondaryActionClass} variant="outline" onClick={() => setServiceModalOpen(true)} data-testid="button-service-history">Service History</Button>
-                  </div>
-                </div>
+          <div className="flex items-start gap-4 min-w-0">
+            <Button variant="outline" size="sm" className="h-10 shrink-0" onClick={() => navigate("/assets")} data-testid="button-back-to-assets">
+              <ArrowLeft className="size-4 mr-1.5" /> Back
+            </Button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-xl font-semibold tracking-tight" data-testid="text-asset-name">{asset.friendlyName}</h2>
+                <Badge
+                  variant="outline"
+                  className={`inline-flex items-center gap-1.5 text-[10px] tracking-wide ${configuredType ? "" : assetTypeBadgeClass(asset.assetType)}`}
+                  style={configuredType ? tintedBadgeStyle(configuredType.color) : undefined}
+                >
+                  <EquipmentTypeIcon icon={configuredType?.icon ?? normalizeEquipmentIcon(asset.assetType)} className="size-3" />
+                  {asset.assetType}
+                </Badge>
+                {asset.isActive === false && (
+                  <Badge variant="outline" className="border-border bg-muted/60 text-[10px] tracking-wide text-muted-foreground" data-testid="badge-asset-inactive">
+                    Inactive{asset.inactiveReason ? ` · ${asset.inactiveReason}` : ""}
+                  </Badge>
+                )}
+                {canEdit ? (
+                  <Link href={`/assets/${asset.id}/edit`}>
+                    <Button variant="ghost" size="sm" data-testid="button-edit-asset" aria-label="Edit asset">
+                      <Edit className="size-4" />
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button variant="ghost" size="sm" disabled data-testid="button-edit-asset" aria-label="Edit asset">
+                    <Edit className="size-4" />
+                  </Button>
+                )}
               </div>
             </div>
+          </div>
         </Card>
         <VinDecodeDrawer
           open={vinDrawerOpen}
@@ -514,281 +425,392 @@ export default function AssetDetail() {
           state={vinDecode}
           onClose={() => setVinDrawerOpen(false)}
         />
-        <RecallsComplaintsDrawer
-          open={safetyDrawerOpen}
-          asset={asset}
-          entry={safetyEntry}
-          lookup={safetyEntry?.lookup ?? vehicleSafetyLookup}
-          loading={safetyLoading}
-          error={safetyError}
-          onClose={() => setSafetyDrawerOpen(false)}
-        />
 
-        <Card className="p-5">
-          <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
-            <div>
-              <h3 className="font-semibold">Maintenance Schedules</h3>
-              <p className="text-sm text-muted-foreground mt-1">Fleet Schedules and Asset Schedules tracked for this asset. Schedules become due when either the meter or day interval is reached.</p>
-            </div>
-            {canEdit ? (
-              <Button size="sm" onClick={() => setAddScheduleOpen(true)} data-testid="button-add-schedule-inline"><Plus className="size-4 mr-1.5" /> Add Schedule</Button>
-            ) : (
-              <Button size="sm" disabled data-testid="button-add-schedule-inline"><Plus className="size-4 mr-1.5" /> Add Schedule</Button>
-            )}
-          </div>
-          {schedules.length === 0 && <p className="text-sm text-muted-foreground">No schedules yet.</p>}
-          <div className="space-y-3">
-            {evaluations.map(({ schedule, eval: ev }) => (
-              <div
-                key={schedule.id}
-                className={`p-4 rounded-md border border-border bg-[hsl(var(--background))] dark:bg-[hsl(var(--muted)/0.28)] shadow-sm border-l-4 ${scheduleStatusBorderClass(ev.status)}`}
-                data-testid={`schedule-row-${schedule.id}`}
-              >
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{toTitleCase(schedule.name)}</span>
-                      <ScopeBadge schedule={schedule} />
-                    </div>
-                    {schedule.notes && (
-                      <div className="text-xs italic text-foreground/70 mt-0.5">
-                        {schedule.notes}
-                        {isPossiblyRedundant(schedule.name, schedule.notes) && (
-                          <span className="ml-2 rounded-full border border-[hsl(var(--status-warn)/0.35)] bg-[hsl(var(--status-warn)/0.10)] px-2 py-0.5 not-italic text-[10px] tracking-wide text-[hsl(var(--status-warn))]">
-                            Review description
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={`text-[10px] tracking-wide ${statusClass(ev.status)}`}>{statusLabel(ev.status)}</Badge>
-                    {canEdit ? (
-                      <Link href={schedule.scope === "fleet" ? `/maintenance/schedules/${schedule.id}/edit` : `/assets/${assetId}/schedules/${schedule.id}/edit`}>
-                        <Button variant="ghost" size="icon" className="size-10 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
-                      </Link>
-                    ) : (
-                      <Button variant="ghost" disabled size="icon" className="size-10" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
-                    )}
-                    <Button variant="ghost" disabled={!canEdit} size="icon" className="size-10 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]" onClick={() => {
-                      if (schedule.scope === "fleet") {
-                        if (!window.confirm(`Remove ${schedule.name} from this asset? The Fleet Schedule remains available.`)) return;
-                        unassignFleetSchedule.mutate(schedule.id);
-                      } else {
-                        if (!window.confirm(`Delete ${schedule.name}? This removes the Asset Schedule.`)) return;
-                        deleteSchedule.mutate(schedule.id);
-                      }
-                    }} data-testid={`button-delete-schedule-${schedule.id}`} aria-label="Delete schedule">
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Field label="Interval">
-                    <IntervalChips schedule={schedule} asset={asset!} />
-                  </Field>
-                  {ev.status === "no-history" ? (
-                    <div className="lg:col-span-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm italic text-muted-foreground">
-                      No completions logged yet — add one to start tracking
-                    </div>
-                  ) : (
-                    <>
-                      <Field label="Last Completed">
-                        {ev.lastCompletedAt ? (
-                          <>
-                            <div className="num">{formatDate(ev.lastCompletedAt)}</div>
-                            {ev.lastCompletedMeter != null && (
-                              <div className="text-xs text-muted-foreground num">at {formatNumber(ev.lastCompletedMeter)} {meterUnitLabel(asset!.meterType, asset?.meterLabel)}</div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </Field>
-                      <Field label={`Current ${meterFullLabel(asset!.meterType, asset?.meterLabel)}`}>
-                        <span className="num">{formatNumber(asset?.currentMeter)} <span className="text-xs text-muted-foreground">{meterUnitLabel(asset!.meterType, asset?.meterLabel)}</span></span>
-                      </Field>
-                      <Field label="Remaining">
-                        <Remaining ev={ev} asset={asset!} schedule={schedule} />
-                      </Field>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <Tabs
+          value={activeTab}
+          onValueChange={value => {
+            setActiveTab(value);
+            if (value === "safety") loadSafetyDetail();
+          }}
+          className="w-full"
+        >
+          <TabsList className="grid w-full grid-cols-4 h-auto" data-testid="tabs-asset-detail">
+            <TabsTrigger value="overview" data-testid="tab-asset-overview">Overview</TabsTrigger>
+            <TabsTrigger value="maintenance" data-testid="tab-asset-maintenance">Maintenance</TabsTrigger>
+            <TabsTrigger value="meters" data-testid="tab-asset-meters">Meters</TabsTrigger>
+            <TabsTrigger value="safety" data-testid="tab-asset-safety">Safety</TabsTrigger>
+          </TabsList>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(420px,460px)] gap-4">
-          <Card className="p-5" id="asset-service-history">
-            <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-              <div>
-                <h3 className="font-semibold">Recent Service History</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Snapshot preview · click headings to sort · open the full modal for exports and detail.</p>
+          <TabsContent value="overview" className="mt-5">
+            <Card className="p-5">
+              {vinFeaturesEnabled && (
+                <div className="text-sm font-medium">{[asset.year, asset.make, asset.model, asset.trim].filter(Boolean).join(" ")}</div>
+              )}
+              <AssetHeaderPills asset={asset} fuelTypes={fuelTypesQ.data ?? []} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                {vinFeaturesEnabled && asset.vin && (
+                  <div className="group/vin">
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">VIN</div>
+                    <div className="flex items-center gap-1.5">
+                      <VinDisplay vin={asset.vin} className="text-[15px]" testId="text-asset-vin" />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 opacity-0 transition-opacity group-hover/vin:opacity-100 focus:opacity-100"
+                        onClick={() => copyToClipboard(asset.vin!, "VIN")}
+                        aria-label="Copy VIN"
+                        data-testid="button-copy-asset-vin"
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                        onClick={() => decodeVin(asset.vin!)}
+                        data-testid="button-decode-vin"
+                      >
+                        <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
+                      </Button>
+                      <RecallsComplaintsButton
+                        entry={safetyEntry}
+                        onClick={() => { setActiveTab("safety"); loadSafetyDetail(); }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {vinFeaturesEnabled && asset.plateNumber && (
+                  <div>
+                    <LicensePlateDisplay jurisdiction={asset.plateJurisdiction} plateNumber={asset.plateNumber} />
+                  </div>
+                )}
+                {asset.serial && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Serial</div>
+                    <div className="font-mono text-sm" data-testid="text-asset-serial">{asset.serial}</div>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <DateRangeFilter
-                  value={serviceSnapshotRange}
-                  onChange={setServiceSnapshotRange}
-                  testIdPrefix="service-snapshot-filter"
-                />
-                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setServiceModalOpen(true)} data-testid="button-open-service-history-modal">View all</Button>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="maintenance" className="mt-5 space-y-4">
+            <div className="flex justify-end">
+              <div className="grid gap-2 w-full sm:w-36">
+                {canEdit ? (
+                  <Link href={`/assets/${asset.id}/services/new`}>
+                    <Button className={servicePrimaryActionClass} data-testid="button-add-service"><Wrench className="size-4 mr-1.5" /> Add Service</Button>
+                  </Link>
+                ) : (
+                  <Button className={servicePrimaryActionClass} disabled data-testid="button-add-service"><Wrench className="size-4 mr-1.5" /> Add Service</Button>
+                )}
+                <Button className={serviceSecondaryActionClass} variant="outline" onClick={() => setServiceModalOpen(true)} data-testid="button-service-history">Service History</Button>
               </div>
             </div>
-            {events.length === 0 && <p className="text-sm text-muted-foreground">No service history yet.</p>}
-            {events.length > 0 && (() => {
-              const filteredEvents = filterEventsByRange(events, serviceSnapshotRange);
-              const previewEvents = filteredEvents
-                .slice()
-                .sort((a, b) => {
-                  const mult = serviceDir === "asc" ? 1 : -1;
-                  if (serviceSort === "meter") return ((a.meterAtService ?? 0) - (b.meterAtService ?? 0)) * mult;
-                  if (serviceSort === "title") return a.title.localeCompare(b.title) * mult;
-                  return (new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime()) * mult;
-                })
-                .slice(0, 10);
-              return (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-muted-foreground">
-                        <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("date")}>Date</th>
-                        <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("meter")}>{meterFullLabel(asset!.meterType, asset?.meterLabel)}</th>
-                        <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("title")}>Service</th>
-                        <th className="py-2 pr-3">Oil / Fluid</th>
-                        <th className="py-2 pr-3">Filter / Part</th>
-                        <th className="py-2 pr-3">Notes</th>
-                        <th className="py-2 pr-3">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="[&_td]:border-t [&_td]:border-border [&_td]:py-2 [&_td]:pr-3">
-                      {previewEvents.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="py-4 text-center text-sm text-muted-foreground">No services in the selected range.</td>
-                        </tr>
-                      )}
-                      {previewEvents.map(e => {
-                        const eventLines = linesByEvent.get(e.id) ?? [];
-                        const fluids = eventLines.filter(l => /oil|fluid|atf|coolant/i.test(`${l.itemName} ${l.spec ?? ""}`)).map(l => `${l.itemName} (${formatNumber(l.quantity)} ${l.unit ?? ""})`);
-                        const parts = eventLines.filter(l => !/oil|fluid|atf|coolant/i.test(l.itemName)).map(l => l.partNumber ? `${l.itemName} ${l.partNumber}` : l.itemName);
-                        return (
-                          <tr key={e.id} data-testid={`history-event-${e.id}`}>
-                            <td className="num whitespace-nowrap">{formatDate(e.performedAt)}</td>
-                            <td className="num whitespace-nowrap">{formatNumber(e.meterAtService)} {meterUnitLabel(asset!.meterType, asset?.meterLabel)}</td>
-                            <td className="font-medium">{e.title}</td>
-                            <td>{fluids.join(", ") || "—"}</td>
-                            <td>{parts.join(", ") || "—"}</td>
-                            <td className="max-w-xs">{e.notes ?? "—"}</td>
-                            <td>
-                              <div className="flex items-center gap-1 justify-end">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-8 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]"
-                                  disabled={!canEdit}
-                                  onClick={() => navigate(`/events/${e.id}/edit`)}
-                                  data-testid={`button-edit-service-${e.id}`}
-                                  aria-label="Edit service entry"
-                                  title="Edit service entry"
-                                >
-                                  <Edit className="size-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-8 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]"
-                                  disabled={!canEdit}
-                                  onClick={() => onDeleteServiceEvent(e.id)}
-                                  data-testid={`button-delete-service-${e.id}`}
-                                  aria-label="Delete service entry"
-                                  title="Delete service entry"
-                                >
-                                  <Trash2 className="size-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+            <Card className="p-5">
+              <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                <div>
+                  <h3 className="font-semibold">Maintenance Schedules</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Fleet Schedules and Asset Schedules tracked for this asset. Schedules become due when either the meter or day interval is reached.</p>
                 </div>
-              );
-            })()}
-          </Card>
-          <Card className="p-5" id="asset-meter-history">
-            <div className="flex items-start justify-between gap-2 flex-wrap mb-3">
-              <div>
-                <h3 className="font-semibold">Recent Meter History</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Snapshot preview.</p>
+                {canEdit ? (
+                  <Button size="sm" onClick={() => setAddScheduleOpen(true)} data-testid="button-add-schedule-inline"><Plus className="size-4 mr-1.5" /> Add Schedule</Button>
+                ) : (
+                  <Button size="sm" disabled data-testid="button-add-schedule-inline"><Plus className="size-4 mr-1.5" /> Add Schedule</Button>
+                )}
               </div>
-              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMeterModalOpen(true)} data-testid="button-open-meter-history-modal">View all</Button>
-            </div>
-            <div className="mb-3">
-              <MeterFilterControls
-                mode={meterSnapshotMode}
-                onModeChange={setMeterSnapshotMode}
-                range={meterSnapshotRange}
-                onRangeChange={setMeterSnapshotRange}
-                meterWindow={meterSnapshotWindow}
-                onMeterWindowChange={setMeterSnapshotWindow}
-                unitLabel={meterUnitLabel(asset.meterType, asset.meterLabel) || "mi"}
-                testIdPrefix="meter-snapshot-filter"
-              />
-            </div>
-            {readings.length === 0 && <p className="text-sm text-muted-foreground">No meter readings recorded.</p>}
-            {readings.length > 0 && (() => {
-              const filteredReadings = meterSnapshotMode === "date"
-                ? filterReadingsByRange(readings, meterSnapshotRange)
-                : filterReadingsByMeterWindow(readings, asset.currentMeter, meterSnapshotWindow);
-              const previewReadings = filteredReadings
-                .slice()
-                .sort((a, b) => new Date(b.readingDate).getTime() - new Date(a.readingDate).getTime())
-                .slice(0, 8);
-              if (previewReadings.length === 0) {
-                return <p className="text-xs text-muted-foreground">No readings in the selected range.</p>;
-              }
-              return (
-                <ul className="divide-y divide-border">
-                  {previewReadings.map(r => (
-                    <li key={r.id} className="py-2 flex items-center justify-between gap-3 text-sm" data-testid={`history-meter-${r.id}`}>
-                      <div className="text-xs text-muted-foreground">{formatDate(r.readingDate)}</div>
-                      <div className="flex items-center gap-3">
-                        <div className="num font-medium">{formatNumber(r.value)} <span className="text-xs text-muted-foreground">{meterUnitLabel(r.readingType, asset?.meterLabel)}</span></div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]"
-                            disabled={!canEdit}
-                            onClick={() => navigate(`/assets/${assetId}/meter/${r.id}/edit`)}
-                            data-testid={`button-edit-meter-${r.id}`}
-                            aria-label="Edit meter reading"
-                            title="Edit meter reading"
-                          >
-                            <Edit className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]"
-                            disabled={!canEdit}
-                            onClick={() => onDeleteMeterReading(r.id)}
-                            data-testid={`button-delete-meter-${r.id}`}
-                            aria-label="Delete meter reading"
-                            title="Delete meter reading"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
+              {schedules.length === 0 && <p className="text-sm text-muted-foreground">No schedules yet.</p>}
+              <div className="space-y-3">
+                {evaluations.map(({ schedule, eval: ev }) => (
+                  <div
+                    key={schedule.id}
+                    className={`p-4 rounded-md border border-border bg-[hsl(var(--background))] dark:bg-[hsl(var(--muted)/0.28)] shadow-sm border-l-4 ${scheduleStatusBorderClass(ev.status)}`}
+                    data-testid={`schedule-row-${schedule.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold">{toTitleCase(schedule.name)}</span>
+                          <ScopeBadge schedule={schedule} />
                         </div>
+                        {schedule.notes && (
+                          <div className="text-xs italic text-foreground/70 mt-0.5">
+                            {schedule.notes}
+                            {isPossiblyRedundant(schedule.name, schedule.notes) && (
+                              <span className="ml-2 rounded-full border border-[hsl(var(--status-warn)/0.35)] bg-[hsl(var(--status-warn)/0.10)] px-2 py-0.5 not-italic text-[10px] tracking-wide text-[hsl(var(--status-warn))]">
+                                Review description
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              );
-            })()}
-          </Card>
-        </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className={`text-[10px] tracking-wide ${statusClass(ev.status)}`}>{statusLabel(ev.status)}</Badge>
+                        {canEdit ? (
+                          <Link href={schedule.scope === "fleet" ? `/maintenance/schedules/${schedule.id}/edit` : `/assets/${assetId}/schedules/${schedule.id}/edit`}>
+                            <Button variant="ghost" size="icon" className="size-10 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
+                          </Link>
+                        ) : (
+                          <Button variant="ghost" disabled size="icon" className="size-10" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
+                        )}
+                        <Button variant="ghost" disabled={!canEdit} size="icon" className="size-10 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]" onClick={() => setPendingDeleteScheduleId(schedule.id)} data-testid={`button-delete-schedule-${schedule.id}`} aria-label="Delete schedule">
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Field label="Interval">
+                        <IntervalChips schedule={schedule} asset={asset!} />
+                      </Field>
+                      {ev.status === "no-history" ? (
+                        <div className="lg:col-span-3 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm italic text-muted-foreground">
+                          No completions logged yet — add one to start tracking
+                        </div>
+                      ) : (
+                        <>
+                          <Field label="Last Completed">
+                            {ev.lastCompletedAt ? (
+                              <>
+                                <div className="num">{formatDate(ev.lastCompletedAt)}</div>
+                                {ev.lastCompletedMeter != null && (
+                                  <div className="text-xs text-muted-foreground num">at {formatNumber(ev.lastCompletedMeter)} {meterUnitLabel(asset!.meterType, asset?.meterLabel)}</div>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </Field>
+                          <Field label={`Current ${meterFullLabel(asset!.meterType, asset?.meterLabel)}`}>
+                            <span className="num">{formatNumber(asset?.currentMeter)} <span className="text-xs text-muted-foreground">{meterUnitLabel(asset!.meterType, asset?.meterLabel)}</span></span>
+                          </Field>
+                          <Field label="Remaining">
+                            <Remaining ev={ev} asset={asset!} schedule={schedule} />
+                          </Field>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-5" id="asset-service-history">
+              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                  <h3 className="font-semibold">Recent Service History</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Snapshot preview · click headings to sort · open the full modal for exports and detail.</p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DateRangeFilter
+                    value={serviceSnapshotRange}
+                    onChange={setServiceSnapshotRange}
+                    testIdPrefix="service-snapshot-filter"
+                  />
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setServiceModalOpen(true)} data-testid="button-open-service-history-modal">View all</Button>
+                </div>
+              </div>
+              {events.length === 0 && <p className="text-sm text-muted-foreground">No service history yet.</p>}
+              {events.length > 0 && (() => {
+                const filteredEvents = filterEventsByRange(events, serviceSnapshotRange);
+                const previewEvents = filteredEvents
+                  .slice()
+                  .sort((a, b) => {
+                    const mult = serviceDir === "asc" ? 1 : -1;
+                    if (serviceSort === "meter") return ((a.meterAtService ?? 0) - (b.meterAtService ?? 0)) * mult;
+                    if (serviceSort === "title") return a.title.localeCompare(b.title) * mult;
+                    return (new Date(a.performedAt).getTime() - new Date(b.performedAt).getTime()) * mult;
+                  })
+                  .slice(0, 10);
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-muted-foreground">
+                          <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("date")}>Date</th>
+                          <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("meter")}>{meterFullLabel(asset!.meterType, asset?.meterLabel)}</th>
+                          <th className="py-2 pr-3 cursor-pointer" onClick={() => sortBy("title")}>Service</th>
+                          <th className="py-2 pr-3">Oil / Fluid</th>
+                          <th className="py-2 pr-3">Filter / Part</th>
+                          <th className="py-2 pr-3">Notes</th>
+                          <th className="py-2 pr-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="[&_td]:border-t [&_td]:border-border [&_td]:py-2 [&_td]:pr-3">
+                        {previewEvents.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-4 text-center text-sm text-muted-foreground">No services in the selected range.</td>
+                          </tr>
+                        )}
+                        {previewEvents.map(e => {
+                          const eventLines = linesByEvent.get(e.id) ?? [];
+                          const fluids = eventLines.filter(l => /oil|fluid|atf|coolant/i.test(`${l.itemName} ${l.spec ?? ""}`)).map(l => `${l.itemName} (${formatNumber(l.quantity)} ${l.unit ?? ""})`);
+                          const parts = eventLines.filter(l => !/oil|fluid|atf|coolant/i.test(l.itemName)).map(l => l.partNumber ? `${l.itemName} ${l.partNumber}` : l.itemName);
+                          return (
+                            <tr key={e.id} data-testid={`history-event-${e.id}`}>
+                              <td className="num whitespace-nowrap">{formatDate(e.performedAt)}</td>
+                              <td className="num whitespace-nowrap">{formatNumber(e.meterAtService)} {meterUnitLabel(asset!.meterType, asset?.meterLabel)}</td>
+                              <td className="font-medium">{e.title}</td>
+                              <td>{fluids.join(", ") || "—"}</td>
+                              <td>{parts.join(", ") || "—"}</td>
+                              <td className="max-w-xs">{e.notes ?? "—"}</td>
+                              <td>
+                                <div className="flex items-center gap-1 justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]"
+                                    disabled={!canEdit}
+                                    onClick={() => navigate(`/events/${e.id}/edit`)}
+                                    data-testid={`button-edit-service-${e.id}`}
+                                    aria-label="Edit service entry"
+                                    title="Edit service entry"
+                                  >
+                                    <Edit className="size-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]"
+                                    disabled={!canEdit}
+                                    onClick={() => onDeleteServiceEvent(e.id)}
+                                    data-testid={`button-delete-service-${e.id}`}
+                                    aria-label="Delete service entry"
+                                    title="Delete service entry"
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="meters" className="mt-5 space-y-4">
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="w-full sm:w-[clamp(198px,18vw,224px)] rounded-md border border-[hsl(var(--primary)/0.32)] bg-gradient-to-br from-[hsl(var(--primary)/0.10)] to-[hsl(var(--card))] p-3 flex flex-col justify-between min-h-[104px]">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground leading-tight">
+                    Current {meterFullLabel(asset.meterType, asset.meterLabel)}
+                  </div>
+                  <Gauge className="size-4 text-[hsl(var(--primary))] shrink-0" />
+                </div>
+                <div>
+                  <div className="text-3xl lg:text-[2rem] leading-none font-semibold num text-[hsl(var(--primary))] mt-2" data-testid="text-asset-meter">
+                    {formatNumber(asset.currentMeter)} <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">As of {formatDate(asset.meterAsOf)}</div>
+                </div>
+                {asset.acquisitionDate && (
+                  <div className="text-[11px] text-muted-foreground mt-2">Acquired {formatDate(asset.acquisitionDate)}</div>
+                )}
+              </div>
+              <div className="grid gap-2 w-full sm:w-36">
+                {canEdit ? (
+                  <Link href={`/assets/${asset.id}/meter/new`}>
+                    <Button className={meterPrimaryActionClass} data-testid="button-add-meter"><Gauge className="size-4 mr-1.5" /> Add Meter</Button>
+                  </Link>
+                ) : (
+                  <Button className={meterPrimaryActionClass} disabled data-testid="button-add-meter"><Gauge className="size-4 mr-1.5" /> Add Meter</Button>
+                )}
+                <Button className={meterSecondaryActionClass} variant="outline" onClick={() => setMeterModalOpen(true)} data-testid="button-meter-history">Meter History</Button>
+              </div>
+            </div>
+            <Card className="p-5" id="asset-meter-history">
+              <div className="flex items-start justify-between gap-2 flex-wrap mb-3">
+                <div>
+                  <h3 className="font-semibold">Recent Meter History</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Snapshot preview.</p>
+                </div>
+                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setMeterModalOpen(true)} data-testid="button-open-meter-history-modal">View all</Button>
+              </div>
+              <div className="mb-3">
+                <MeterFilterControls
+                  mode={meterSnapshotMode}
+                  onModeChange={setMeterSnapshotMode}
+                  range={meterSnapshotRange}
+                  onRangeChange={setMeterSnapshotRange}
+                  meterWindow={meterSnapshotWindow}
+                  onMeterWindowChange={setMeterSnapshotWindow}
+                  unitLabel={meterUnitLabel(asset.meterType, asset.meterLabel) || "mi"}
+                  testIdPrefix="meter-snapshot-filter"
+                />
+              </div>
+              {readings.length === 0 && <p className="text-sm text-muted-foreground">No meter readings recorded.</p>}
+              {readings.length > 0 && (() => {
+                const filteredReadings = meterSnapshotMode === "date"
+                  ? filterReadingsByRange(readings, meterSnapshotRange)
+                  : filterReadingsByMeterWindow(readings, asset.currentMeter, meterSnapshotWindow);
+                const previewReadings = filteredReadings
+                  .slice()
+                  .sort((a, b) => new Date(b.readingDate).getTime() - new Date(a.readingDate).getTime())
+                  .slice(0, 8);
+                if (previewReadings.length === 0) {
+                  return <p className="text-xs text-muted-foreground">No readings in the selected range.</p>;
+                }
+                return (
+                  <ul className="divide-y divide-border">
+                    {previewReadings.map(r => (
+                      <li key={r.id} className="py-2 flex items-center justify-between gap-3 text-sm" data-testid={`history-meter-${r.id}`}>
+                        <div className="text-xs text-muted-foreground">{formatDate(r.readingDate)}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="num font-medium">{formatNumber(r.value)} <span className="text-xs text-muted-foreground">{meterUnitLabel(r.readingType, asset?.meterLabel)}</span></div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]"
+                              disabled={!canEdit}
+                              onClick={() => navigate(`/assets/${assetId}/meter/${r.id}/edit`)}
+                              data-testid={`button-edit-meter-${r.id}`}
+                              aria-label="Edit meter reading"
+                              title="Edit meter reading"
+                            >
+                              <Edit className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]"
+                              disabled={!canEdit}
+                              onClick={() => onDeleteMeterReading(r.id)}
+                              data-testid={`button-delete-meter-${r.id}`}
+                              aria-label="Delete meter reading"
+                              title="Delete meter reading"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="safety" className="mt-5">
+            <Card className="p-5">
+              <SafetyPanel
+                asset={asset}
+                entry={safetyEntry}
+                lookup={safetyEntry?.lookup ?? vehicleSafetyLookup}
+                loading={safetyLoading}
+                error={safetyError}
+              />
+            </Card>
+          </TabsContent>
+        </Tabs>
+
         <ServiceHistoryModal
           open={serviceModalOpen}
           onOpenChange={setServiceModalOpen}
@@ -888,6 +910,36 @@ export default function AssetDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={pendingDeleteScheduleId != null} onOpenChange={open => { if (!open) setPendingDeleteScheduleId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingDeleteSchedule?.scope === "fleet" ? `Remove ${pendingDeleteSchedule?.name}?` : `Delete ${pendingDeleteSchedule?.name}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteSchedule?.scope === "fleet"
+                ? "This removes the Fleet Schedule from this asset only. The Fleet Schedule remains available for other assets."
+                : "This permanently deletes the Asset Schedule."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-schedule">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDeleteScheduleId == null) return;
+                if (pendingDeleteSchedule?.scope === "fleet") unassignFleetSchedule.mutate(pendingDeleteScheduleId);
+                else deleteSchedule.mutate(pendingDeleteScheduleId);
+                setPendingDeleteScheduleId(null);
+              }}
+              data-testid="button-confirm-delete-schedule"
+            >
+              {pendingDeleteSchedule?.scope === "fleet" ? "Remove" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppShell>
   );
 }
@@ -1045,82 +1097,60 @@ function RecallsComplaintsButton({
   );
 }
 
-function RecallsComplaintsDrawer({
-  open,
+function SafetyPanel({
   asset,
   entry,
   lookup,
   loading,
   error,
-  onClose,
 }: {
-  open: boolean;
   asset: Asset;
   entry: RecallCacheEntry | null;
   lookup: VehicleSafetyLookup | null;
   loading: boolean;
   error: string | null;
-  onClose: () => void;
 }) {
-  if (!open) return null;
   const recalls = entry?.recalls ?? [];
   const complaints = entry?.complaints ?? [];
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="safety-title" data-testid="drawer-safety">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[1px]"
-        aria-label="Close recalls and complaints panel"
-        onClick={onClose}
-        data-testid="overlay-safety"
-      />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[420px] flex-col border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-200">
-        <div className="flex items-start justify-between gap-4 border-b border-border p-5">
-          <div className="min-w-0">
-            <h2 id="safety-title" className="text-lg font-semibold tracking-tight">Recalls & Complaints</h2>
-            <div className="mt-1 text-xs text-muted-foreground truncate" data-testid="text-safety-vehicle">
-              {[asset.year, asset.make, asset.model].filter(Boolean).join(" ")}
-            </div>
-            {lookup && (
-              <div className="mt-1 text-xs font-medium text-foreground/80" data-testid="text-safety-query">
-                Showing results for: {lookupLabel(lookup)}
-              </div>
-            )}
-          </div>
-          <Button variant="ghost" size="icon" className="shrink-0" onClick={onClose} aria-label="Close recalls and complaints panel" data-testid="button-close-safety">
-            <X className="size-4" />
-          </Button>
+    <div data-testid="panel-safety">
+      <div className="mb-4">
+        <h3 className="font-semibold" data-testid="text-safety-vehicle">
+          {[asset.year, asset.make, asset.model].filter(Boolean).join(" ") || "Recalls & Complaints"}
+        </h3>
+        {lookup && (
+          <p className="mt-1 text-xs font-medium text-muted-foreground" data-testid="text-safety-query">
+            Showing results for: {lookupLabel(lookup)}
+          </p>
+        )}
+      </div>
+
+      {loading && (
+        <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground" data-testid="state-safety-loading">
+          <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading recalls and complaints…
         </div>
+      )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {loading && (
-            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground" data-testid="state-safety-loading">
-              <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading recalls and complaints…
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300" data-testid="state-safety-error">
-              {error}
-            </div>
-          )}
-
-          {!loading && !error && (
-            <Tabs defaultValue="recalls" className="w-full">
-              <TabsList className="grid w-full grid-cols-2" data-testid="tabs-safety">
-                <TabsTrigger value="recalls">Recalls ({recalls.length})</TabsTrigger>
-                <TabsTrigger value="complaints">Complaints ({complaints.length})</TabsTrigger>
-              </TabsList>
-              <TabsContent value="recalls" className="mt-4">
-                <RecallList recalls={recalls} />
-              </TabsContent>
-              <TabsContent value="complaints" className="mt-4">
-                <ComplaintList complaints={complaints} />
-              </TabsContent>
-            </Tabs>
-          )}
+      {!loading && error && (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300" data-testid="state-safety-error">
+          {error}
         </div>
-      </aside>
+      )}
+
+      {!loading && !error && (
+        <Tabs defaultValue="recalls" className="w-full">
+          <TabsList className="grid w-full grid-cols-2" data-testid="tabs-safety">
+            <TabsTrigger value="recalls">Recalls ({recalls.length})</TabsTrigger>
+            <TabsTrigger value="complaints">Complaints ({complaints.length})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="recalls" className="mt-4">
+            <RecallList recalls={recalls} />
+          </TabsContent>
+          <TabsContent value="complaints" className="mt-4">
+            <ComplaintList complaints={complaints} />
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }
