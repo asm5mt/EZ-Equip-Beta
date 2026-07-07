@@ -21,30 +21,18 @@ import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
-import { INVENTORY_ICON_OPTIONS, InventoryCategoryIcon, normalizeInventoryIcon } from "@/lib/inventory-category-icons";
-import type { FleetEquipmentType, FleetFuelType, InventoryCategory, InventoryCategoryField } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, Boxes, ChevronDown, ChevronUp, Fuel, Plus, Save, Star, Tags, Trash2, Type as TypeIcon, X } from "lucide-react";
+import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
+import { ArrowLeft, BadgeDollarSign, Fuel, Plus, Save, Tags, Trash2, X } from "lucide-react";
 import { useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
-type DraftInventoryField = InventoryCategoryField & { isNew?: boolean };
-type DraftInventoryCategory = InventoryCategory & { isNew?: boolean; fields: DraftInventoryField[] };
 
 const METER_OPTIONS = [
   ["mileage", "Mileage"],
   ["hours", "Hours"],
   ["count", "Count"],
   ["custom", "Custom"],
-];
-
-const FIELD_TYPE_OPTIONS = [
-  ["text", "Text"],
-  ["number", "Numeric"],
-  ["date", "Date"],
-  ["boolean", "Yes / No"],
-  ["currency", "Currency"],
-  ["url", "URL"],
 ];
 
 const VIN_FEATURE_DEFAULT_NAMES = new Set(["vehicle", "truck", "tractor", "trailer", "atv", "utv", "snowmobile"]);
@@ -66,14 +54,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     queryKey: ["/api/fleet-fuel-types", { fleetId }],
     enabled: Number.isFinite(fleetId),
   });
-  const inventoryCategoriesQ = useQuery<InventoryCategory[]>({
-    queryKey: ["/api/inventory-categories", { fleetId }],
-    enabled: Number.isFinite(fleetId),
-  });
-  const inventoryFieldsQ = useQuery<InventoryCategoryField[]>({
-    queryKey: ["/api/inventory-category-fields", { fleetId }],
-    enabled: Number.isFinite(fleetId),
-  });
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
@@ -81,8 +61,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [deletedFuelTypeIds, setDeletedFuelTypeIds] = useState<number[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [addFuelTypeOpen, setAddFuelTypeOpen] = useState(false);
-  const [addInventoryCategoryOpen, setAddInventoryCategoryOpen] = useState(false);
-  const [fieldDialogCategoryId, setFieldDialogCategoryId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState("#2563eb");
   const [icon, setIcon] = useState("equipment");
@@ -91,15 +69,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [fuelColor, setFuelColor] = useState("#dc2626");
   const [fuelIcon, setFuelIcon] = useState("fuel");
   const [fuelActive, setFuelActive] = useState(true);
-  const [draftInventoryCategories, setDraftInventoryCategories] = useState<DraftInventoryCategory[]>([]);
-  const [deletedInventoryCategoryIds, setDeletedInventoryCategoryIds] = useState<number[]>([]);
-  const [deletedInventoryFieldIds, setDeletedInventoryFieldIds] = useState<number[]>([]);
-  const [categoryName, setCategoryName] = useState("");
-  const [categoryDescription, setCategoryDescription] = useState("");
-  const [categoryColor, setCategoryColor] = useState("#64748b");
-  const [categoryIcon, setCategoryIcon] = useState("package");
-  const [fieldName, setFieldName] = useState("");
-  const [fieldType, setFieldType] = useState("text");
 
   useEffect(() => {
     if (Number.isFinite(fleetId)) setFleetId(fleetId);
@@ -121,27 +90,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     setFuelIcon("fuel");
     setFuelActive(true);
     setAddFuelTypeOpen(false);
-    setDraftInventoryCategories((inventoryCategoriesQ.data ?? []).map(category => ({
-      ...category,
-      fields: (inventoryFieldsQ.data ?? [])
-        .filter(field => field.categoryId === category.id)
-        .map(field => ({ ...field })),
-    })));
-    setDeletedInventoryCategoryIds([]);
-    setDeletedInventoryFieldIds([]);
-    setCategoryName("");
-    setCategoryDescription("");
-    setCategoryColor("#64748b");
-    setCategoryIcon("package");
-    setFieldName("");
-    setFieldType("text");
-    setAddInventoryCategoryOpen(false);
-    setFieldDialogCategoryId(null);
   };
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.currency, typesQ.data, fuelTypesQ.data, inventoryCategoriesQ.data, inventoryFieldsQ.data]);
+  }, [fleet?.currency, typesQ.data, fuelTypesQ.data]);
 
   const saveSettings = useMutation({
     mutationFn: async () => {
@@ -150,12 +103,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const existingById = new Map(existingTypes.map(type => [type.id, type]));
       const existingFuelTypes = fuelTypesQ.data ?? [];
       const existingFuelById = new Map(existingFuelTypes.map(type => [type.id, type]));
-      const existingCategories = inventoryCategoriesQ.data ?? [];
-      const existingCategoryById = new Map(existingCategories.map(category => [category.id, category]));
-      const existingFields = inventoryFieldsQ.data ?? [];
-      const existingFieldById = new Map(existingFields.map(field => [field.id, field]));
       const work: Promise<unknown>[] = [];
-      const createdCategoryMap = new Map<number, number>();
 
       if (draftCurrency !== (fleet.currency ?? "USD")) {
         work.push(apiRequest("PATCH", `/api/fleets/${fleet.id}`, { currency: draftCurrency }));
@@ -220,83 +168,12 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         }
       }
 
-      for (const id of deletedInventoryFieldIds) {
-        work.push(apiRequest("DELETE", `/api/inventory-category-fields/${id}`));
-      }
-
-      for (const id of deletedInventoryCategoryIds) {
-        work.push(apiRequest("DELETE", `/api/inventory-categories/${id}`));
-      }
-
       await Promise.all(work);
-
-      for (const category of draftInventoryCategories) {
-        if (category.isNew) {
-          const res = await apiRequest("POST", "/api/inventory-categories", {
-            fleetId: fleet.id,
-            name: category.name.trim(),
-            description: category.description?.trim() || null,
-            active: true,
-            sortOrder: category.sortOrder,
-            color: category.color,
-            icon: normalizeInventoryIcon(category.icon),
-          });
-          const created = await res.json();
-          createdCategoryMap.set(category.id, created.id);
-          continue;
-        }
-
-        const original = existingCategoryById.get(category.id);
-        if (!original) continue;
-        const patch: Partial<InventoryCategory> = {};
-        if (category.name.trim() !== original.name) patch.name = category.name.trim();
-        if ((category.description ?? "").trim() !== (original.description ?? "")) patch.description = category.description?.trim() || null;
-        if (category.active !== original.active) patch.active = category.active;
-        if (category.sortOrder !== original.sortOrder) patch.sortOrder = category.sortOrder;
-        if (category.color !== original.color) patch.color = category.color;
-        if (normalizeInventoryIcon(category.icon) !== normalizeInventoryIcon(original.icon)) patch.icon = normalizeInventoryIcon(category.icon);
-        if (Object.keys(patch).length) {
-          await apiRequest("PATCH", `/api/inventory-categories/${category.id}`, patch);
-        }
-      }
-
-      for (const category of draftInventoryCategories) {
-        const categoryId = category.isNew ? createdCategoryMap.get(category.id) : category.id;
-        if (!categoryId) continue;
-        for (const field of category.fields) {
-          if (field.isNew) {
-            await apiRequest("POST", "/api/inventory-category-fields", {
-              categoryId,
-              name: field.name.trim(),
-              fieldType: field.fieldType,
-              required: field.required,
-              sortOrder: field.sortOrder,
-              highlightField: field.highlightField,
-              inTitle: field.inTitle,
-            });
-            continue;
-          }
-          const original = existingFieldById.get(field.id);
-          if (!original) continue;
-          const patch: Partial<InventoryCategoryField> = {};
-          if (field.name.trim() !== original.name) patch.name = field.name.trim();
-          if (field.fieldType !== original.fieldType) patch.fieldType = field.fieldType;
-          if (field.required !== original.required) patch.required = field.required;
-          if (field.sortOrder !== original.sortOrder) patch.sortOrder = field.sortOrder;
-          if (field.highlightField !== original.highlightField) patch.highlightField = field.highlightField;
-          if (field.inTitle !== original.inTitle) patch.inTitle = field.inTitle;
-          if (Object.keys(patch).length) {
-            await apiRequest("PATCH", `/api/inventory-category-fields/${field.id}`, patch);
-          }
-        }
-      }
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/fleet-equipment-types"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/fleet-fuel-types"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] });
       toast({ title: "Fleet settings saved" });
     },
     onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
@@ -354,127 +231,10 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     if (!type.isNew) setDeletedFuelTypeIds(ids => [...ids, type.id]);
   };
 
-  const addDraftInventoryCategory = () => {
-    if (!fleet || !categoryName.trim()) return;
-    setDraftInventoryCategories(categories => [
-      ...categories,
-      {
-        id: -Date.now(),
-        fleetId: fleet.id,
-        name: categoryName.trim(),
-        description: categoryDescription.trim() || null,
-        active: true,
-        sortOrder: categories.length,
-        color: categoryColor,
-        icon: normalizeInventoryIcon(categoryIcon),
-        isNew: true,
-        fields: [],
-      },
-    ]);
-    setCategoryName("");
-    setCategoryDescription("");
-    setCategoryColor("#64748b");
-    setCategoryIcon("package");
-    setAddInventoryCategoryOpen(false);
-  };
-
-  const updateDraftInventoryCategory = (id: number, patch: Partial<InventoryCategory>) => {
-    setDraftInventoryCategories(categories => categories.map(category => category.id === id ? { ...category, ...patch } : category));
-  };
-
-  const moveDraftInventoryCategory = (id: number, direction: -1 | 1) => {
-    setDraftInventoryCategories(categories => {
-      const index = categories.findIndex(c => c.id === id);
-      const targetIndex = index + direction;
-      if (index < 0 || targetIndex < 0 || targetIndex >= categories.length) return categories;
-      const next = [...categories];
-      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-      return next.map((category, i) => ({ ...category, sortOrder: i }));
-    });
-  };
-
-  const removeDraftInventoryCategory = (category: DraftInventoryCategory) => {
-    setDraftInventoryCategories(categories => categories.filter(c => c.id !== category.id));
-    if (!category.isNew) setDeletedInventoryCategoryIds(ids => [...ids, category.id]);
-    for (const field of category.fields) {
-      if (!field.isNew) setDeletedInventoryFieldIds(ids => [...ids, field.id]);
-    }
-  };
-
-  const addDraftInventoryField = () => {
-    if (!fieldDialogCategoryId || !fieldName.trim()) return;
-    setDraftInventoryCategories(categories => categories.map(category => {
-      if (category.id !== fieldDialogCategoryId) return category;
-      return {
-        ...category,
-        fields: [
-          ...category.fields,
-          {
-            id: -Date.now(),
-            categoryId: category.id,
-            name: fieldName.trim(),
-            fieldType,
-            required: false,
-            sortOrder: category.fields.length + 1,
-            highlightField: false,
-            inTitle: false,
-            isNew: true,
-          },
-        ],
-      };
-    }));
-    setFieldName("");
-    setFieldType("text");
-    setFieldDialogCategoryId(null);
-  };
-
-  const updateDraftInventoryField = (categoryId: number, fieldId: number, patch: Partial<InventoryCategoryField>) => {
-    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
-      ? { ...category, fields: category.fields.map(field => field.id === fieldId ? { ...field, ...patch } : field) }
-      : category
-    ));
-  };
-
-  const moveDraftInventoryField = (categoryId: number, fieldId: number, direction: -1 | 1) => {
-    setDraftInventoryCategories(categories => categories.map(category => {
-      if (category.id !== categoryId) return category;
-      const index = category.fields.findIndex(f => f.id === fieldId);
-      const targetIndex = index + direction;
-      if (index < 0 || targetIndex < 0 || targetIndex >= category.fields.length) return category;
-      const nextFields = [...category.fields];
-      [nextFields[index], nextFields[targetIndex]] = [nextFields[targetIndex], nextFields[index]];
-      return { ...category, fields: nextFields.map((field, i) => ({ ...field, sortOrder: i })) };
-    }));
-  };
-
-  const setHighlightField = (categoryId: number, fieldId: number) => {
-    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
-      ? { ...category, fields: category.fields.map(field => ({ ...field, highlightField: field.id === fieldId })) }
-      : category
-    ));
-  };
-
-  const toggleInTitle = (categoryId: number, fieldId: number) => {
-    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
-      ? { ...category, fields: category.fields.map(field => field.id === fieldId ? { ...field, inTitle: !field.inTitle } : field) }
-      : category
-    ));
-  };
-
-  const removeDraftInventoryField = (categoryId: number, field: DraftInventoryField) => {
-    setDraftInventoryCategories(categories => categories.map(category => category.id === categoryId
-      ? { ...category, fields: category.fields.filter(f => f.id !== field.id) }
-      : category
-    ));
-    if (!field.isNew) setDeletedInventoryFieldIds(ids => [...ids, field.id]);
-  };
-
   const hasChanges = !!fleet && (
     draftCurrency !== (fleet.currency ?? "USD")
     || deletedTypeIds.length > 0
     || deletedFuelTypeIds.length > 0
-    || deletedInventoryCategoryIds.length > 0
-    || deletedInventoryFieldIds.length > 0
     || draftTypes.some(type => {
       if (type.isNew) return true;
       const original = (typesQ.data ?? []).find(t => t.id === type.id);
@@ -494,27 +254,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         || normalizeFuelIcon(type.icon) !== normalizeFuelIcon(original.icon)
         || type.active !== original.active;
     })
-    || draftInventoryCategories.some(category => {
-      if (category.isNew) return true;
-      const original = (inventoryCategoriesQ.data ?? []).find(c => c.id === category.id);
-      return !original
-        || category.name.trim() !== original.name
-        || (category.description ?? "").trim() !== (original.description ?? "")
-        || category.sortOrder !== original.sortOrder
-        || category.color !== original.color
-        || normalizeInventoryIcon(category.icon) !== normalizeInventoryIcon(original.icon)
-        || category.fields.some(field => {
-          if (field.isNew) return true;
-          const originalField = (inventoryFieldsQ.data ?? []).find(f => f.id === field.id);
-          return !originalField
-            || field.name.trim() !== originalField.name
-            || field.fieldType !== originalField.fieldType
-            || field.required !== originalField.required
-            || field.sortOrder !== originalField.sortOrder
-            || field.highlightField !== originalField.highlightField
-            || field.inTitle !== originalField.inTitle;
-        });
-    })
   );
   const { confirmOrRun, dialog: unsavedDialog } = useUnsavedChangeGuard({
     hasChanges,
@@ -527,8 +266,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         <Card className="max-w-3xl p-5 space-y-3">
           <h3 className="font-semibold">Fleet not found</h3>
           <p className="text-sm text-muted-foreground">This fleet may have been deleted or is still loading.</p>
-          <Button variant="outline" onClick={() => navigate("/settings?tab=fleets")} data-testid="button-back-to-settings">
-            <ArrowLeft className="size-4 mr-1.5" /> Back to Settings
+          <Button variant="outline" onClick={() => navigate("/fleets")} data-testid="button-back-to-settings">
+            <ArrowLeft className="size-4 mr-1.5" /> Back to Fleets
           </Button>
         </Card>
       </AppShell>
@@ -540,7 +279,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       <div className="max-w-6xl space-y-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <Button variant="outline" onClick={() => confirmOrRun(() => navigate("/settings?tab=fleets"))} data-testid="button-back-settings">
+            <Button variant="outline" onClick={() => confirmOrRun(() => navigate("/fleets"))} data-testid="button-back-settings">
               <ArrowLeft className="size-4 mr-1.5" /> Back
             </Button>
             <div className="min-w-0">
@@ -569,11 +308,10 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         {unsavedDialog}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-fleet-settings">
+          <TabsList className="grid w-full grid-cols-3 h-auto" data-testid="tabs-fleet-settings">
             <TabsTrigger value="general" data-testid="tab-fleet-general">General</TabsTrigger>
             <TabsTrigger value="fuel-types" data-testid="tab-fleet-fuel-types">Fuel Types</TabsTrigger>
             <TabsTrigger value="asset-types" data-testid="tab-fleet-asset-types">Asset Types</TabsTrigger>
-            <TabsTrigger value="inventory-types" data-testid="tab-fleet-inventory-types">Inventory Types</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="mt-5">
@@ -792,230 +530,6 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
           </div>
             </Card>
           </TabsContent>
-
-          <TabsContent value="inventory-types" className="mt-5">
-            <Card className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <SectionHeader
-              icon={<Boxes className="size-4" />}
-              label="Inventory Types"
-              description="Create fleet-specific inventory categories and optional fields that appear on inventory items."
-            />
-            <Dialog open={addInventoryCategoryOpen} onOpenChange={setAddInventoryCategoryOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-inventory-category">
-                  <Plus className="size-4 mr-1.5" /> Add
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Add Inventory Type</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label>Name</Label>
-                    <Input value={categoryName} onChange={e => setCategoryName(e.target.value)} placeholder="oil, filter, battery…" data-testid="input-new-inventory-category" />
-                  </div>
-                  <div>
-                    <Label>Description</Label>
-                    <Input value={categoryDescription} onChange={e => setCategoryDescription(e.target.value)} placeholder="Optional note shown to admins" data-testid="input-new-inventory-category-description" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label>Color</Label>
-                      <Input type="color" value={categoryColor} onChange={e => setCategoryColor(e.target.value)} data-testid="input-new-inventory-category-color" />
-                    </div>
-                    <InventoryIconSelect value={categoryIcon} onChange={setCategoryIcon} testid="select-new-inventory-category-icon" />
-                  </div>
-                  <div className="rounded-md border border-border bg-muted/50 p-3">
-                    <span className="inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium" style={tintedBadgeStyle(categoryColor)}>
-                      <InventoryCategoryIcon icon={categoryIcon} className="size-4" style={{ color: categoryColor }} />
-                      {categoryName.trim() || "Inventory Type"}
-                    </span>
-                  </div>
-                  <div className="rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
-                    You can create the type with zero fields, then add as many custom fields as needed from the type row.
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="cancel" onClick={() => setAddInventoryCategoryOpen(false)} data-testid="button-cancel-add-inventory-category">
-                      <X className="size-4 mr-1.5" /> Cancel
-                    </Button>
-                    <Button variant="success" disabled={!canAdmin || !categoryName.trim()} onClick={addDraftInventoryCategory} data-testid="button-create-inventory-category">
-                      <Save className="size-4 mr-1.5" /> Save
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="text-sm font-medium">Configured Inventory Types</div>
-            <HelpTooltip content="Inventory types become the category options on inventory items. Fields are optional prompts, such as viscosity, thread size, date code, voltage, or warranty expiration." testId={`tooltip-inventory-types-${fleet.id}`} />
-            <Badge variant="outline" className="ml-auto text-[10px] tracking-wide" data-testid="badge-inventory-category-count">{draftInventoryCategories.length} total</Badge>
-          </div>
-
-          <div className="grid gap-2">
-            {draftInventoryCategories.length === 0 && (
-              <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="empty-inventory-categories">
-                No inventory types are configured yet. Inventory items can still use free-form categories until you add saved types.
-              </div>
-            )}
-            {draftInventoryCategories.map((category, categoryIndex) => (
-              <div key={category.id} className="rounded-md border border-border p-3 space-y-3" data-testid={`row-inventory-category-${category.id}`}>
-                <div className="grid grid-cols-1 lg:grid-cols-[140px_minmax(160px,0.6fr)_minmax(200px,1fr)_auto_auto_auto] gap-2 items-center">
-                  <InventoryCategoryStylePopover
-                    category={category}
-                    disabled={!canAdmin || saveSettings.isPending}
-                    onChange={patch => updateDraftInventoryCategory(category.id, patch)}
-                  />
-                  <Input
-                    className="h-9"
-                    value={category.name}
-                    disabled={!canAdmin || saveSettings.isPending}
-                    onChange={e => updateDraftInventoryCategory(category.id, { name: e.target.value })}
-                    data-testid={`input-inventory-category-name-${category.id}`}
-                  />
-                  <Input
-                    className="h-9"
-                    value={category.description ?? ""}
-                    placeholder="Description"
-                    disabled={!canAdmin || saveSettings.isPending}
-                    onChange={e => updateDraftInventoryCategory(category.id, { description: e.target.value })}
-                    data-testid={`input-inventory-category-description-${category.id}`}
-                  />
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending || categoryIndex === 0} onClick={() => moveDraftInventoryCategory(category.id, -1)} data-testid={`button-move-up-inventory-category-${category.id}`} aria-label="Move category up">
-                      <ChevronUp className="size-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending || categoryIndex === draftInventoryCategories.length - 1} onClick={() => moveDraftInventoryCategory(category.id, 1)} data-testid={`button-move-down-inventory-category-${category.id}`} aria-label="Move category down">
-                      <ChevronDown className="size-4" />
-                    </Button>
-                  </div>
-                  <Button variant="secondary" size="sm" disabled={!canAdmin || saveSettings.isPending} onClick={() => setFieldDialogCategoryId(category.id)} data-testid={`button-open-add-inventory-field-${category.id}`}>
-                    <Plus className="size-4 mr-1.5" /> Add Field
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin || saveSettings.isPending} onClick={() => removeDraftInventoryCategory(category)} data-testid={`button-delete-inventory-category-${category.id}`}>
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Fields</div>
-                  <HelpTooltip content="Add only the fields this inventory type needs. Field type controls the input used when creating inventory items in this category." testId={`tooltip-inventory-category-fields-${category.id}`} />
-                  <Badge variant="outline" className="text-[10px] tracking-wide">{category.fields.length} total</Badge>
-                </div>
-                {category.fields.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">No custom fields. Items in this category will use the standard inventory form only.</div>
-                ) : (
-                  <div className="grid gap-2">
-                    {category.fields.map((field, fieldIndex) => (
-                      <div key={field.id} className="grid grid-cols-1 md:grid-cols-[minmax(150px,1fr)_120px_100px_auto_auto_auto_40px] gap-2 items-center rounded-md bg-muted/45 px-2 py-2" data-testid={`row-inventory-field-${field.id}`}>
-                        <Input
-                          className="h-8"
-                          value={field.name}
-                          disabled={!canAdmin || saveSettings.isPending}
-                          onChange={e => updateDraftInventoryField(category.id, field.id, { name: e.target.value })}
-                          data-testid={`input-inventory-field-name-${field.id}`}
-                        />
-                        <Select value={field.fieldType} onValueChange={value => updateDraftInventoryField(category.id, field.id, { fieldType: value })} disabled={!canAdmin || saveSettings.isPending}>
-                          <SelectTrigger className="h-8" data-testid={`select-inventory-field-type-${field.id}`}><SelectValue /></SelectTrigger>
-                          <SelectContent>{FIELD_TYPE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-                        </Select>
-                        <Select value={field.required ? "required" : "optional"} onValueChange={value => updateDraftInventoryField(category.id, field.id, { required: value === "required" })} disabled={!canAdmin || saveSettings.isPending}>
-                          <SelectTrigger className="h-8" data-testid={`select-inventory-field-required-${field.id}`}><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="optional">Optional</SelectItem>
-                            <SelectItem value="required">Required</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending || fieldIndex === 0} onClick={() => moveDraftInventoryField(category.id, field.id, -1)} data-testid={`button-move-up-inventory-field-${field.id}`} aria-label="Move field up">
-                            <ChevronUp className="size-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending || fieldIndex === category.fields.length - 1} onClick={() => moveDraftInventoryField(category.id, field.id, 1)} data-testid={`button-move-down-inventory-field-${field.id}`} aria-label="Move field down">
-                            <ChevronDown className="size-4" />
-                          </Button>
-                        </div>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className={`h-8 w-8 ${field.inTitle ? "text-[hsl(var(--primary))]" : ""}`}
-                              disabled={!canAdmin || saveSettings.isPending}
-                              onClick={() => toggleInTitle(category.id, field.id)}
-                              data-testid={`button-in-title-inventory-field-${field.id}`}
-                              aria-label="Include in fallback title"
-                              aria-pressed={field.inTitle}
-                            >
-                              <TypeIcon className="size-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs text-xs">
-                            In Title — include this field's value in the fallback title (used when an item has no nickname). Multiple fields can be checked; their values join in this field order.
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className={`h-8 w-8 ${field.highlightField ? "text-[hsl(var(--primary))]" : ""}`}
-                              disabled={!canAdmin || saveSettings.isPending}
-                              onClick={() => setHighlightField(category.id, field.id)}
-                              data-testid={`button-key-spec-inventory-field-${field.id}`}
-                              aria-label="Set as key spec"
-                              aria-pressed={field.highlightField}
-                            >
-                              <Star className="size-4" fill={field.highlightField ? "currentColor" : "none"} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs text-xs">
-                            Key spec — shown as a highlight badge on this category's items. Only one field per category can be the key spec.
-                          </TooltipContent>
-                        </Tooltip>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin || saveSettings.isPending} onClick={() => removeDraftInventoryField(category.id, field)} data-testid={`button-delete-inventory-field-${field.id}`}>
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <Dialog open={fieldDialogCategoryId != null} onOpenChange={open => {
-            if (!open) {
-              setFieldDialogCategoryId(null);
-              setFieldName("");
-              setFieldType("text");
-            }
-          }}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>Add Field</DialogTitle></DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Label>Field Name</Label>
-                    <HelpTooltip content="Use a concise label that makes sense while entering an inventory item, such as Viscosity, Voltage, Warranty Expiration, Thread Size, or Date Code." testId="tooltip-new-inventory-field-name" />
-                  </div>
-                  <Input value={fieldName} onChange={e => setFieldName(e.target.value)} placeholder="Viscosity" data-testid="input-new-inventory-field-name" />
-                </div>
-                <SelectField label="Field Type" value={fieldType} onChange={setFieldType} options={FIELD_TYPE_OPTIONS} testid="select-new-inventory-field-type" />
-                <div className="flex justify-end gap-2">
-                  <Button variant="cancel" onClick={() => setFieldDialogCategoryId(null)} data-testid="button-cancel-add-inventory-field">
-                    <X className="size-4 mr-1.5" /> Cancel
-                  </Button>
-                  <Button variant="success" disabled={!canAdmin || !fieldName.trim()} onClick={addDraftInventoryField} data-testid="button-create-inventory-field">
-                    <Save className="size-4 mr-1.5" /> Save
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
     </AppShell>
@@ -1063,34 +577,6 @@ function FuelIconSelect({ value, onChange, testid, disabled = false }: {
         </SelectTrigger>
         <SelectContent>
           {FUEL_ICON_OPTIONS.map(option => (
-            <SelectItem key={option.value} value={option.value}>
-              <span className="inline-flex items-center gap-2">
-                <option.Icon className="size-4" />
-                {option.label}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function InventoryIconSelect({ value, onChange, testid, disabled = false }: {
-  value: string;
-  onChange: (v: string) => void;
-  testid: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div>
-      <Label>Icon</Label>
-      <Select value={normalizeInventoryIcon(value)} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger data-testid={testid}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {INVENTORY_ICON_OPTIONS.map(option => (
             <SelectItem key={option.value} value={option.value}>
               <span className="inline-flex items-center gap-2">
                 <option.Icon className="size-4" />
@@ -1272,91 +758,6 @@ function FuelTypeStylePopover({
                 className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeFuelIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
                 onClick={() => onChange({ icon: normalizeFuelIcon(option.value) })}
                 data-testid={`button-fuel-type-icon-${type.id}-${option.value}`}
-              >
-                <option.Icon className="size-4" />
-                <span className="max-w-full truncate">{option.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function InventoryCategoryStylePopover({
-  category,
-  disabled,
-  onChange,
-}: {
-  category: DraftInventoryCategory;
-  disabled: boolean;
-  onChange: (patch: Partial<InventoryCategory>) => void;
-}) {
-  const [iconSearch, setIconSearch] = useState("");
-  const filteredIcons = INVENTORY_ICON_OPTIONS.filter(option =>
-    option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
-    || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
-  );
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="inline-flex w-full max-w-[140px] items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          data-testid={`button-inventory-category-style-${category.id}`}
-        >
-          <Badge
-            variant="outline"
-            className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide transition-shadow hover:shadow-sm"
-            style={tintedBadgeStyle(category.color)}
-          >
-            <InventoryCategoryIcon icon={category.icon} className="size-3 shrink-0" />
-            <span className="truncate">{category.name || "Inventory Type"}</span>
-          </Badge>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[340px] space-y-4" data-testid={`popover-inventory-category-style-${category.id}`}>
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Color</div>
-          <div className="mt-2 grid grid-cols-[56px_1fr] items-center gap-3 rounded-md border border-border bg-muted/35 p-2">
-            <Input
-              type="color"
-              className="h-10 w-14 cursor-pointer p-1"
-              value={badgeColorValue(category.color)}
-              onChange={event => onChange({ color: event.target.value })}
-              data-testid={`input-inventory-category-color-${category.id}`}
-              aria-label="Choose inventory category color"
-            />
-            <Badge
-              variant="outline"
-              className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide"
-              style={tintedBadgeStyle(category.color)}
-            >
-              <InventoryCategoryIcon icon={category.icon} className="size-3 shrink-0" />
-              <span className="truncate">{category.name || "Inventory Type"}</span>
-            </Badge>
-          </div>
-        </div>
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
-          <Input
-            className="mt-2 h-8"
-            value={iconSearch}
-            onChange={event => setIconSearch(event.target.value)}
-            placeholder="Search icons"
-            data-testid={`input-inventory-category-icon-search-${category.id}`}
-          />
-          <div className="mt-2 grid max-h-56 grid-cols-4 gap-1.5 overflow-y-auto pr-1">
-            {filteredIcons.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeInventoryIcon(category.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
-                onClick={() => onChange({ icon: normalizeInventoryIcon(option.value) })}
-                data-testid={`button-inventory-category-icon-${category.id}-${option.value}`}
               >
                 <option.Icon className="size-4" />
                 <span className="max-w-full truncate">{option.label}</span>

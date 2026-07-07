@@ -28,22 +28,15 @@ import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
 import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping } from "@shared/schema";
 import type { PermissionCatalogEntry } from "@shared/permissions";
-import { BADGE_COLORS } from "@/lib/badges";
 import {
-  ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, Tags, ShieldCheck, KeyRound,
+  ArrowLeft, Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
 } from "lucide-react";
 
 type ThemeMode = "auto" | "dark" | "light";
 
-const VIN_FEATURE_DEFAULT_NAMES = new Set(["vehicle", "truck", "tractor", "trailer", "atv", "utv", "snowmobile"]);
-
-function defaultVinFeaturesForName(value: string) {
-  return VIN_FEATURE_DEFAULT_NAMES.has(value.trim().toLowerCase());
-}
-
 export default function Admin() {
-  const { fleet, fleets, users, canAdmin } = useAppContext();
+  const { users, canAdmin } = useAppContext();
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const search = useSearch();
@@ -76,14 +69,6 @@ export default function Admin() {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [addUserOpen, setAddUserOpen] = useState(false);
-  const [newFleetName, setNewFleetName] = useState("");
-  const [newFleetSlug, setNewFleetSlug] = useState("");
-  const [fleetWizardOpen, setFleetWizardOpen] = useState(false);
-  const [wizardTypeName, setWizardTypeName] = useState("vehicle");
-  const [wizardTypeColor, setWizardTypeColor] = useState("blue");
-  const [wizardTypeMeter, setWizardTypeMeter] = useState("mileage");
-  const [pendingDeleteFleetId, setPendingDeleteFleetId] = useState<number | null>(null);
-  const [deleteFleetAcknowledged, setDeleteFleetAcknowledged] = useState(false);
 
   useEffect(() => {
     setThemeMode(persisted.themeMode);
@@ -146,46 +131,6 @@ export default function Admin() {
     },
   });
 
-  const createFleetMut = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/fleets", {
-        name: newFleetName,
-        slug: newFleetSlug || newFleetName.toLowerCase().replace(/\s+/g, "-"),
-        currency: fleet?.currency ?? "USD",
-        notes: null,
-      });
-      const created = await res.json();
-      await apiRequest("POST", "/api/fleet-equipment-types", {
-        fleetId: created.id,
-        name: wizardTypeName,
-        color: wizardTypeColor,
-        defaultMeter: wizardTypeMeter,
-        enableVinFeatures: defaultVinFeaturesForName(wizardTypeName),
-        active: true,
-      });
-      return created;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/fleet-equipment-types"] });
-      setNewFleetName(""); setNewFleetSlug("");
-      setWizardTypeName("vehicle"); setWizardTypeColor("blue"); setWizardTypeMeter("mileage");
-      setFleetWizardOpen(false);
-      toast({ title: "Fleet created" });
-    },
-  });
-
-  const deleteFleetMut = useMutation({
-    mutationFn: async () => (await apiRequest("DELETE", `/api/fleets/${pendingDeleteFleetId}`)).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
-      setPendingDeleteFleetId(null);
-      setDeleteFleetAcknowledged(false);
-      toast({ title: "Fleet deleted" });
-    },
-    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
-  });
-  const pendingDeleteFleet = fleets.find(f => f.id === pendingDeleteFleetId) ?? null;
 
   return (
     <AppShell title="Settings" subtitle="Theme, units, fleets, local users, and access control">
@@ -199,9 +144,8 @@ export default function Admin() {
         </div>
 
         <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 h-auto" data-testid="tabs-settings">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-settings">
             <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
-            <TabsTrigger value="fleets" data-testid="tab-fleets">Fleets</TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
             <TabsTrigger value="roles" data-testid="tab-roles">Roles & Permissions</TabsTrigger>
             <TabsTrigger value="auth" data-testid="tab-auth">Authentication</TabsTrigger>
@@ -268,83 +212,6 @@ export default function Admin() {
             </div>
           </TabsContent>
 
-          <TabsContent value="fleets" className="mt-5 space-y-5">
-            {!canAdmin && (
-              <Card className="p-4 status-warn">
-                This role is read-only for fleet administration.
-              </Card>
-            )}
-            <Card className="p-5 space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h3 className="font-semibold">Fleets</h3>
-                <div className="flex items-center gap-2">
-                  <Dialog open={fleetWizardOpen} onOpenChange={setFleetWizardOpen}>
-                    <DialogTrigger asChild>
-                      <Button size="sm" disabled={!canAdmin} data-testid="button-open-fleet-wizard"><Plus className="size-4 mr-1.5" /> Add Fleet</Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-xl">
-                      <DialogHeader><DialogTitle>Fleet Setup Wizard</DialogTitle></DialogHeader>
-                      <div className="space-y-5">
-                        <div>
-                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Fleet identity</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                            <div><Label>Name</Label><Input value={newFleetName} onChange={e => setNewFleetName(e.target.value)} data-testid="input-new-fleet-name" /></div>
-                            <div><Label>Slug</Label><Input value={newFleetSlug} onChange={e => setNewFleetSlug(e.target.value)} placeholder="auto" data-testid="input-new-fleet-slug" /></div>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Required first asset type</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
-                            <div><Label>Type Name</Label><Input value={wizardTypeName} onChange={e => setWizardTypeName(e.target.value)} data-testid="input-wizard-type-name" /></div>
-                            <SelectField label="Color" value={wizardTypeColor} onChange={setWizardTypeColor} options={BADGE_COLORS.map(c => [c, c])} testid="select-wizard-type-color" />
-                            <SelectField label="Default Meter" value={wizardTypeMeter} onChange={setWizardTypeMeter} options={[["mileage", "mileage"], ["hours", "hours"], ["count", "count"], ["custom", "custom"]]} testid="select-wizard-type-meter" />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-2">More fleet setup steps will be added here as we build out the wizard.</p>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="cancel" onClick={() => setFleetWizardOpen(false)} data-testid="button-cancel-fleet-wizard">Cancel</Button>
-                          <Button onClick={() => createFleetMut.mutate()} disabled={!canAdmin || !newFleetName || !wizardTypeName || createFleetMut.isPending} data-testid="button-create-fleet">
-                            {createFleetMut.isPending ? "Creating…" : "Create Fleet"}
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <span className="text-xs text-muted-foreground">{fleets.length} total</span>
-                </div>
-              </div>
-              <div className="grid gap-2">
-                {fleets.map(f => (
-                  <div key={f.id} className="p-3 rounded-md border border-border flex items-center justify-between gap-3 flex-wrap" data-testid={`row-fleet-${f.id}`}>
-                    <div>
-                      <div className="font-medium">{f.name}</div>
-                      <div className="text-xs text-muted-foreground">/{f.slug}</div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {fleet?.id === f.id && <Badge variant="outline" className="text-[10px] tracking-wide">Current</Badge>}
-                      <Link href={`/settings/fleets/${f.id}`}>
-                        <Button variant="outline" size="sm" data-testid={`button-fleet-settings-${f.id}`}>
-                          <Tags className="size-4 mr-1.5" /> Settings
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive"
-                        disabled={!canAdmin}
-                        onClick={() => setPendingDeleteFleetId(f.id)}
-                        data-testid={`button-delete-fleet-${f.id}`}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {fleets.length === 0 && <p className="text-sm text-muted-foreground">No fleets yet.</p>}
-              </div>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="users" className="mt-5 space-y-5">
             <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -398,46 +265,6 @@ export default function Admin() {
           </div>
         )}
 
-        <AlertDialog
-          open={pendingDeleteFleetId != null}
-          onOpenChange={open => { if (!open) { setPendingDeleteFleetId(null); setDeleteFleetAcknowledged(false); } }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete {pendingDeleteFleet?.name}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete "{pendingDeleteFleet?.name}" and everything in it — all assets, service
-                history, meter readings, inventory, and schedules. This cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={deleteFleetAcknowledged}
-                onCheckedChange={c => setDeleteFleetAcknowledged(c === true)}
-                className="mt-0.5"
-                data-testid="checkbox-confirm-delete-fleet"
-              />
-              I understand this will permanently delete all assets and data in this fleet
-            </label>
-            <AlertDialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => { setPendingDeleteFleetId(null); setDeleteFleetAcknowledged(false); }}
-                data-testid="button-cancel-delete-fleet"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={!deleteFleetAcknowledged || deleteFleetMut.isPending}
-                onClick={() => deleteFleetMut.mutate()}
-                data-testid="button-confirm-delete-fleet"
-              >
-                {deleteFleetMut.isPending ? "Deleting…" : "Delete Fleet"}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </AppShell>
   );

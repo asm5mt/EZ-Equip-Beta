@@ -32,6 +32,7 @@ import Reports from "@/pages/Reports";
 import Search from "@/pages/Search";
 import Admin from "@/pages/Admin";
 import FleetSettings from "@/pages/FleetSettings";
+import Fleets from "@/pages/Fleets";
 
 function RequireEdit({ children, fallback = "/" }: { children: ReactNode; fallback?: string }) {
   const { canEdit, isLoaded } = useAppContext();
@@ -73,6 +74,7 @@ function AppRouter() {
       <Route path="/service-facilities" component={ServiceFacilities} />
       <Route path="/reports" component={Reports} />
       <Route path="/search" component={Search} />
+      <Route path="/fleets" component={Fleets} />
       <Route path="/settings/fleets/:id">{(params) => <FleetSettings fleetId={Number(params.id)} />}</Route>
       <Route path="/settings" component={Admin} />
       <Route path="/admin" component={Admin} />
