@@ -368,12 +368,6 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
     onError,
   });
 
-  const updateCategory = useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: Partial<InventoryCategory> }) => apiRequest("PATCH", `/api/inventory-categories/${id}`, patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] }),
-    onError,
-  });
-
   const deleteCategory = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/inventory-categories/${id}`),
     onSuccess: () => {
@@ -400,12 +394,6 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
     onError,
   });
 
-  const updateField = useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: Partial<InventoryCategoryField> }) => apiRequest("PATCH", `/api/inventory-category-fields/${id}`, patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] }),
-    onError,
-  });
-
   const deleteField = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/inventory-category-fields/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] }),
@@ -414,16 +402,32 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
 
   const moveCategory = (index: number, direction: -1 | 1) => {
     const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= categories.length) return;
-    updateCategory.mutate({ id: categories[index].id, patch: { sortOrder: targetIndex } });
-    updateCategory.mutate({ id: categories[targetIndex].id, patch: { sortOrder: index } });
+    if (targetIndex < 0 || targetIndex >= draftCategories.length) return;
+    setDraftCategories(cats => {
+      const next = [...cats];
+      const a = { ...next[index], sortOrder: targetIndex };
+      const b = { ...next[targetIndex], sortOrder: index };
+      next[index] = b;
+      next[targetIndex] = a;
+      return next;
+    });
   };
 
   const moveField = (categoryFields: InventoryCategoryField[], index: number, direction: -1 | 1) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= categoryFields.length) return;
-    updateField.mutate({ id: categoryFields[index].id, patch: { sortOrder: targetIndex } });
-    updateField.mutate({ id: categoryFields[targetIndex].id, patch: { sortOrder: index } });
+    const fieldAId = categoryFields[index].id;
+    const fieldBId = categoryFields[targetIndex].id;
+    setDraftFields(flds => {
+      const idxA = flds.findIndex(f => f.id === fieldAId);
+      const idxB = flds.findIndex(f => f.id === fieldBId);
+      const next = [...flds];
+      const a = { ...next[idxA], sortOrder: targetIndex };
+      const b = { ...next[idxB], sortOrder: index };
+      next[idxA] = b;
+      next[idxB] = a;
+      return next;
+    });
   };
 
   const updateDraftCategory = (id: number, patch: Partial<InventoryCategory>) => {
@@ -444,7 +448,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
       || dc.name !== original.name
       || (dc.description ?? "") !== (original.description ?? "")
       || dc.color !== original.color
-      || normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon);
+      || normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon)
+      || dc.sortOrder !== original.sortOrder;
   }) || draftFields.some(df => {
     const original = fields.find(f => f.id === df.id);
     return !original
@@ -452,7 +457,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
       || df.fieldType !== original.fieldType
       || df.required !== original.required
       || df.inTitle !== original.inTitle
-      || df.highlightField !== original.highlightField;
+      || df.highlightField !== original.highlightField
+      || df.sortOrder !== original.sortOrder;
   });
 
   const saveTypes = useMutation({
@@ -466,6 +472,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
         if ((dc.description ?? "") !== (original.description ?? "")) patch.description = dc.description;
         if (dc.color !== original.color) patch.color = dc.color;
         if (normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon)) patch.icon = normalizeInventoryIcon(dc.icon);
+        if (dc.sortOrder !== original.sortOrder) patch.sortOrder = dc.sortOrder;
         if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-categories/${dc.id}`, patch));
       }
       for (const df of draftFields) {
@@ -477,6 +484,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
         if (df.required !== original.required) patch.required = df.required;
         if (df.inTitle !== original.inTitle) patch.inTitle = df.inTitle;
         if (df.highlightField !== original.highlightField) patch.highlightField = df.highlightField;
+        if (df.sortOrder !== original.sortOrder) patch.sortOrder = df.sortOrder;
         if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-category-fields/${df.id}`, patch));
       }
       await Promise.all(work);
@@ -530,7 +538,9 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      {open && <DiagnosticsRegistration name="Manage Inventory Types" context={{ hasChanges }} />}
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent hideCloseButton className="max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader className="flex-row items-center justify-between space-y-0">
           <DialogTitle>Manage Inventory Types</DialogTitle>
@@ -772,7 +782,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
         </Dialog>
         {unsavedDialog}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }
 
