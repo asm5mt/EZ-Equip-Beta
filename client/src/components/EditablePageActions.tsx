@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, Save, X, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, X, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -128,12 +128,14 @@ export function EditablePageActions({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <div
-            className={`rounded-md border px-3 py-1.5 text-[10px] font-semibold tracking-wide ${hasChanges ? "status-warn" : "border-border bg-card text-muted-foreground"}`}
-            data-testid="badge-unsaved-page-state"
-          >
-            {hasChanges ? (label ?? "Unsaved changes") : "No pending changes"}
-          </div>
+          {hasChanges && (
+            <div
+              className="rounded-md border px-3 py-1.5 text-[10px] font-semibold tracking-wide status-warn"
+              data-testid="badge-unsaved-page-state"
+            >
+              {label ?? "Unsaved changes"}
+            </div>
+          )}
           <Button
             type="button"
             variant="cancel"
@@ -156,5 +158,52 @@ export function EditablePageActions({
       </div>
       {dialog}
     </>
+  );
+}
+
+/**
+ * Compact icon-only Cancel/Save pair for use inline in a DialogHeader, next
+ * to the title, in place of the native corner close button. Pair with a
+ * guarded onOpenChange (see useUnsavedChangeGuard's confirmOrRun) so Escape,
+ * backdrop click, and this Cancel icon all funnel through the same
+ * unsaved-changes warning.
+ */
+export function DialogHeaderActions({
+  onCancel,
+  onSave,
+  canSave,
+  isSaving,
+}: {
+  onCancel: () => void;
+  onSave: () => void;
+  canSave: boolean;
+  isSaving?: boolean;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <Button
+        type="button"
+        variant="cancel"
+        size="icon"
+        className="size-7"
+        onClick={onCancel}
+        aria-label="Cancel"
+        data-testid="button-cancel"
+      >
+        <X className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="success"
+        size="icon"
+        className="size-7"
+        onClick={onSave}
+        disabled={!canSave || isSaving}
+        aria-label="Save"
+        data-testid="button-save"
+      >
+        <Check className="size-4" />
+      </Button>
+    </div>
   );
 }

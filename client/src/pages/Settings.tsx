@@ -22,7 +22,7 @@ import {
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { EditablePageActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
@@ -30,7 +30,7 @@ import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping } from "
 import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
   Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
-  Save, X, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
+  Save, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
   Palette,
 } from "lucide-react";
 import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
@@ -385,6 +385,20 @@ function RolesPermissionsSection() {
       toast({ title: "Fleet role added" });
     },
   });
+
+  const addRoleHasChanges = Boolean(name.trim() || description.trim() || newPermissions.length > 0);
+  const resetAddRoleDraft = () => {
+    setName(""); setNewPermissions([]); setDescription("");
+  };
+  const { confirmOrRun: confirmAddRoleClose, dialog: addRoleUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: addRoleHasChanges,
+    onSave: () => createRole.mutate(),
+  });
+  const handleAddRoleOpenChange = (next: boolean) => {
+    if (!next) confirmAddRoleClose(() => { resetAddRoleDraft(); setAddRoleOpen(false); });
+    else setAddRoleOpen(next);
+  };
+
   const updateRole = useMutation({
     mutationFn: async ({ id, patch }: { id: number; patch: Partial<FleetRoleWithPermissions> }) => (await apiRequest("PATCH", `/api/fleet-roles/${id}`, patch)).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/fleet-roles"] }),
@@ -449,6 +463,16 @@ function RolesPermissionsSection() {
     hasChanges: roleDirty,
     onSave: () => saveRole.mutate(),
   });
+  const handleEditRoleOpenChange = (next: boolean) => {
+    if (!next) confirmRoleClose(() => {
+      if (editingRole) {
+        setDraftName(editingRole.name);
+        setDraftDescription(editingRole.description ?? "");
+        setDraftPermissions(editingRole.permissions);
+      }
+      setEditingRoleId(null);
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -476,12 +500,20 @@ function RolesPermissionsSection() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="font-semibold">Roles</h3>
             <div className="flex items-center gap-2">
-              <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
+              <Dialog open={addRoleOpen} onOpenChange={handleAddRoleOpenChange}>
                 <DialogTrigger asChild>
                   <Button size="sm" disabled={!canAdmin} data-testid="button-add-fleet-role"><Plus className="size-4 mr-1.5" /> Add Role</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader><DialogTitle>Add Role</DialogTitle></DialogHeader>
+                <DialogContent hideCloseButton className="max-w-lg">
+                  <DialogHeader className="flex-row items-center justify-between space-y-0">
+                    <DialogTitle>Add Role</DialogTitle>
+                    <DialogHeaderActions
+                      onCancel={() => handleAddRoleOpenChange(false)}
+                      onSave={() => createRole.mutate()}
+                      canSave={!!canAdmin && !!name && !createRole.isPending}
+                      isSaving={createRole.isPending}
+                    />
+                  </DialogHeader>
                   <div className="grid gap-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="mechanic" data-testid="input-new-fleet-role" /></div>
@@ -493,13 +525,8 @@ function RolesPermissionsSection() {
                       idPrefix="new-role"
                       onToggle={(key, checked) => setNewPermissions(prev => checked ? [...prev, key] : prev.filter(p => p !== key))}
                     />
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="cancel" onClick={() => setAddRoleOpen(false)} data-testid="button-cancel-add-role">Cancel</Button>
-                      <Button disabled={!canAdmin || !name || createRole.isPending} onClick={() => createRole.mutate()} data-testid="button-create-fleet-role">
-                        {createRole.isPending ? "Creating…" : "Add"}
-                      </Button>
-                    </div>
                   </div>
+                  {addRoleUnsavedDialog}
                 </DialogContent>
               </Dialog>
               <span className="text-xs text-muted-foreground">{roles.length} total</span>
@@ -543,44 +570,19 @@ function RolesPermissionsSection() {
         </Card>
       )}
 
-      <Dialog
-        open={editingRole != null}
-        onOpenChange={open => { if (!open) confirmRoleClose(() => setEditingRoleId(null)); }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Edit Role</DialogTitle></DialogHeader>
+      <Dialog open={editingRole != null} onOpenChange={handleEditRoleOpenChange}>
+        <DialogContent hideCloseButton className="max-w-2xl">
+          <DialogHeader className="flex-row items-center justify-between space-y-0">
+            <DialogTitle>Edit Role</DialogTitle>
+            <DialogHeaderActions
+              onCancel={() => handleEditRoleOpenChange(false)}
+              onSave={() => saveRole.mutate()}
+              canSave={!!canAdmin && roleDirty}
+              isSaving={saveRole.isPending}
+            />
+          </DialogHeader>
           {editingRole && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <Badge variant="outline" className={`text-[10px] tracking-wide ${roleDirty ? "status-warn" : ""}`} data-testid="badge-role-dirty-state">
-                  {roleDirty ? "Unsaved changes" : "No pending changes"}
-                </Badge>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="cancel"
-                    size="sm"
-                    onClick={() => {
-                      setDraftName(editingRole.name);
-                      setDraftDescription(editingRole.description ?? "");
-                      setDraftPermissions(editingRole.permissions);
-                      setEditingRoleId(null);
-                    }}
-                    data-testid="button-cancel-edit-role"
-                  >
-                    <X className="size-4 mr-1.5" /> Cancel
-                  </Button>
-                  <Button
-                    variant="success"
-                    size="sm"
-                    disabled={!canAdmin || !roleDirty || saveRole.isPending}
-                    onClick={() => saveRole.mutate()}
-                    data-testid="button-save-edit-role"
-                  >
-                    <Save className="size-4 mr-1.5" /> {saveRole.isPending ? "Saving…" : "Save Changes"}
-                  </Button>
-                </div>
-              </div>
 
               <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1103,6 +1105,9 @@ function UserRow({ user }: { user: User }) {
     hasChanges: userDirty,
     onSave: () => saveUser.mutate(),
   });
+  const handleEditUserOpenChange = (next: boolean) => {
+    if (!next) confirmUserClose(() => { resetUserDraft(); setEditOpen(false); });
+  };
 
   return (
     <>
@@ -1156,38 +1161,18 @@ function UserRow({ user }: { user: User }) {
         </div>
       </div>
 
-      <Dialog
-        open={editOpen}
-        onOpenChange={open => { if (!open) confirmUserClose(() => setEditOpen(false)); }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>{user.displayName}</DialogTitle></DialogHeader>
+      <Dialog open={editOpen} onOpenChange={handleEditUserOpenChange}>
+        <DialogContent hideCloseButton className="max-w-2xl">
+          <DialogHeader className="flex-row items-center justify-between space-y-0">
+            <DialogTitle>{user.displayName}</DialogTitle>
+            <DialogHeaderActions
+              onCancel={() => handleEditUserOpenChange(false)}
+              onSave={() => saveUser.mutate()}
+              canSave={userDirty}
+              isSaving={saveUser.isPending}
+            />
+          </DialogHeader>
           <div className="space-y-5">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <Badge variant="outline" className={`text-[10px] tracking-wide ${userDirty ? "status-warn" : ""}`} data-testid={`badge-user-dirty-state-${user.id}`}>
-                {userDirty ? "Unsaved changes" : "No pending changes"}
-              </Badge>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="cancel"
-                  size="sm"
-                  onClick={() => { resetUserDraft(); setEditOpen(false); }}
-                  data-testid={`button-cancel-edit-user-${user.id}`}
-                >
-                  <X className="size-4 mr-1.5" /> Cancel
-                </Button>
-                <Button
-                  variant="success"
-                  size="sm"
-                  disabled={!userDirty || saveUser.isPending}
-                  onClick={() => saveUser.mutate()}
-                  data-testid={`button-save-edit-user-${user.id}`}
-                >
-                  <Save className="size-4 mr-1.5" /> {saveUser.isPending ? "Saving…" : "Save Changes"}
-                </Button>
-              </div>
-            </div>
 
             <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
               <div className="space-y-2">

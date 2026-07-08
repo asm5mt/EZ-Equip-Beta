@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { EditablePageActions } from "@/components/EditablePageActions";
+import { DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import {
   ArrowLeft, ChevronDown, ChevronRight, ChevronUp, PackagePlus, Pencil, Plus, Settings2, Star,
   Trash2, Type as TypeIcon,
@@ -492,27 +492,76 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   const cancelDraft = () => {
     setDraftCategories(categories);
     setDraftFields(fields);
-    onOpenChange(false);
+  };
+
+  const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({
+    hasChanges,
+    onSave: () => saveTypes.mutate(),
+  });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmClose(() => { cancelDraft(); onOpenChange(false); });
+    else onOpenChange(next);
+  };
+
+  const addCategoryHasChanges = Boolean(categoryName.trim() || categoryDescription.trim());
+  const resetAddCategoryDraft = () => {
+    setCategoryName(""); setCategoryDescription(""); setCategoryColor("#64748b"); setCategoryIcon("package");
+  };
+  const { confirmOrRun: confirmAddCategoryClose, dialog: addCategoryUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: addCategoryHasChanges,
+    onSave: () => createCategory.mutate(),
+  });
+  const handleAddCategoryOpenChange = (next: boolean) => {
+    if (!next) confirmAddCategoryClose(() => { resetAddCategoryDraft(); setAddCategoryOpen(false); });
+    else setAddCategoryOpen(next);
+  };
+
+  const addFieldHasChanges = Boolean(fieldName.trim());
+  const resetAddFieldDraft = () => {
+    setFieldName(""); setFieldType("text"); setFieldDialogCategoryId(null);
+  };
+  const { confirmOrRun: confirmAddFieldClose, dialog: addFieldUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: addFieldHasChanges,
+    onSave: () => createField.mutate(),
+  });
+  const handleAddFieldOpenChange = (next: boolean) => {
+    if (!next) confirmAddFieldClose(() => { resetAddFieldDraft(); setFieldDialogCategoryId(null); });
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Manage Inventory Types</DialogTitle></DialogHeader>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent hideCloseButton className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader className="flex-row items-center justify-between space-y-0">
+          <DialogTitle>Manage Inventory Types</DialogTitle>
+          <DialogHeaderActions
+            onCancel={() => handleOpenChange(false)}
+            onSave={() => saveTypes.mutate()}
+            canSave={hasChanges}
+            isSaving={saveTypes.isPending}
+          />
+        </DialogHeader>
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <SectionHeader
               label="Inventory Types"
               description="Create fleet-specific inventory categories and optional fields that appear on inventory items."
             />
-            <Dialog open={addCategoryOpen} onOpenChange={setAddCategoryOpen}>
+            <Dialog open={addCategoryOpen} onOpenChange={handleAddCategoryOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin} data-testid="button-open-add-inventory-category">
                   <Plus className="size-4 mr-1.5" /> Add
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Add Inventory Type</DialogTitle></DialogHeader>
+              <DialogContent hideCloseButton className="max-w-lg">
+                <DialogHeader className="flex-row items-center justify-between space-y-0">
+                  <DialogTitle>Add Inventory Type</DialogTitle>
+                  <DialogHeaderActions
+                    onCancel={() => handleAddCategoryOpenChange(false)}
+                    onSave={() => createCategory.mutate()}
+                    canSave={!!canAdmin && !!fleetId && !!categoryName.trim()}
+                    isSaving={createCategory.isPending}
+                  />
+                </DialogHeader>
                 <div className="space-y-4">
                   <div>
                     <Label>Name</Label>
@@ -535,27 +584,11 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                       {categoryName.trim() || "Inventory Type"}
                     </span>
                   </div>
-                  <EditablePageActions
-                    showBack={false}
-                    hasChanges={Boolean(categoryName.trim() || categoryDescription.trim())}
-                    isSaving={createCategory.isPending}
-                    canSave={!!canAdmin && !!fleetId && !!categoryName.trim()}
-                    onCancel={() => setAddCategoryOpen(false)}
-                    onSave={() => createCategory.mutate()}
-                  />
                 </div>
+                {addCategoryUnsavedDialog}
               </DialogContent>
             </Dialog>
           </div>
-
-          <EditablePageActions
-            showBack={false}
-            hasChanges={hasChanges}
-            isSaving={saveTypes.isPending}
-            canSave={!!canAdmin && hasChanges}
-            onCancel={cancelDraft}
-            onSave={() => saveTypes.mutate()}
-          />
 
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium">Configured Inventory Types</div>
@@ -697,15 +730,17 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
           </div>
         </div>
 
-        <Dialog open={fieldDialogCategoryId != null} onOpenChange={open => {
-          if (!open) {
-            setFieldDialogCategoryId(null);
-            setFieldName("");
-            setFieldType("text");
-          }
-        }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>Add Field</DialogTitle></DialogHeader>
+        <Dialog open={fieldDialogCategoryId != null} onOpenChange={handleAddFieldOpenChange}>
+          <DialogContent hideCloseButton className="max-w-lg">
+            <DialogHeader className="flex-row items-center justify-between space-y-0">
+              <DialogTitle>Add Field</DialogTitle>
+              <DialogHeaderActions
+                onCancel={() => handleAddFieldOpenChange(false)}
+                onSave={() => createField.mutate()}
+                canSave={!!canAdmin && !!fieldName.trim()}
+                isSaving={createField.isPending}
+              />
+            </DialogHeader>
             <div className="space-y-4">
               <div>
                 <Label>Field Name</Label>
@@ -718,17 +753,11 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                   <SelectContent>{FIELD_TYPE_OPTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <EditablePageActions
-                showBack={false}
-                hasChanges={Boolean(fieldName.trim())}
-                isSaving={createField.isPending}
-                canSave={!!canAdmin && !!fieldName.trim()}
-                onCancel={() => setFieldDialogCategoryId(null)}
-                onSave={() => createField.mutate()}
-              />
             </div>
+            {addFieldUnsavedDialog}
           </DialogContent>
         </Dialog>
+        {unsavedDialog}
       </DialogContent>
     </Dialog>
   );

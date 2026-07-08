@@ -14,7 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import {
   Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
 } from "lucide-react";
-import { EditablePageActions } from "@/components/EditablePageActions";
+import { DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
@@ -637,22 +637,30 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
 
   const cancelDraft = () => {
     setDraftTypes(types);
-    onOpenChange(false);
+  };
+
+  const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({
+    hasChanges,
+    onSave: () => saveTypes.mutate(),
+  });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmClose(() => { cancelDraft(); onOpenChange(false); });
+    else onOpenChange(next);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Manage Facility Types</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          <EditablePageActions
-            showBack={false}
-            hasChanges={hasChanges}
-            isSaving={saveTypes.isPending}
-            canSave={!!canAdmin && hasChanges}
-            onCancel={cancelDraft}
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent hideCloseButton className="max-w-lg">
+        <DialogHeader className="flex-row items-center justify-between space-y-0">
+          <DialogTitle>Manage Facility Types</DialogTitle>
+          <DialogHeaderActions
+            onCancel={() => handleOpenChange(false)}
             onSave={() => saveTypes.mutate()}
+            canSave={!!canAdmin && hasChanges}
+            isSaving={saveTypes.isPending}
           />
+        </DialogHeader>
+        <div className="space-y-4">
           <div className="grid gap-2">
             {draftTypes.length === 0 && (
               <p className="text-sm text-muted-foreground">No facility types configured yet.</p>
@@ -697,6 +705,7 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
             </div>
           )}
         </div>
+        {unsavedDialog}
       </DialogContent>
     </Dialog>
   );

@@ -23,8 +23,8 @@ import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } fro
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
 import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
 import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Save, Tags, Trash2, X } from "lucide-react";
-import { EditablePageActions } from "@/components/EditablePageActions";
+import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
@@ -276,6 +276,32 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     if (!type.isNew) setDeletedFuelTypeIds(ids => [...ids, type.id]);
   };
 
+  const addTypeHasChanges = Boolean(name.trim());
+  const resetAddTypeDraft = () => {
+    setName(""); setColor("#2563eb"); setIcon("equipment"); setDefaultMeter("mileage");
+  };
+  const { confirmOrRun: confirmAddTypeClose, dialog: addTypeUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: addTypeHasChanges,
+    onSave: addDraftType,
+  });
+  const handleAddTypeOpenChange = (next: boolean) => {
+    if (!next) confirmAddTypeClose(() => { resetAddTypeDraft(); setAddOpen(false); });
+    else setAddOpen(next);
+  };
+
+  const addFuelTypeHasChanges = Boolean(fuelName.trim());
+  const resetAddFuelTypeDraft = () => {
+    setFuelName(""); setFuelColor("#dc2626"); setFuelIcon("fuel"); setFuelActive(true);
+  };
+  const { confirmOrRun: confirmAddFuelTypeClose, dialog: addFuelTypeUnsavedDialog } = useUnsavedChangeGuard({
+    hasChanges: addFuelTypeHasChanges,
+    onSave: addDraftFuelType,
+  });
+  const handleAddFuelTypeOpenChange = (next: boolean) => {
+    if (!next) confirmAddFuelTypeClose(() => { resetAddFuelTypeDraft(); setAddFuelTypeOpen(false); });
+    else setAddFuelTypeOpen(next);
+  };
+
   const hasChanges = !!fleet && (
     (!!draftName.trim() && draftName.trim() !== fleet.name)
     || draftCurrency !== (fleet.currency ?? "USD")
@@ -494,14 +520,21 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               label="Fuel Types"
               description="Configure the fuel options that appear on VIN-enabled asset forms and header pills."
             />
-            <Dialog open={addFuelTypeOpen} onOpenChange={setAddFuelTypeOpen}>
+            <Dialog open={addFuelTypeOpen} onOpenChange={handleAddFuelTypeOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-fuel-type">
                   <Plus className="size-4 mr-1.5" /> Add
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Add Fuel Type</DialogTitle></DialogHeader>
+              <DialogContent hideCloseButton className="max-w-lg">
+                <DialogHeader className="flex-row items-center justify-between space-y-0">
+                  <DialogTitle>Add Fuel Type</DialogTitle>
+                  <DialogHeaderActions
+                    onCancel={() => handleAddFuelTypeOpenChange(false)}
+                    onSave={addDraftFuelType}
+                    canSave={!!canAdmin && !!fuelName.trim()}
+                  />
+                </DialogHeader>
                 <div className="space-y-4">
                   <div>
                     <Label>Name</Label>
@@ -527,15 +560,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                       {fuelName.trim() || "Fuel Type"}
                     </span>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="cancel" onClick={() => setAddFuelTypeOpen(false)} data-testid="button-cancel-add-fuel-type">
-                      <X className="size-4 mr-1.5" /> Cancel
-                    </Button>
-                    <Button variant="success" disabled={!canAdmin || !fuelName.trim()} onClick={addDraftFuelType} data-testid="button-create-fuel-type">
-                      <Save className="size-4 mr-1.5" /> Save
-                    </Button>
-                  </div>
                 </div>
+                {addFuelTypeUnsavedDialog}
               </DialogContent>
             </Dialog>
           </div>
@@ -592,14 +618,21 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               label="Asset Types"
               description="Configure the asset tag, default meter, and whether VIN-powered features are available for this fleet."
             />
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <Dialog open={addOpen} onOpenChange={handleAddTypeOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-equipment-type">
                   <Plus className="size-4 mr-1.5" /> Add
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Add Asset Type</DialogTitle></DialogHeader>
+              <DialogContent hideCloseButton className="max-w-lg">
+                <DialogHeader className="flex-row items-center justify-between space-y-0">
+                  <DialogTitle>Add Asset Type</DialogTitle>
+                  <DialogHeaderActions
+                    onCancel={() => handleAddTypeOpenChange(false)}
+                    onSave={addDraftType}
+                    canSave={!!canAdmin && !!name.trim()}
+                  />
+                </DialogHeader>
                 <div className="space-y-4">
                   <div>
                     <Label>Name</Label>
@@ -615,15 +648,8 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                       {name.trim() || "asset type"}
                     </Badge>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="cancel" onClick={() => setAddOpen(false)} data-testid="button-cancel-add-equipment-type">
-                      <X className="size-4 mr-1.5" /> Cancel
-                    </Button>
-                    <Button variant="success" disabled={!canAdmin || !name.trim()} onClick={addDraftType} data-testid="button-create-equipment-type">
-                      <Save className="size-4 mr-1.5" /> Save
-                    </Button>
-                  </div>
                 </div>
+                {addTypeUnsavedDialog}
               </DialogContent>
             </Dialog>
           </div>
