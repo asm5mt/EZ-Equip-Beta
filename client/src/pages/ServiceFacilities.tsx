@@ -31,6 +31,8 @@ type SortKey = "name-asc" | "name-desc" | "type-asc" | "distance-asc";
 
 const NO_TYPE = "__no_type__";
 
+const FACILITY_TYPE_COMMON_ICONS = ["wrench", "building", "car", "truck", "store"];
+
 export default function ServiceFacilities() {
   const { systemAdmin: canAdmin } = useAppContext();
   const { toast } = useToast();
@@ -628,11 +630,15 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-facility-types"] });
       toast({ title: "Facility types saved" });
+      onOpenChange(false);
     },
     onError,
   });
 
-  const cancelDraft = () => setDraftTypes(types);
+  const cancelDraft = () => {
+    setDraftTypes(types);
+    onOpenChange(false);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -652,14 +658,11 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
               <p className="text-sm text-muted-foreground">No facility types configured yet.</p>
             )}
             {draftTypes.map(type => (
-              <div key={type.id} className="grid grid-cols-[56px_1fr_100px_40px] items-center gap-2 rounded-md border border-border px-2.5 py-2" data-testid={`row-facility-type-${type.id}`}>
-                <Input
-                  type="color"
-                  className="h-9 p-1"
-                  value={badgeColorValue(type.color)}
+              <div key={type.id} className="grid grid-cols-1 sm:grid-cols-[140px_1fr_auto] items-center gap-2 rounded-md border border-border px-2.5 py-2" data-testid={`row-facility-type-${type.id}`}>
+                <FacilityTypeStylePopover
+                  type={type}
                   disabled={!canAdmin}
-                  onChange={e => updateDraftType(type.id, { color: e.target.value })}
-                  data-testid={`input-facility-type-color-${type.id}`}
+                  onChange={patch => updateDraftType(type.id, patch)}
                 />
                 <Input
                   className="h-9"
@@ -668,16 +671,6 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
                   onChange={e => updateDraftType(type.id, { name: e.target.value })}
                   data-testid={`input-facility-type-name-${type.id}`}
                 />
-                <Select value={normalizeFacilityTypeIcon(type.icon)} onValueChange={(value) => updateDraftType(type.id, { icon: value })} disabled={!canAdmin}>
-                  <SelectTrigger className="h-9" data-testid={`select-facility-type-icon-${type.id}`}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {FACILITY_TYPE_ICON_OPTIONS.map(option => (
-                      <SelectItem key={option.value} value={option.value}>
-                        <span className="inline-flex items-center gap-2"><option.Icon className="size-4" />{option.label}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin} onClick={() => deleteType.mutate(type.id)} data-testid={`button-delete-facility-type-${type.id}`}>
                   <Trash2 className="size-4" />
                 </Button>
@@ -706,5 +699,101 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FacilityTypeStylePopover({ type, disabled, onChange }: {
+  type: ServiceFacilityType;
+  disabled: boolean;
+  onChange: (patch: Partial<ServiceFacilityType>) => void;
+}) {
+  const [iconSearch, setIconSearch] = useState("");
+  const filteredIcons = FACILITY_TYPE_ICON_OPTIONS.filter(option =>
+    option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
+    || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
+  );
+  const commonIcons = FACILITY_TYPE_ICON_OPTIONS.filter(option => FACILITY_TYPE_COMMON_ICONS.includes(option.value));
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className="inline-flex w-full max-w-[140px] items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid={`button-facility-type-style-${type.id}`}
+        >
+          <Badge
+            variant="outline"
+            className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide transition-shadow hover:shadow-sm"
+            style={tintedBadgeStyle(type.color)}
+          >
+            <FacilityTypeIcon icon={type.icon} className="size-3 shrink-0" />
+            <span className="truncate">{type.name || "Facility Type"}</span>
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[340px] space-y-4" data-testid={`popover-facility-type-style-${type.id}`}>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Color</div>
+          <div className="mt-2 grid grid-cols-[56px_1fr] items-center gap-3 rounded-md border border-border bg-muted/35 p-2">
+            <Input
+              type="color"
+              className="h-10 w-14 cursor-pointer p-1"
+              value={badgeColorValue(type.color)}
+              onChange={event => onChange({ color: event.target.value })}
+              data-testid={`input-facility-type-color-${type.id}`}
+              aria-label="Choose facility type color"
+            />
+            <Badge
+              variant="outline"
+              className="inline-flex w-full items-center justify-start gap-1.5 truncate text-[10px] font-medium tracking-wide"
+              style={tintedBadgeStyle(type.color)}
+            >
+              <FacilityTypeIcon icon={type.icon} className="size-3 shrink-0" />
+              <span className="truncate">{type.name || "Facility Type"}</span>
+            </Badge>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
+          <div className="mt-2 grid grid-cols-6 gap-1.5">
+            {commonIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.label}
+                className={`flex h-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeFacilityTypeIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeFacilityTypeIcon(option.value) })}
+                data-testid={`button-facility-type-icon-common-${type.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+              </button>
+            ))}
+          </div>
+          <Input
+            className="mt-2 h-8"
+            value={iconSearch}
+            onChange={event => setIconSearch(event.target.value)}
+            placeholder="Search icons"
+            data-testid={`input-facility-type-icon-search-${type.id}`}
+          />
+          <div className="mt-2 grid max-h-56 grid-cols-4 gap-1.5 overflow-y-auto pr-1">
+            {filteredIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={`flex h-16 flex-col items-center justify-center gap-1 rounded-md border border-border bg-background px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeFacilityTypeIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeFacilityTypeIcon(option.value) })}
+                data-testid={`button-facility-type-icon-${type.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+                <span className="max-w-full truncate">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

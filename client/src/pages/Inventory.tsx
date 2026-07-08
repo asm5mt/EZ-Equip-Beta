@@ -36,6 +36,8 @@ const FIELD_TYPE_OPTIONS = [
   ["url", "URL"],
 ];
 
+const INVENTORY_TYPE_COMMON_ICONS = ["package", "droplet", "filter", "wrench", "battery"];
+
 export default function Inventory() {
   const { fleet, canEdit, canAdmin } = useAppContext();
   const { toast } = useToast();
@@ -482,6 +484,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] });
       toast({ title: "Inventory types saved" });
+      onOpenChange(false);
     },
     onError,
   });
@@ -489,6 +492,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   const cancelDraft = () => {
     setDraftCategories(categories);
     setDraftFields(fields);
+    onOpenChange(false);
   };
 
   return (
@@ -776,6 +780,7 @@ function InventoryCategoryStylePopover({ category, disabled, onChange }: {
     option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
     || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
   );
+  const commonIcons = INVENTORY_ICON_OPTIONS.filter(option => INVENTORY_TYPE_COMMON_ICONS.includes(option.value));
 
   return (
     <Popover>
@@ -820,6 +825,20 @@ function InventoryCategoryStylePopover({ category, disabled, onChange }: {
         </div>
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
+          <div className="mt-2 grid grid-cols-6 gap-1.5">
+            {commonIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.label}
+                className={`flex h-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeInventoryIcon(category.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeInventoryIcon(option.value) })}
+                data-testid={`button-inventory-category-icon-common-${category.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+              </button>
+            ))}
+          </div>
           <Input
             className="mt-2 h-8"
             value={iconSearch}

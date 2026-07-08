@@ -38,6 +38,9 @@ const METER_OPTIONS = [
 
 const VIN_FEATURE_DEFAULT_NAMES = new Set(["vehicle", "truck", "tractor", "trailer", "atv", "utv", "snowmobile"]);
 
+const ASSET_TYPE_COMMON_ICONS = ["vehicle", "car", "truck", "trailer", "equipment", "generator"];
+const FUEL_TYPE_COMMON_ICONS = ["fuel", "zap", "wind", "flame"];
+
 function defaultVinFeaturesForName(value: string) {
   return VIN_FEATURE_DEFAULT_NAMES.has(value.trim().toLowerCase());
 }
@@ -755,6 +758,7 @@ function AssetTypeStylePopover({
     option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
     || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
   );
+  const commonIcons = EQUIPMENT_ICON_OPTIONS.filter(option => ASSET_TYPE_COMMON_ICONS.includes(option.value));
 
   return (
     <Popover>
@@ -799,6 +803,20 @@ function AssetTypeStylePopover({
         </div>
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
+          <div className="mt-2 grid grid-cols-6 gap-1.5">
+            {commonIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.label}
+                className={`flex h-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeEquipmentIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeEquipmentIcon(option.value) })}
+                data-testid={`button-asset-type-icon-common-${type.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+              </button>
+            ))}
+          </div>
           <Input
             className="mt-2 h-8"
             value={iconSearch}
@@ -840,6 +858,7 @@ function FuelTypeStylePopover({
     option.label.toLowerCase().includes(iconSearch.trim().toLowerCase())
     || String(option.value).toLowerCase().includes(iconSearch.trim().toLowerCase())
   );
+  const commonIcons = FUEL_ICON_OPTIONS.filter(option => FUEL_TYPE_COMMON_ICONS.includes(option.value));
   const color = /^#[0-9a-f]{6}$/i.test(String(type.color ?? "")) ? String(type.color) : "#64748b";
 
   return (
@@ -885,6 +904,20 @@ function FuelTypeStylePopover({
         </div>
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Icon</div>
+          <div className="mt-2 grid grid-cols-6 gap-1.5">
+            {commonIcons.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.label}
+                className={`flex h-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${normalizeFuelIcon(type.icon) === option.value ? "border-[hsl(var(--primary))] text-[hsl(var(--primary))]" : ""}`}
+                onClick={() => onChange({ icon: normalizeFuelIcon(option.value) })}
+                data-testid={`button-fuel-type-icon-common-${type.id}-${option.value}`}
+              >
+                <option.Icon className="size-4" />
+              </button>
+            ))}
+          </div>
           <Input
             className="mt-2 h-8"
             value={iconSearch}
