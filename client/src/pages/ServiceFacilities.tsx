@@ -22,10 +22,17 @@ import { useAppContext } from "@/lib/app-context";
 import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { FACILITY_TYPE_ICON_OPTIONS, FacilityTypeIcon, facilityTypeByName, normalizeFacilityTypeIcon } from "@/lib/facility-types";
 import { distanceMiles, formatDistanceMiles, mapsUrlFor } from "@/lib/maps";
-import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
+import { STATE_PROVINCE_OPTIONS, regionLabel as usCaRegionLabel } from "@/lib/regions";
 import { ViewToggle, FilterGroup, CheckboxRow, FilterChip } from "@/pages/Assets";
 import type { ViewMode } from "@/pages/Assets";
 import { composeAddress } from "@shared/address";
+import { COUNTRIES, countryName } from "@shared/countries";
+import { getCountryAddressConfig } from "@/lib/address-format";
+import {
+  PHONE_COUNTRIES, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
+} from "@/lib/phone";
+import type { CountryCode } from "libphonenumber-js";
+import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
 import type { ServiceFacility, ServiceFacilityType } from "@shared/schema";
 
 type SortKey = "name-asc" | "name-desc" | "type-asc" | "distance-asc";
@@ -35,7 +42,7 @@ const NO_TYPE = "__no_type__";
 const FACILITY_TYPE_COMMON_ICONS = ["wrench", "building", "car", "truck", "store"];
 
 export default function ServiceFacilities() {
-  const { systemAdmin: canAdmin } = useAppContext();
+  const { systemAdmin: canAdmin, fleet } = useAppContext();
   const { toast } = useToast();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [sortKey, setSortKey] = useState<SortKey>("name-asc");
@@ -270,6 +277,7 @@ export default function ServiceFacilities() {
         types={types}
         onSave={(input) => saveFacility.mutate(input)}
         saving={saveFacility.isPending}
+        defaultCountryCode={fleet?.defaultCountryCode}
       />
       <FacilityFormDialog
         open={!!editFacility}
@@ -278,6 +286,7 @@ export default function ServiceFacilities() {
         types={types}
         onSave={(input) => saveFacility.mutate(input)}
         saving={saveFacility.isPending}
+        defaultCountryCode={fleet?.defaultCountryCode}
       />
 
       <AlertDialog open={!!deleteFacility} onOpenChange={(open) => { if (!open) setDeleteFacility(null); }}>
@@ -370,7 +379,7 @@ function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, 
       <div className="mt-3 flex items-center gap-3">
         {facility.phone && (
           <a href={`tel:${facility.phone}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline" onClick={(e) => e.stopPropagation()} data-testid={`link-facility-phone-${facility.id}`}>
-            <Phone className="size-3.5" /> {facility.phone}
+            <Phone className="size-3.5" /> {formatPhoneForDisplay(facility.phone, facility.country as CountryCode)}
           </a>
         )}
       </div>
@@ -396,7 +405,7 @@ function FacilityListRow({ facility, configuredType, distance, onCopy, onEdit, o
             <FacilityTypeBadge type={configuredType} />
             {facility.phone && (
               <a href={`tel:${facility.phone}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline" onClick={(e) => e.stopPropagation()} data-testid={`link-facility-phone-${facility.id}`}>
-                <Phone className="size-3.5" /> {facility.phone}
+                <Phone className="size-3.5" /> {formatPhoneForDisplay(facility.phone, facility.country as CountryCode)}
               </a>
             )}
           </div>
@@ -425,22 +434,26 @@ function FacilityRowActions({ facilityName, onEdit, onDelete, canAdmin }: { faci
   );
 }
 
-function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, saving }: {
+function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, saving, defaultCountryCode }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   facility?: ServiceFacility | null;
   types: ServiceFacilityType[];
   onSave: (input: Partial<ServiceFacility> & { id?: number }) => void;
   saving: boolean;
+  defaultCountryCode?: string;
 }) {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [type, setType] = useState(NO_TYPE);
   const [addressLine, setAddressLine] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zip, setZip] = useState("");
+  const [country, setCountry] = useState("US");
   const [phone, setPhone] = useState("");
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>("US");
   const [technician, setTechnician] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -449,26 +462,32 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
     setName(facility?.name ?? "");
     setType(facility?.type ?? NO_TYPE);
     setAddressLine(facility?.addressLine ?? "");
+    setAddressLine2(facility?.addressLine2 ?? "");
     setCity(facility?.city ?? "");
     setState(facility?.state ?? "");
     setZip(facility?.zip ?? "");
-    setPhone(facility?.phone ?? "");
+    const initialCountry = facility?.country ?? defaultCountryCode ?? "US";
+    setCountry(initialCountry);
+    setPhone(facility?.phone ? formatPhoneForDisplay(facility.phone, initialCountry as CountryCode) : "");
+    setPhoneCountry(phoneCountryFromE164(facility?.phone, initialCountry as CountryCode) ?? (defaultCountryCode as CountryCode) ?? "US");
     setTechnician(facility?.technician ?? "");
     setNotes(facility?.notes ?? "");
-  }, [open, facility]);
+  }, [open, facility, defaultCountryCode]);
+
+  const config = getCountryAddressConfig(country);
 
   const handleZipBlur = async () => {
     const trimmed = zip.trim();
-    if (!/^\d{5}$/.test(trimmed)) return;
+    if (trimmed.length < 3) return;
     try {
-      const res = await fetch(`https://api.zippopotam.us/us/${trimmed}`);
-      if (!res.ok) return;
+      const res = await fetch(`https://api.zippopotam.us/${country.toLowerCase()}/${encodeURIComponent(trimmed)}`);
+      if (!res.ok) return; // country not supported by Zippopotam, or code not found — skip gracefully
       const place = (await res.json())?.places?.[0];
       if (!place) return;
       if (place["place name"]) setCity(place["place name"]);
-      if (place["state abbreviation"]) setState(place["state abbreviation"]);
+      if (config.hasRegion && place["state abbreviation"]) setState(place["state abbreviation"]);
     } catch {
-      toast({ title: "Couldn't look up that ZIP code", description: "You can still enter City/State manually.", variant: "destructive" });
+      toast({ title: "Couldn't look up that postal code", description: "You can still enter City/State manually.", variant: "destructive" });
     }
   };
 
@@ -479,19 +498,90 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
       name: name.trim(),
       type: type === NO_TYPE ? null : type,
       addressLine: addressLine.trim() || null,
+      addressLine2: addressLine2.trim() || null,
       city: city.trim() || null,
       state: state.trim() || null,
       zip: zip.trim() || null,
-      phone: phone.trim() || null,
+      country,
+      phone: phoneToE164(phone, phoneCountry),
       technician: technician.trim() || null,
       notes: notes.trim() || null,
     });
   };
 
+  const hasChanges = open && (
+    name.trim() !== (facility?.name ?? "")
+    || type !== (facility?.type ?? NO_TYPE)
+    || addressLine.trim() !== (facility?.addressLine ?? "")
+    || addressLine2.trim() !== (facility?.addressLine2 ?? "")
+    || city.trim() !== (facility?.city ?? "")
+    || state.trim() !== (facility?.state ?? "")
+    || zip.trim() !== (facility?.zip ?? "")
+    || country !== (facility?.country ?? "US")
+    || (phoneToE164(phone, phoneCountry) ?? "") !== (normalizePhoneToE164(facility?.phone, (facility?.country as CountryCode) ?? "US") ?? "")
+    || technician.trim() !== (facility?.technician ?? "")
+    || notes.trim() !== (facility?.notes ?? "")
+  );
+
+  const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({ hasChanges, onSave: submit });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmClose(() => onOpenChange(false));
+    else onOpenChange(next);
+  };
+
+  const cityField = (
+    <div key="city">
+      <Label>City</Label>
+      <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Springfield" data-testid="input-facility-city" />
+    </div>
+  );
+  const regionField = config.hasRegion ? (
+    <div key="region">
+      <Label>{config.regionLabel}</Label>
+      {country === "US" || country === "CA" ? (
+        <SearchableColumnSelect
+          items={STATE_PROVINCE_OPTIONS.filter(option => option.group === (country === "US" ? "United States" : "Canada"))}
+          columns={[
+            { key: "code", label: "Code", get: o => o.value },
+            { key: "name", label: "Name", get: o => o.label },
+          ]}
+          getId={o => o.value}
+          value={state}
+          onSelect={setState}
+          triggerLabel={state ? `${state} — ${usCaRegionLabel(state)}` : ""}
+          placeholder={`Select ${config.regionLabel.toLowerCase()}`}
+          data-testid="select-facility-state"
+        />
+      ) : (
+        <Input value={state} onChange={e => setState(e.target.value)} placeholder={config.regionLabel} data-testid="input-facility-state" />
+      )}
+    </div>
+  ) : null;
+  const zipField = (
+    <div key="postalCode">
+      <Label>ZIP/Postal Code</Label>
+      <Input value={zip} onChange={e => setZip(e.target.value)} onBlur={handleZipBlur} placeholder="62701" data-testid="input-facility-zip" />
+    </div>
+  );
+  const fieldByKey = { city: cityField, region: regionField, postalCode: zipField };
+  const orderedFields = config.order.map(key => fieldByKey[key]).filter(Boolean);
+
+  const phoneCallingCode = PHONE_COUNTRIES.find(c => c.code === phoneCountry)?.callingCode;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>{facility ? "Edit Service Facility" : "Add Service Facility"}</DialogTitle></DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent hideCloseButton className="max-w-lg">
+        <DialogHeader className="flex-row items-center justify-between space-y-0">
+          <DialogTitle>{facility ? "Edit Service Facility" : "Add Service Facility"}</DialogTitle>
+          <DialogHeaderActions
+            onCancel={() => handleOpenChange(false)}
+            onSave={submit}
+            canSave={!!name.trim()}
+            isSaving={saving}
+            hasChanges={hasChanges}
+          />
+        </DialogHeader>
         <div className="space-y-4">
           <div>
             <Label>Name</Label>
@@ -508,43 +598,57 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
             </Select>
           </div>
           <div>
+            <Label>Country</Label>
+            <SearchableColumnSelect
+              items={COUNTRIES}
+              columns={[
+                { key: "name", label: "Country", get: c => c.name },
+                { key: "code", label: "Code", get: c => c.code },
+              ]}
+              getId={c => c.code}
+              value={country}
+              onSelect={code => { setCountry(code); setState(""); }}
+              triggerLabel={countryName(country)}
+              placeholder="Select country"
+              data-testid="select-facility-country"
+            />
+          </div>
+          <div>
             <Label>Address Line</Label>
             <Input value={addressLine} onChange={e => setAddressLine(e.target.value)} placeholder="123 Main St" data-testid="input-facility-address-line" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px_120px] gap-3">
-            <div>
-              <Label>City</Label>
-              <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Springfield" data-testid="input-facility-city" />
-            </div>
-            <div>
-              <Label>State/Province</Label>
-              <Select value={state} onValueChange={setState}>
-                <SelectTrigger data-testid="select-facility-state"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>United States</SelectLabel>
-                    {STATE_PROVINCE_OPTIONS.filter(option => option.group === "United States").map(option => (
-                      <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectGroup>
-                    <SelectLabel>Canada</SelectLabel>
-                    {STATE_PROVINCE_OPTIONS.filter(option => option.group === "Canada").map(option => (
-                      <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>ZIP/Postal Code</Label>
-              <Input value={zip} onChange={e => setZip(e.target.value)} onBlur={handleZipBlur} placeholder="62701" data-testid="input-facility-zip" />
-            </div>
+          <div>
+            <Label>Address Line 2</Label>
+            <Input value={addressLine2} onChange={e => setAddressLine2(e.target.value)} placeholder="Suite, unit, etc. (optional)" data-testid="input-facility-address-line-2" />
+          </div>
+          <div className={`grid grid-cols-1 gap-3 ${orderedFields.length >= 3 ? "sm:grid-cols-[1fr_130px_120px]" : "sm:grid-cols-2"}`}>
+            {orderedFields}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>Phone</Label>
-              <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 555-1234" data-testid="input-facility-phone" />
+              <div className="flex gap-2">
+                <SearchableColumnSelect
+                  items={PHONE_COUNTRIES}
+                  columns={[
+                    { key: "name", label: "Country", get: c => c.name },
+                    { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
+                  ]}
+                  getId={c => c.code}
+                  value={phoneCountry}
+                  onSelect={code => setPhoneCountry(code as CountryCode)}
+                  triggerLabel={phoneCallingCode ? `${phoneCountry} +${phoneCallingCode}` : phoneCountry}
+                  className="w-[104px] shrink-0 px-2"
+                  data-testid="select-facility-phone-country"
+                />
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(formatPhoneAsYouType(e.target.value, phoneCountry))}
+                  placeholder="(555) 555-1234"
+                  className="flex-1"
+                  data-testid="input-facility-phone"
+                />
+              </div>
             </div>
             <div>
               <Label>Technician</Label>
@@ -555,17 +659,11 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
             <Label>Notes</Label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" data-testid="input-facility-notes" />
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="cancel" onClick={() => onOpenChange(false)} data-testid="button-cancel-facility-form">
-              <X className="size-4 mr-1.5" /> Cancel
-            </Button>
-            <Button variant="success" disabled={!name.trim() || saving} onClick={submit} data-testid="button-save-facility-form">
-              <Save className="size-4 mr-1.5" /> Save
-            </Button>
-          </div>
         </div>
+        {unsavedDialog}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }
 

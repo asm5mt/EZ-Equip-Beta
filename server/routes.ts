@@ -447,7 +447,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/fleets/:id", requirePermission("fleets.manage_settings", fleetIdFromFleet), async (req, res) => {
     try {
       const patch = insertFleetSchema.partial().parse(req.body);
-      const addressFieldsChanged = (["addressLine", "city", "state", "zip"] as const).some(key => key in patch);
+      const addressFieldsChanged = (["addressLine", "addressLine2", "city", "state", "zip", "country"] as const).some(key => key in patch);
       let geo: { latitude?: number | null; longitude?: number | null } = {};
       if (addressFieldsChanged) {
         const existing = await storage.getFleet(Number(req.params.id));
@@ -569,7 +569,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/service-facilities/:id", requireSystemAdmin, async (req, res) => {
     try {
       const patch = insertServiceFacilitySchema.partial().parse(req.body);
-      const addressFieldsChanged = (["addressLine", "city", "state", "zip"] as const).some(key => key in patch);
+      const addressFieldsChanged = (["addressLine", "addressLine2", "city", "state", "zip", "country"] as const).some(key => key in patch);
       let geo: { latitude?: number | null; longitude?: number | null } = {};
       if (addressFieldsChanged) {
         const existing = await storage.getServiceFacility(Number(req.params.id));

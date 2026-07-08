@@ -21,11 +21,18 @@ import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
-import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
+import { STATE_PROVINCE_OPTIONS, regionLabel as usCaRegionLabel } from "@/lib/regions";
 import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
 import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Tags, Trash2 } from "lucide-react";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
+import { COUNTRIES, countryName } from "@shared/countries";
+import { getCountryAddressConfig } from "@/lib/address-format";
+import {
+  PHONE_COUNTRIES, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
+} from "@/lib/phone";
+import type { CountryCode } from "libphonenumber-js";
+import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
@@ -63,9 +70,14 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [editingName, setEditingName] = useState(false);
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftAddressLine, setDraftAddressLine] = useState("");
+  const [draftAddressLine2, setDraftAddressLine2] = useState("");
   const [draftCity, setDraftCity] = useState("");
   const [draftState, setDraftState] = useState("");
   const [draftZip, setDraftZip] = useState("");
+  const [draftCountry, setDraftCountry] = useState("US");
+  const [draftPhone, setDraftPhone] = useState("");
+  const [draftPhoneCountry, setDraftPhoneCountry] = useState<CountryCode>("US");
+  const [draftDefaultCountryCode, setDraftDefaultCountryCode] = useState("US");
   const [addressAutoFilled, setAddressAutoFilled] = useState<Set<"city" | "state">>(new Set());
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
@@ -91,9 +103,15 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     setEditingName(false);
     setDraftCurrency(fleet?.currency ?? "USD");
     setDraftAddressLine(fleet?.addressLine ?? "");
+    setDraftAddressLine2(fleet?.addressLine2 ?? "");
     setDraftCity(fleet?.city ?? "");
     setDraftState(fleet?.state ?? "");
     setDraftZip(fleet?.zip ?? "");
+    const initialCountry = fleet?.country ?? "US";
+    setDraftCountry(initialCountry);
+    setDraftPhone(fleet?.phone ? formatPhoneForDisplay(fleet.phone, initialCountry as CountryCode) : "");
+    setDraftPhoneCountry(phoneCountryFromE164(fleet?.phone, initialCountry as CountryCode) ?? (initialCountry as CountryCode) ?? "US");
+    setDraftDefaultCountryCode(fleet?.defaultCountryCode ?? "US");
     setDraftTypes((typesQ.data ?? []).map(type => ({ ...type })));
     setDeletedTypeIds([]);
     setDraftFuelTypes((fuelTypesQ.data ?? []).map(type => ({ ...type })));
@@ -112,20 +130,22 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.city, fleet?.state, fleet?.zip, typesQ.data, fuelTypesQ.data]);
+  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.addressLine2, fleet?.city, fleet?.state, fleet?.zip, fleet?.country, fleet?.phone, fleet?.defaultCountryCode, typesQ.data, fuelTypesQ.data]);
+
+  const addressConfig = getCountryAddressConfig(draftCountry);
 
   const handleAddressZipBlur = async () => {
     const trimmed = draftZip.trim();
-    if (!trimmed || trimmed.length < 5) return;
+    if (trimmed.length < 3) return;
     try {
-      const res = await fetch(`https://api.zippopotam.us/us/${trimmed}`);
-      if (!res.ok) return;
+      const res = await fetch(`https://api.zippopotam.us/${draftCountry.toLowerCase()}/${encodeURIComponent(trimmed)}`);
+      if (!res.ok) return; // country not supported by Zippopotam, or code not found — skip gracefully
       const place = await res.json();
       if (place.places?.[0]) {
         const filled = new Set<"city" | "state">();
         setDraftCity(place.places[0]["place name"]);
         filled.add("city");
-        if (place.places[0]["state abbreviation"]) {
+        if (addressConfig.hasRegion && place.places[0]["state abbreviation"]) {
           setDraftState(place.places[0]["state abbreviation"]);
           filled.add("state");
         }
@@ -148,9 +168,14 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       if (draftName.trim() && draftName.trim() !== fleet.name) fleetPatch.name = draftName.trim();
       if (draftCurrency !== (fleet.currency ?? "USD")) fleetPatch.currency = draftCurrency;
       if (draftAddressLine !== (fleet.addressLine ?? "")) fleetPatch.addressLine = draftAddressLine || null;
+      if (draftAddressLine2 !== (fleet.addressLine2 ?? "")) fleetPatch.addressLine2 = draftAddressLine2 || null;
       if (draftCity !== (fleet.city ?? "")) fleetPatch.city = draftCity || null;
       if (draftState !== (fleet.state ?? "")) fleetPatch.state = draftState || null;
       if (draftZip !== (fleet.zip ?? "")) fleetPatch.zip = draftZip || null;
+      if (draftCountry !== (fleet.country ?? "US")) fleetPatch.country = draftCountry;
+      const nextPhone = phoneToE164(draftPhone, draftPhoneCountry);
+      if ((nextPhone ?? "") !== (fleet.phone ?? "")) fleetPatch.phone = nextPhone;
+      if (draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")) fleetPatch.defaultCountryCode = draftDefaultCountryCode;
       if (Object.keys(fleetPatch).length) {
         work.push(apiRequest("PATCH", `/api/fleets/${fleet.id}`, fleetPatch));
       }
@@ -307,9 +332,13 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     (!!draftName.trim() && draftName.trim() !== fleet.name)
     || draftCurrency !== (fleet.currency ?? "USD")
     || draftAddressLine !== (fleet.addressLine ?? "")
+    || draftAddressLine2 !== (fleet.addressLine2 ?? "")
     || draftCity !== (fleet.city ?? "")
     || draftState !== (fleet.state ?? "")
     || draftZip !== (fleet.zip ?? "")
+    || draftCountry !== (fleet.country ?? "US")
+    || (phoneToE164(draftPhone, draftPhoneCountry) ?? "") !== (normalizePhoneToE164(fleet.phone, (fleet.country as CountryCode) ?? "US") ?? "")
+    || draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")
     || deletedTypeIds.length > 0
     || deletedFuelTypeIds.length > 0
     || draftTypes.some(type => {
@@ -431,6 +460,28 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label>Default Country Code</Label>
+                    <HelpTooltip content="Pre-fills the address country and phone country for new Service Facilities." testId={`tooltip-fleet-default-country-${fleet.id}`} />
+                  </div>
+                </div>
+                <SearchableColumnSelect
+                  items={COUNTRIES}
+                  columns={[
+                    { key: "name", label: "Country", get: c => c.name },
+                    { key: "code", label: "Code", get: c => c.code },
+                  ]}
+                  getId={c => c.code}
+                  value={draftDefaultCountryCode}
+                  onSelect={setDraftDefaultCountryCode}
+                  triggerLabel={countryName(draftDefaultCountryCode)}
+                  placeholder="Select country"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid="select-fleet-default-country-code"
+                />
+              </div>
             </Card>
 
             <Card className="p-5 space-y-4 mt-5">
@@ -439,6 +490,23 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 label="Address"
                 description="Used to geocode this fleet's location for maps and distance-aware features."
               />
+              <div>
+                <Label>Country</Label>
+                <SearchableColumnSelect
+                  items={COUNTRIES}
+                  columns={[
+                    { key: "name", label: "Country", get: c => c.name },
+                    { key: "code", label: "Code", get: c => c.code },
+                  ]}
+                  getId={c => c.code}
+                  value={draftCountry}
+                  onSelect={code => { setDraftCountry(code); setDraftState(""); }}
+                  triggerLabel={countryName(draftCountry)}
+                  placeholder="Select country"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid="select-fleet-country"
+                />
+              </div>
               <div>
                 <Label>Address Line</Label>
                 <Input
@@ -449,55 +517,112 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   data-testid="input-fleet-address-line"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px_150px] gap-3">
-                <div>
-                  <Label>City</Label>
-                  <div className="relative">
-                    <Input
-                      value={draftCity}
-                      onChange={e => setDraftCity(e.target.value)}
-                      placeholder="Springfield"
-                      disabled={!canAdmin || saveSettings.isPending}
-                      className={addressAutoFilled.has("city") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] pr-9 transition-colors" : undefined}
-                      data-testid="input-fleet-city"
-                    />
-                    {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--status-ok))]" />}
-                  </div>
-                </div>
-                <div>
-                  <Label>State/Province</Label>
-                  <Select value={draftState} onValueChange={setDraftState} disabled={!canAdmin || saveSettings.isPending}>
-                    <SelectTrigger
-                      className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
-                      data-testid="select-fleet-state"
-                    >
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectLabel>United States</SelectLabel>
-                        {STATE_PROVINCE_OPTIONS.filter(option => option.group === "United States").map(option => (
-                          <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
-                        ))}
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>Canada</SelectLabel>
-                        {STATE_PROVINCE_OPTIONS.filter(option => option.group === "Canada").map(option => (
-                          <SelectItem key={option.value} value={option.value}>{option.value} — {option.label}</SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>ZIP/Postal Code</Label>
-                  <Input
-                    value={draftZip}
-                    onChange={e => setDraftZip(e.target.value)}
-                    onBlur={handleAddressZipBlur}
-                    placeholder="62701"
+              <div>
+                <Label>Address Line 2</Label>
+                <Input
+                  value={draftAddressLine2}
+                  onChange={e => setDraftAddressLine2(e.target.value)}
+                  placeholder="Suite, unit, etc. (optional)"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid="input-fleet-address-line-2"
+                />
+              </div>
+              <div className={`grid grid-cols-1 gap-3 ${addressConfig.order.length >= 3 ? "sm:grid-cols-[1fr_170px_150px]" : "sm:grid-cols-2"}`}>
+                {addressConfig.order.map(key => {
+                  if (key === "city") {
+                    return (
+                      <div key="city">
+                        <Label>City</Label>
+                        <div className="relative">
+                          <Input
+                            value={draftCity}
+                            onChange={e => setDraftCity(e.target.value)}
+                            placeholder="Springfield"
+                            disabled={!canAdmin || saveSettings.isPending}
+                            className={addressAutoFilled.has("city") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] pr-9 transition-colors" : undefined}
+                            data-testid="input-fleet-city"
+                          />
+                          {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--status-ok))]" />}
+                        </div>
+                      </div>
+                    );
+                  }
+                  if (key === "region") {
+                    if (!addressConfig.hasRegion) return null;
+                    return (
+                      <div key="region">
+                        <Label>{addressConfig.regionLabel}</Label>
+                        {draftCountry === "US" || draftCountry === "CA" ? (
+                          <SearchableColumnSelect
+                            items={STATE_PROVINCE_OPTIONS.filter(option => option.group === (draftCountry === "US" ? "United States" : "Canada"))}
+                            columns={[
+                              { key: "code", label: "Code", get: o => o.value },
+                              { key: "name", label: "Name", get: o => o.label },
+                            ]}
+                            getId={o => o.value}
+                            value={draftState}
+                            onSelect={setDraftState}
+                            triggerLabel={draftState ? `${draftState} — ${usCaRegionLabel(draftState)}` : ""}
+                            placeholder={`Select ${addressConfig.regionLabel.toLowerCase()}`}
+                            className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
+                            disabled={!canAdmin || saveSettings.isPending}
+                            data-testid="select-fleet-state"
+                          />
+                        ) : (
+                          <Input
+                            value={draftState}
+                            onChange={e => setDraftState(e.target.value)}
+                            placeholder={addressConfig.regionLabel}
+                            disabled={!canAdmin || saveSettings.isPending}
+                            className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
+                            data-testid="input-fleet-state"
+                          />
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key="postalCode">
+                      <Label>ZIP/Postal Code</Label>
+                      <Input
+                        value={draftZip}
+                        onChange={e => setDraftZip(e.target.value)}
+                        onBlur={handleAddressZipBlur}
+                        placeholder="62701"
+                        disabled={!canAdmin || saveSettings.isPending}
+                        data-testid="input-fleet-zip"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <div className="flex gap-2">
+                  <SearchableColumnSelect
+                    items={PHONE_COUNTRIES}
+                    columns={[
+                      { key: "name", label: "Country", get: c => c.name },
+                      { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
+                    ]}
+                    getId={c => c.code}
+                    value={draftPhoneCountry}
+                    onSelect={code => setDraftPhoneCountry(code as CountryCode)}
+                    triggerLabel={(() => {
+                      const cc = PHONE_COUNTRIES.find(c => c.code === draftPhoneCountry)?.callingCode;
+                      return cc ? `${draftPhoneCountry} +${cc}` : draftPhoneCountry;
+                    })()}
+                    className="w-[104px] shrink-0 px-2"
                     disabled={!canAdmin || saveSettings.isPending}
-                    data-testid="input-fleet-zip"
+                    data-testid="select-fleet-phone-country"
+                  />
+                  <Input
+                    value={draftPhone}
+                    onChange={e => setDraftPhone(formatPhoneAsYouType(e.target.value, draftPhoneCountry))}
+                    placeholder="(555) 555-1234"
+                    className="flex-1"
+                    disabled={!canAdmin || saveSettings.isPending}
+                    data-testid="input-fleet-phone"
                   />
                 </div>
               </div>

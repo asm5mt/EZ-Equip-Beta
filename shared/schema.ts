@@ -15,9 +15,18 @@ export const fleets = pgTable("fleets", {
   currency: text("currency").notNull().default("USD"),
   notes: text("notes"),
   addressLine: text("address_line"),
+  addressLine2: text("address_line_2"),
   city: text("city"),
   state: text("state"),
   zip: text("zip"),
+  // ISO 3166-1 alpha-2. Drives which address fields show, their labels, and
+  // field order (client/src/lib/address-format.ts) — see shared/countries.ts.
+  country: text("country").notNull().default("US"),
+  phone: text("phone"), // Stored E.164 (e.g. "+15551234567") — see client/src/lib/phone.ts.
+  // Fleet Defaults setting: pre-fills the address country and phone country
+  // selector for newly created Service Facilities. Independent of this
+  // fleet's own `country` above.
+  defaultCountryCode: text("default_country_code").notNull().default("US"),
   // Auto-geocoded server-side from the address fields above (Nominatim) —
   // never manually entered. Null when geocoding fails.
   latitude: real("latitude"),
@@ -254,9 +263,12 @@ export const serviceFacilities = pgTable("service_facilities", {
   name: text("name").notNull(),
   type: text("type"),
   addressLine: text("address_line"),
+  addressLine2: text("address_line_2"),
   city: text("city"),
   state: text("state"),
   zip: text("zip"),
+  // ISO 3166-1 alpha-2 — see fleets.country above for what this drives.
+  country: text("country").notNull().default("US"),
   // Auto-geocoded server-side from the address fields above (Nominatim) —
   // never manually entered. Null when geocoding fails; distance sort/display
   // simply treats the facility as unlocatable.
