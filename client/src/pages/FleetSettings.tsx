@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
@@ -21,18 +22,19 @@ import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { CURRENCY_CODES, currencyName, currencySymbol } from "@/lib/currencies";
 import { EQUIPMENT_ICON_OPTIONS, EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
 import { FUEL_ICON_OPTIONS, FuelTypeIcon, normalizeFuelIcon } from "@/lib/fuel-types";
-import { STATE_PROVINCE_OPTIONS, regionLabel as usCaRegionLabel } from "@/lib/regions";
-import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
-import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import type { Fleet, FleetEquipmentType, FleetFuelType } from "@shared/schema";
+import { ArrowLeft, BadgeDollarSign, Fuel, MapPin, Pencil, Phone, Plus, Tags, Trash2 } from "lucide-react";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { COUNTRIES, countryName } from "@shared/countries";
-import { getCountryAddressConfig } from "@/lib/address-format";
+import { composeAddress } from "@shared/address";
+import { mapsUrlFor } from "@/lib/maps";
 import {
   PHONE_COUNTRIES, PHONE_COUNTRIES_BY_CALLING_CODE, callingCodeLabel, examplePhoneForDisplay, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
 } from "@/lib/phone";
 import type { CountryCode } from "libphonenumber-js";
 import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
+import { AddressFields } from "@/components/AddressFields";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
@@ -66,20 +68,12 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     queryKey: ["/api/fleet-fuel-types", { fleetId }],
     enabled: Number.isFinite(fleetId),
   });
-  const [draftName, setDraftName] = useState("");
-  const [editingName, setEditingName] = useState(false);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
   const [draftCurrency, setDraftCurrency] = useState("USD");
-  const [draftAddressLine, setDraftAddressLine] = useState("");
-  const [draftAddressLine2, setDraftAddressLine2] = useState("");
-  const [draftCity, setDraftCity] = useState("");
-  const [draftState, setDraftState] = useState("");
-  const [draftZip, setDraftZip] = useState("");
-  const [draftCountry, setDraftCountry] = useState("US");
-  const [draftPhone, setDraftPhone] = useState("");
-  const [draftPhoneCountry, setDraftPhoneCountry] = useState<CountryCode>("US");
   const [draftDefaultCountryCode, setDraftDefaultCountryCode] = useState("US");
   const [draftDefaultCallingCode, setDraftDefaultCallingCode] = useState<CountryCode | "">("");
-  const [addressAutoFilled, setAddressAutoFilled] = useState<Set<"city" | "state">>(new Set());
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [deleteAddressOpen, setDeleteAddressOpen] = useState(false);
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
   const [draftFuelTypes, setDraftFuelTypes] = useState<DraftFuelType[]>([]);
@@ -100,18 +94,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   }, [fleetId, setFleetId]);
 
   const resetDraft = () => {
-    setDraftName(fleet?.name ?? "");
-    setEditingName(false);
     setDraftCurrency(fleet?.currency ?? "USD");
-    setDraftAddressLine(fleet?.addressLine ?? "");
-    setDraftAddressLine2(fleet?.addressLine2 ?? "");
-    setDraftCity(fleet?.city ?? "");
-    setDraftState(fleet?.state ?? "");
-    setDraftZip(fleet?.zip ?? "");
-    const initialCountry = fleet?.country ?? "US";
-    setDraftCountry(initialCountry);
-    setDraftPhone(fleet?.phone ? formatPhoneForDisplay(fleet.phone, initialCountry as CountryCode) : "");
-    setDraftPhoneCountry(phoneCountryFromE164(fleet?.phone, initialCountry as CountryCode) ?? (initialCountry as CountryCode) ?? "US");
     setDraftDefaultCountryCode(fleet?.defaultCountryCode ?? "US");
     setDraftDefaultCallingCode((fleet?.defaultCallingCode as CountryCode) ?? "");
     setDraftTypes((typesQ.data ?? []).map(type => ({ ...type })));
@@ -132,30 +115,28 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.addressLine2, fleet?.city, fleet?.state, fleet?.zip, fleet?.country, fleet?.phone, fleet?.defaultCountryCode, fleet?.defaultCallingCode, typesQ.data, fuelTypesQ.data]);
+  }, [fleet?.name, fleet?.currency, fleet?.defaultCountryCode, fleet?.defaultCallingCode, typesQ.data, fuelTypesQ.data]);
 
-  const addressConfig = getCountryAddressConfig(draftCountry);
-
-  const handleAddressZipBlur = async () => {
-    const trimmed = draftZip.trim();
-    if (trimmed.length < 3) return;
-    try {
-      const res = await fetch(`https://api.zippopotam.us/${draftCountry.toLowerCase()}/${encodeURIComponent(trimmed)}`);
-      if (!res.ok) return; // country not supported by Zippopotam, or code not found — skip gracefully
-      const place = await res.json();
-      if (place.places?.[0]) {
-        const filled = new Set<"city" | "state">();
-        setDraftCity(place.places[0]["place name"]);
-        filled.add("city");
-        if (addressConfig.hasRegion && place.places[0]["state abbreviation"]) {
-          setDraftState(place.places[0]["state abbreviation"]);
-          filled.add("state");
-        }
-        setAddressAutoFilled(filled);
-        window.setTimeout(() => setAddressAutoFilled(new Set()), 2800);
-      }
-    } catch { }
-  };
+  const clearAddressMutation = useMutation({
+    mutationFn: async () => {
+      if (!fleet) return;
+      await apiRequest("PATCH", `/api/fleets/${fleet.id}`, {
+        addressLine: null,
+        addressLine2: null,
+        city: null,
+        state: null,
+        zip: null,
+        country: "US",
+        phone: null,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
+      toast({ title: "Fleet address removed" });
+      setDeleteAddressOpen(false);
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
 
   const saveSettings = useMutation({
     mutationFn: async () => {
@@ -167,16 +148,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const work: Promise<unknown>[] = [];
 
       const fleetPatch: Record<string, unknown> = {};
-      if (draftName.trim() && draftName.trim() !== fleet.name) fleetPatch.name = draftName.trim();
       if (draftCurrency !== (fleet.currency ?? "USD")) fleetPatch.currency = draftCurrency;
-      if (draftAddressLine !== (fleet.addressLine ?? "")) fleetPatch.addressLine = draftAddressLine || null;
-      if (draftAddressLine2 !== (fleet.addressLine2 ?? "")) fleetPatch.addressLine2 = draftAddressLine2 || null;
-      if (draftCity !== (fleet.city ?? "")) fleetPatch.city = draftCity || null;
-      if (draftState !== (fleet.state ?? "")) fleetPatch.state = draftState || null;
-      if (draftZip !== (fleet.zip ?? "")) fleetPatch.zip = draftZip || null;
-      if (draftCountry !== (fleet.country ?? "US")) fleetPatch.country = draftCountry;
-      const nextPhone = phoneToE164(draftPhone, draftPhoneCountry);
-      if ((nextPhone ?? "") !== (fleet.phone ?? "")) fleetPatch.phone = nextPhone;
       if (draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")) fleetPatch.defaultCountryCode = draftDefaultCountryCode;
       if ((draftDefaultCallingCode || null) !== (fleet.defaultCallingCode ?? null)) fleetPatch.defaultCallingCode = draftDefaultCallingCode || null;
       if (Object.keys(fleetPatch).length) {
@@ -332,15 +304,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   };
 
   const hasChanges = !!fleet && (
-    (!!draftName.trim() && draftName.trim() !== fleet.name)
-    || draftCurrency !== (fleet.currency ?? "USD")
-    || draftAddressLine !== (fleet.addressLine ?? "")
-    || draftAddressLine2 !== (fleet.addressLine2 ?? "")
-    || draftCity !== (fleet.city ?? "")
-    || draftState !== (fleet.state ?? "")
-    || draftZip !== (fleet.zip ?? "")
-    || draftCountry !== (fleet.country ?? "US")
-    || (phoneToE164(draftPhone, draftPhoneCountry) ?? "") !== (normalizePhoneToE164(fleet.phone, (fleet.country as CountryCode) ?? "US") ?? "")
+    draftCurrency !== (fleet.currency ?? "USD")
     || draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")
     || (draftDefaultCallingCode || null) !== (fleet.defaultCallingCode ?? null)
     || deletedTypeIds.length > 0
@@ -379,6 +343,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     );
   }
 
+  const hasFleetAddress = !!(fleet.addressLine || fleet.city || fleet.state || fleet.zip || fleet.phone);
+  const fleetAddressText = composeAddress(fleet);
+
   return (
     <AppShell title={fleet.name} subtitle="FLEET SETTINGS">
       <div className="max-w-6xl space-y-5">
@@ -392,40 +359,27 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
           description={hasChanges ? "You have unsaved fleet settings changes" : undefined}
         >
           <div className="min-w-0">
-            {editingName ? (
-              <Input
-                autoFocus
-                value={draftName}
-                onChange={e => setDraftName(e.target.value)}
-                onBlur={() => setEditingName(false)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") { e.preventDefault(); setEditingName(false); }
-                  if (e.key === "Escape") { setDraftName(fleet.name); setEditingName(false); }
-                }}
-                className="h-7 text-sm font-semibold"
-                data-testid="input-fleet-name"
-              />
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <div className="text-sm font-semibold truncate" data-testid="text-fleet-name">{draftName || fleet.name}</div>
-                {canAdmin && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-6"
-                    onClick={() => setEditingName(true)}
-                    aria-label="Rename fleet"
-                    data-testid="button-rename-fleet"
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                )}
-              </div>
-            )}
+            <div className="flex items-center gap-1.5">
+              <div className="text-sm font-semibold truncate" data-testid="text-fleet-name">{fleet.name}</div>
+              {canAdmin && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  onClick={() => setNameModalOpen(true)}
+                  aria-label="Rename fleet"
+                  data-testid="button-rename-fleet"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground truncate">/{fleet.slug}</div>
           </div>
         </EditablePageActions>
+
+        <FleetNameDialog open={nameModalOpen} onOpenChange={setNameModalOpen} fleet={fleet} canAdmin={canAdmin} />
 
         {!canAdmin && (
           <Card className="p-4 status-warn">
@@ -492,28 +446,11 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
-                <div className="flex items-center gap-2">
-                  <Label>Calling Code</Label>
-                  <HelpTooltip content="Default calling code for new Service Facility phone numbers. Falls back to the Country default above when not set." testId={`tooltip-fleet-default-calling-code-${fleet.id}`} />
-                </div>
-                <div className="space-y-1.5">
-                  <SearchableColumnSelect
-                    items={PHONE_COUNTRIES_BY_CALLING_CODE}
-                    columns={[
-                      { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
-                      { key: "name", label: "Country", get: c => c.name },
-                    ]}
-                    getId={c => c.code}
-                    value={draftDefaultCallingCode}
-                    onSelect={code => setDraftDefaultCallingCode(code as CountryCode)}
-                    triggerLabel={(() => {
-                      const found = PHONE_COUNTRIES_BY_CALLING_CODE.find(c => c.code === draftDefaultCallingCode);
-                      return found ? callingCodeLabel(found) : "";
-                    })()}
-                    placeholder="Search calling code…"
-                    disabled={!canAdmin || saveSettings.isPending}
-                    data-testid="select-fleet-default-calling-code"
-                  />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label>Calling Code</Label>
+                    <HelpTooltip content="Default calling code for new Service Facility phone numbers. Falls back to the Country default above when not set." testId={`tooltip-fleet-default-calling-code-${fleet.id}`} />
+                  </div>
                   {(() => {
                     const previewCountry = (draftDefaultCallingCode || draftDefaultCountryCode) as CountryCode;
                     const example = examplePhoneForDisplay(previewCountry);
@@ -524,161 +461,120 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                     ) : null;
                   })()}
                 </div>
+                <SearchableColumnSelect
+                  items={PHONE_COUNTRIES_BY_CALLING_CODE}
+                  columns={[
+                    { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
+                    { key: "name", label: "Country", get: c => c.name },
+                  ]}
+                  getId={c => c.code}
+                  value={draftDefaultCallingCode}
+                  onSelect={code => setDraftDefaultCallingCode(code as CountryCode)}
+                  triggerLabel={(() => {
+                    const found = PHONE_COUNTRIES_BY_CALLING_CODE.find(c => c.code === draftDefaultCallingCode);
+                    return found ? callingCodeLabel(found) : "";
+                  })()}
+                  placeholder="Search calling code…"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid="select-fleet-default-calling-code"
+                />
               </div>
             </Card>
 
             <Card className="p-5 space-y-4 mt-5">
-              <SectionHeader
-                icon={<MapPin className="size-4" />}
-                label="Address"
-                description="Used to geocode this fleet's location for maps and distance-aware features."
-              />
-              <div>
-                <Label>Country</Label>
-                <SearchableColumnSelect
-                  items={COUNTRIES}
-                  columns={[
-                    { key: "name", label: "Country", get: c => c.name },
-                    { key: "code", label: "Code", get: c => c.code },
-                  ]}
-                  getId={c => c.code}
-                  value={draftCountry}
-                  onSelect={code => { setDraftCountry(code); setDraftState(""); }}
-                  triggerLabel={countryName(draftCountry)}
-                  placeholder="Select country"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  data-testid="select-fleet-country"
+              <div className="flex items-start justify-between gap-3">
+                <SectionHeader
+                  icon={<MapPin className="size-4" />}
+                  label="Address"
+                  description="Used to geocode this fleet's location for maps and distance-aware features."
                 />
-              </div>
-              <div>
-                <Label>Address Line</Label>
-                <Input
-                  value={draftAddressLine}
-                  onChange={e => setDraftAddressLine(e.target.value)}
-                  placeholder="123 Main St"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  data-testid="input-fleet-address-line"
-                />
-              </div>
-              <div>
-                <Label>Address Line 2</Label>
-                <Input
-                  value={draftAddressLine2}
-                  onChange={e => setDraftAddressLine2(e.target.value)}
-                  placeholder="Suite, unit, etc. (optional)"
-                  disabled={!canAdmin || saveSettings.isPending}
-                  data-testid="input-fleet-address-line-2"
-                />
-              </div>
-              <div className={`grid grid-cols-1 gap-3 ${addressConfig.order.length >= 3 ? "sm:grid-cols-[1fr_170px_150px]" : "sm:grid-cols-2"}`}>
-                {addressConfig.order.map(key => {
-                  if (key === "city") {
-                    return (
-                      <div key="city">
-                        <Label>City</Label>
-                        <div className="relative">
-                          <Input
-                            value={draftCity}
-                            onChange={e => setDraftCity(e.target.value)}
-                            placeholder="Springfield"
-                            disabled={!canAdmin || saveSettings.isPending}
-                            className={addressAutoFilled.has("city") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] pr-9 transition-colors" : undefined}
-                            data-testid="input-fleet-city"
-                          />
-                          {addressAutoFilled.has("city") && <CheckCircle2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-[hsl(var(--status-ok))]" />}
-                        </div>
-                      </div>
-                    );
-                  }
-                  if (key === "region") {
-                    if (!addressConfig.hasRegion) return null;
-                    return (
-                      <div key="region">
-                        <Label>{addressConfig.regionLabel}</Label>
-                        {draftCountry === "US" || draftCountry === "CA" ? (
-                          <SearchableColumnSelect
-                            items={STATE_PROVINCE_OPTIONS.filter(option => option.group === (draftCountry === "US" ? "United States" : "Canada"))}
-                            columns={[
-                              { key: "code", label: "Code", get: o => o.value },
-                              { key: "name", label: "Name", get: o => o.label },
-                            ]}
-                            getId={o => o.value}
-                            value={draftState}
-                            onSelect={setDraftState}
-                            triggerLabel={draftState ? usCaRegionLabel(draftState) : ""}
-                            placeholder={`Select ${addressConfig.regionLabel.toLowerCase()}`}
-                            className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
-                            disabled={!canAdmin || saveSettings.isPending}
-                            data-testid="select-fleet-state"
-                          />
-                        ) : (
-                          <Input
-                            value={draftState}
-                            onChange={e => setDraftState(e.target.value)}
-                            placeholder={addressConfig.regionLabel}
-                            disabled={!canAdmin || saveSettings.isPending}
-                            className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
-                            data-testid="input-fleet-state"
-                          />
-                        )}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key="postalCode">
-                      <Label>ZIP/Postal Code</Label>
-                      <Input
-                        value={draftZip}
-                        onChange={e => setDraftZip(e.target.value)}
-                        onBlur={handleAddressZipBlur}
-                        placeholder="62701"
-                        disabled={!canAdmin || saveSettings.isPending}
-                        data-testid="input-fleet-zip"
-                      />
+                {canAdmin && (
+                  hasFleetAddress ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => setAddressModalOpen(true)} aria-label="Edit address" data-testid="button-edit-fleet-address">
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => setDeleteAddressOpen(true)} aria-label="Delete address" data-testid="button-delete-fleet-address">
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
-                  );
-                })}
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-7 shrink-0"
+                      onClick={() => setAddressModalOpen(true)}
+                      aria-label="Add address"
+                      data-testid="button-add-fleet-address"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  )
+                )}
               </div>
-              <div>
-                <Label>Phone</Label>
-                <div className="flex gap-2">
-                  <SearchableColumnSelect
-                    items={PHONE_COUNTRIES}
-                    columns={[
-                      { key: "name", label: "Country", get: c => c.name },
-                      { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
-                    ]}
-                    getId={c => c.code}
-                    value={draftPhoneCountry}
-                    onSelect={code => setDraftPhoneCountry(code as CountryCode)}
-                    triggerLabel={(() => {
-                      const cc = PHONE_COUNTRIES.find(c => c.code === draftPhoneCountry)?.callingCode;
-                      return cc ? `${draftPhoneCountry} +${cc}` : draftPhoneCountry;
-                    })()}
-                    className="w-[104px] shrink-0 px-2"
-                    disabled={!canAdmin || saveSettings.isPending}
-                    data-testid="select-fleet-phone-country"
-                  />
-                  <Input
-                    value={draftPhone}
-                    onChange={e => setDraftPhone(formatPhoneAsYouType(e.target.value, draftPhoneCountry))}
-                    placeholder="(555) 555-1234"
-                    className="flex-1"
-                    disabled={!canAdmin || saveSettings.isPending}
-                    data-testid="input-fleet-phone"
-                  />
+              {hasFleetAddress ? (
+                <div className="space-y-1.5">
+                  {fleetAddressText && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                      <span className="min-w-0" data-testid="text-fleet-address">{fleetAddressText}</span>
+                      <a
+                        href={mapsUrlFor(fleetAddressText)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
+                        data-testid="link-fleet-address-map"
+                      >
+                        <MapPin className="size-3" /> Map
+                      </a>
+                    </div>
+                  )}
+                  {fleet.phone && (
+                    <a
+                      href={`tel:${fleet.phone}`}
+                      className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      data-testid="link-fleet-address-phone"
+                    >
+                      <Phone className="size-3.5" /> {formatPhoneForDisplay(fleet.phone, fleet.country as CountryCode)}
+                    </a>
+                  )}
+                  {fleet.latitude != null && fleet.longitude != null ? (
+                    <p className="text-xs text-muted-foreground" data-testid="text-fleet-geocoded">
+                      Located at {fleet.latitude.toFixed(4)}, {fleet.longitude.toFixed(4)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground" data-testid="text-fleet-not-geocoded">
+                      Not yet located on a map.
+                    </p>
+                  )}
                 </div>
-              </div>
-              {fleet.latitude != null && fleet.longitude != null ? (
-                <p className="text-xs text-muted-foreground" data-testid="text-fleet-geocoded">
-                  Located at {fleet.latitude.toFixed(4)}, {fleet.longitude.toFixed(4)}
-                </p>
               ) : (
-                <p className="text-xs text-muted-foreground" data-testid="text-fleet-not-geocoded">
-                  Not yet located on a map. Save an address to geocode it.
-                </p>
+                <p className="text-sm text-muted-foreground">No address on file.</p>
               )}
             </Card>
+
+            <FleetAddressDialog open={addressModalOpen} onOpenChange={setAddressModalOpen} fleet={fleet} canAdmin={canAdmin} />
+
+            <AlertDialog open={deleteAddressOpen} onOpenChange={setDeleteAddressOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete fleet address?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove the saved address and phone number for {fleet.name}. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-delete-fleet-address">Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => clearAddressMutation.mutate()}
+                    data-testid="button-confirm-delete-fleet-address"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="fuel-types" className="mt-5">
@@ -881,6 +777,213 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
         </Tabs>
       </div>
     </AppShell>
+  );
+}
+
+function FleetNameDialog({ open, onOpenChange, fleet, canAdmin }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fleet: Fleet;
+  canAdmin: boolean;
+}) {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(fleet.name);
+  }, [open, fleet]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/fleets/${fleet.id}`, { name: name.trim() });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
+      toast({ title: "Fleet name saved" });
+      onOpenChange(false);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const hasChanges = open && name.trim() !== fleet.name && name.trim().length > 0;
+
+  const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({ hasChanges, onSave: () => saveMutation.mutate() });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmClose(() => onOpenChange(false));
+    else onOpenChange(next);
+  };
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent hideCloseButton className="max-w-md">
+          <DialogHeader className="flex-row items-center justify-between space-y-0">
+            <DialogTitle>Edit Fleet Name</DialogTitle>
+            <DialogHeaderActions
+              onCancel={() => handleOpenChange(false)}
+              onSave={() => saveMutation.mutate()}
+              canSave={!!name.trim()}
+              isSaving={saveMutation.isPending}
+              hasChanges={hasChanges}
+            />
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input
+                autoFocus
+                value={name}
+                onChange={e => setName(e.target.value)}
+                disabled={!canAdmin || saveMutation.isPending}
+                data-testid="input-fleet-name-modal"
+              />
+            </div>
+            <div>
+              <Label>Slug</Label>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground" data-testid="text-fleet-slug-modal">
+                /{fleet.slug}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Set once at creation and permanent — may be used to identify this fleet in future features.
+              </p>
+            </div>
+          </div>
+          {unsavedDialog}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function FleetAddressDialog({ open, onOpenChange, fleet, canAdmin }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fleet: Fleet;
+  canAdmin: boolean;
+}) {
+  const { toast } = useToast();
+  const [addressLine, setAddressLine] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+  const [country, setCountry] = useState("US");
+  const [phone, setPhone] = useState("");
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>("US");
+
+  useEffect(() => {
+    if (!open) return;
+    setAddressLine(fleet.addressLine ?? "");
+    setAddressLine2(fleet.addressLine2 ?? "");
+    setCity(fleet.city ?? "");
+    setState(fleet.state ?? "");
+    setZip(fleet.zip ?? "");
+    const initialCountry = fleet.country ?? "US";
+    setCountry(initialCountry);
+    setPhone(fleet.phone ? formatPhoneForDisplay(fleet.phone, initialCountry as CountryCode) : "");
+    setPhoneCountry(phoneCountryFromE164(fleet.phone, initialCountry as CountryCode) ?? (initialCountry as CountryCode) ?? "US");
+  }, [open, fleet]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        addressLine: addressLine.trim() || null,
+        addressLine2: addressLine2.trim() || null,
+        city: city.trim() || null,
+        state: state.trim() || null,
+        zip: zip.trim() || null,
+        country,
+        phone: phoneToE164(phone, phoneCountry),
+      };
+      await apiRequest("PATCH", `/api/fleets/${fleet.id}`, payload);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
+      toast({ title: "Fleet address saved" });
+      onOpenChange(false);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const hasChanges = open && (
+    addressLine.trim() !== (fleet.addressLine ?? "")
+    || addressLine2.trim() !== (fleet.addressLine2 ?? "")
+    || city.trim() !== (fleet.city ?? "")
+    || state.trim() !== (fleet.state ?? "")
+    || zip.trim() !== (fleet.zip ?? "")
+    || country !== (fleet.country ?? "US")
+    || (phoneToE164(phone, phoneCountry) ?? "") !== (normalizePhoneToE164(fleet.phone, (fleet.country as CountryCode) ?? "US") ?? "")
+  );
+
+  const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({ hasChanges, onSave: () => saveMutation.mutate() });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmClose(() => onOpenChange(false));
+    else onOpenChange(next);
+  };
+
+  const phoneCallingCode = PHONE_COUNTRIES.find(c => c.code === phoneCountry)?.callingCode;
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent hideCloseButton className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader className="flex-row items-center justify-between space-y-0">
+            <DialogTitle>{fleet.addressLine || fleet.city ? "Edit Address" : "Add Address"}</DialogTitle>
+            <DialogHeaderActions
+              onCancel={() => handleOpenChange(false)}
+              onSave={() => saveMutation.mutate()}
+              canSave
+              isSaving={saveMutation.isPending}
+              hasChanges={hasChanges}
+            />
+          </DialogHeader>
+          <div className="space-y-4">
+            <AddressFields
+              value={{ country, addressLine, addressLine2, city, state, zip }}
+              onChange={next => {
+                setCountry(next.country);
+                setAddressLine(next.addressLine);
+                setAddressLine2(next.addressLine2);
+                setCity(next.city);
+                setState(next.state);
+                setZip(next.zip);
+              }}
+              idPrefix="fleet-address-modal"
+              disabled={!canAdmin || saveMutation.isPending}
+            />
+            <div>
+              <Label>Phone</Label>
+              <div className="flex gap-2">
+                <SearchableColumnSelect
+                  items={PHONE_COUNTRIES}
+                  columns={[
+                    { key: "name", label: "Country", get: c => c.name },
+                    { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
+                  ]}
+                  getId={c => c.code}
+                  value={phoneCountry}
+                  onSelect={code => setPhoneCountry(code as CountryCode)}
+                  triggerLabel={phoneCallingCode ? `${phoneCountry} +${phoneCallingCode}` : phoneCountry}
+                  className="w-[104px] shrink-0 px-2"
+                  disabled={!canAdmin || saveMutation.isPending}
+                  data-testid="select-fleet-address-modal-phone-country"
+                />
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(formatPhoneAsYouType(e.target.value, phoneCountry))}
+                  placeholder="(555) 555-1234"
+                  className="flex-1"
+                  disabled={!canAdmin || saveMutation.isPending}
+                  data-testid="input-fleet-address-modal-phone"
+                />
+              </div>
+            </div>
+          </div>
+          {unsavedDialog}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
