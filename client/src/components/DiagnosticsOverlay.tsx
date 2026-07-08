@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Bug, Copy, X } from "lucide-react";
@@ -111,6 +112,29 @@ export function DiagnosticsOverlay() {
     if (!diagnosticsOverlayEnabled) setVisible(false);
   }, [diagnosticsOverlayEnabled]);
 
+  // Live "element under cursor" reader: walk up from whatever's under the
+  // pointer to the nearest ancestor carrying a data-testid, so the panel
+  // reflects it in real time without any new registration plumbing. Throttled
+  // to every 100ms — mousemove fires far more often than the label needs to
+  // update.
+  const [hoveredTestId, setHoveredTestId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible) return;
+    let lastRun = 0;
+    const handler = (e: MouseEvent) => {
+      const now = Date.now();
+      if (now - lastRun < 100) return;
+      lastRun = now;
+      let node = document.elementFromPoint(e.clientX, e.clientY);
+      while (node && !node.hasAttribute("data-testid")) {
+        node = node.parentElement;
+      }
+      setHoveredTestId(node?.getAttribute("data-testid") ?? null);
+    };
+    window.addEventListener("mousemove", handler);
+    return () => window.removeEventListener("mousemove", handler);
+  }, [visible]);
+
   if (!systemAdmin || !diagnosticsOverlayEnabled || !visible) return null;
 
   const pageName = getPageName(location);
@@ -121,9 +145,9 @@ export function DiagnosticsOverlay() {
     toast({ title: "Diagnostics copied to clipboard" });
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed bottom-4 right-4 z-[100] w-80 rounded-lg border border-border bg-background/85 shadow-lg backdrop-blur-sm"
+      className="pointer-events-auto fixed bottom-4 right-4 z-[9999] w-80 rounded-lg border border-border bg-background/85 shadow-lg backdrop-blur-sm"
       data-testid="panel-diagnostics-overlay"
     >
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
@@ -146,6 +170,9 @@ export function DiagnosticsOverlay() {
         <div><span className="text-muted-foreground">Version:</span> {versionString()}</div>
         <div className="truncate"><span className="text-muted-foreground">Route:</span> {location}</div>
         <div><span className="text-muted-foreground">Page:</span> {pageName}</div>
+        <div className="truncate" data-testid="text-diagnostics-hovered-element">
+          <span className="text-muted-foreground">Element:</span> {hoveredTestId ?? "(none)"}
+        </div>
         <div>
           <div className="text-muted-foreground mb-1">Modal stack:</div>
           {stack.length === 0 ? (
@@ -174,6 +201,7 @@ export function DiagnosticsOverlay() {
           <Copy className="size-3.5 mr-1.5" /> Copy diagnostics
         </Button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, Save, X, Check, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -202,7 +202,7 @@ export function DialogHeaderActions({
         aria-label="Save"
         data-testid="button-save"
       >
-        <Check className="size-4" />
+        <Save className="size-4" />
       </Button>
     </div>
   );

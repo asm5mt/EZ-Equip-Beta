@@ -8,6 +8,7 @@ import { ArrowLeft, Truck, Gauge, Wrench, Boxes } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Asset } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
+import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 
 interface Props { open: boolean; onOpenChange: (v: boolean) => void; }
 
@@ -55,7 +56,9 @@ export function QuickAddSheet({ open, onOpenChange }: Props) {
   };
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
+    <>
+      {open && <DiagnosticsRegistration name="Quick Add" context={{ pendingAction, selectedAssetId: selectedAssetId || null }} />}
+      <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>Quick Add</SheetTitle>
@@ -135,6 +138,7 @@ export function QuickAddSheet({ open, onOpenChange }: Props) {
           </div>
         )}
       </SheetContent>
-    </Sheet>
+      </Sheet>
+    </>
   );
 }
