@@ -455,14 +455,21 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   </div>
                   <p className="text-xs text-muted-foreground">Current display symbol: {currencySymbol(draftCurrency)}</p>
                 </div>
-                <Select value={draftCurrency} onValueChange={setDraftCurrency} disabled={!canAdmin || saveSettings.isPending}>
-                  <SelectTrigger data-testid={`select-fleet-currency-${fleet.id}`}><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {CURRENCY_CODES.map(code => (
-                      <SelectItem key={code} value={code}>{code} {currencySymbol(code)} — {currencyName(code)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableColumnSelect
+                  items={CURRENCY_CODES}
+                  columns={[
+                    { key: "code", label: "Code", get: c => c },
+                    { key: "symbol", label: "Symbol", get: c => currencySymbol(c) },
+                    { key: "name", label: "Name", get: c => currencyName(c) },
+                  ]}
+                  getId={c => c}
+                  value={draftCurrency}
+                  onSelect={setDraftCurrency}
+                  triggerLabel={draftCurrency ? `${draftCurrency} — ${currencyName(draftCurrency)}` : ""}
+                  placeholder="Select currency"
+                  disabled={!canAdmin || saveSettings.isPending}
+                  data-testid={`select-fleet-currency-${fleet.id}`}
+                />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
                 <div className="space-y-1">

@@ -14,6 +14,7 @@ import {
   maintenanceSchedules,
   maintenanceScheduleAssignments,
   serviceFacilities,
+  serviceFacilityAddresses,
   serviceFacilityTypes,
   serviceEvents,
   serviceLineItems,
@@ -39,6 +40,7 @@ import type {
   MaintenanceSchedule, InsertMaintenanceSchedule,
   MaintenanceScheduleAssignment, InsertMaintenanceScheduleAssignment,
   ServiceFacility, InsertServiceFacility,
+  ServiceFacilityAddress, InsertServiceFacilityAddress,
   ServiceFacilityType, InsertServiceFacilityType,
   ServiceEvent, InsertServiceEvent,
   ServiceLineItem, InsertServiceLineItem,
@@ -225,6 +227,11 @@ export interface IStorage {
   createServiceFacility(input: InsertServiceFacility): Promise<ServiceFacility>;
   updateServiceFacility(id: number, input: Partial<InsertServiceFacility>): Promise<ServiceFacility | undefined>;
   deleteServiceFacility(id: number): Promise<boolean>;
+  listServiceFacilityAddresses(facilityId?: number): Promise<ServiceFacilityAddress[]>;
+  getServiceFacilityAddress(id: number): Promise<ServiceFacilityAddress | undefined>;
+  createServiceFacilityAddress(input: InsertServiceFacilityAddress): Promise<ServiceFacilityAddress>;
+  updateServiceFacilityAddress(id: number, input: Partial<InsertServiceFacilityAddress>): Promise<ServiceFacilityAddress | undefined>;
+  deleteServiceFacilityAddress(id: number): Promise<boolean>;
   listServiceFacilityTypes(): Promise<ServiceFacilityType[]>;
   getServiceFacilityType(id: number): Promise<ServiceFacilityType | undefined>;
   createServiceFacilityType(input: InsertServiceFacilityType): Promise<ServiceFacilityType>;
@@ -576,7 +583,30 @@ export class DatabaseStorage implements IStorage {
     // columns (vendor/technician/facilityAddress/facilityPhone) already preserve
     // the historical display independent of this row.
     await db.update(serviceEvents).set({ serviceFacilityId: null }).where(eq(serviceEvents.serviceFacilityId, id));
+    await db.delete(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.facilityId, id));
     const result = await db.delete(serviceFacilities).where(eq(serviceFacilities.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async listServiceFacilityAddresses(facilityId?: number): Promise<ServiceFacilityAddress[]> {
+    if (facilityId) {
+      return await db.select().from(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.facilityId, facilityId)).orderBy(serviceFacilityAddresses.id);
+    }
+    return await db.select().from(serviceFacilityAddresses).orderBy(serviceFacilityAddresses.id);
+  }
+  async getServiceFacilityAddress(id: number): Promise<ServiceFacilityAddress | undefined> {
+    const [row] = await db.select().from(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.id, id));
+    return row;
+  }
+  async createServiceFacilityAddress(input: InsertServiceFacilityAddress): Promise<ServiceFacilityAddress> {
+    const [row] = await db.insert(serviceFacilityAddresses).values(input).returning();
+    return row;
+  }
+  async updateServiceFacilityAddress(id: number, input: Partial<InsertServiceFacilityAddress>): Promise<ServiceFacilityAddress | undefined> {
+    const [row] = await db.update(serviceFacilityAddresses).set(input).where(eq(serviceFacilityAddresses.id, id)).returning();
+    return row;
+  }
+  async deleteServiceFacilityAddress(id: number): Promise<boolean> {
+    const result = await db.delete(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.id, id));
     return (result.rowCount ?? 0) > 0;
   }
   async listServiceFacilityTypes(): Promise<ServiceFacilityType[]> {

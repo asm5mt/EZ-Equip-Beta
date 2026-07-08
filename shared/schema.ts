@@ -285,6 +285,26 @@ export const serviceFacilities = pgTable("service_facilities", {
   notes: text("notes"),
 });
 
+// Additional addresses beyond a facility's own primary address above (e.g.
+// a separate mailing address, loading dock, or warehouse). `label` is free
+// text; `isPrimary` is a user-set highlight toggle, purely informational —
+// it does not affect which address drives geocoding/maps/distance-sort
+// (that's always the facility's own fields above).
+export const serviceFacilityAddresses = pgTable("service_facility_addresses", {
+  id: serial("id").primaryKey(),
+  facilityId: integer("facility_id").notNull().references(() => serviceFacilities.id),
+  label: text("label"),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  addressLine: text("address_line"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  country: text("country").notNull().default("US"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+});
+
 // ----- Service events ------------------------------------------------------
 
 export const serviceEvents = pgTable("service_events", {
@@ -487,6 +507,10 @@ export type ServiceFacilityType = typeof serviceFacilityTypes.$inferSelect;
 export const insertServiceFacilitySchema = createInsertSchema(serviceFacilities).omit({ id: true });
 export type InsertServiceFacility = z.infer<typeof insertServiceFacilitySchema>;
 export type ServiceFacility = typeof serviceFacilities.$inferSelect;
+
+export const insertServiceFacilityAddressSchema = createInsertSchema(serviceFacilityAddresses).omit({ id: true });
+export type InsertServiceFacilityAddress = z.infer<typeof insertServiceFacilityAddressSchema>;
+export type ServiceFacilityAddress = typeof serviceFacilityAddresses.$inferSelect;
 
 export const insertServiceEventSchema = createInsertSchema(serviceEvents, {
   performedAt: z.coerce.date(),

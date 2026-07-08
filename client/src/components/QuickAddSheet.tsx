@@ -3,12 +3,12 @@ import { useLocation } from "wouter";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ArrowLeft, Truck, Gauge, Wrench, Boxes } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Asset } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
 import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
+import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
 
 interface Props { open: boolean; onOpenChange: (v: boolean) => void; }
 
@@ -71,12 +71,19 @@ export function QuickAddSheet({ open, onOpenChange }: Props) {
           <div className="mt-6 space-y-4">
             <div>
               <Label>Asset</Label>
-              <Select value={selectedAssetId} onValueChange={setSelectedAssetId}>
-                <SelectTrigger data-testid="select-quickadd-asset"><SelectValue placeholder="Choose an asset" /></SelectTrigger>
-                <SelectContent>
-                  {assets.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.friendlyName}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableColumnSelect
+                items={assets}
+                columns={[
+                  { key: "name", label: "Asset", get: a => a.friendlyName },
+                  { key: "type", label: "Type", get: a => a.assetType },
+                ]}
+                getId={a => String(a.id)}
+                value={selectedAssetId}
+                onSelect={setSelectedAssetId}
+                triggerLabel={assets.find(a => String(a.id) === selectedAssetId)?.friendlyName ?? ""}
+                placeholder="Choose an asset"
+                data-testid="select-quickadd-asset"
+              />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setPendingAction(null)} data-testid="quickadd-asset-back">

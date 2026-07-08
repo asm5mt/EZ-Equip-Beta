@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import {
-  Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
+  Building2, Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
 } from "lucide-react";
 import { DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
 import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
@@ -22,18 +23,16 @@ import { useAppContext } from "@/lib/app-context";
 import { badgeColorValue, tintedBadgeStyle } from "@/lib/badges";
 import { FACILITY_TYPE_ICON_OPTIONS, FacilityTypeIcon, facilityTypeByName, normalizeFacilityTypeIcon } from "@/lib/facility-types";
 import { distanceMiles, formatDistanceMiles, mapsUrlFor } from "@/lib/maps";
-import { STATE_PROVINCE_OPTIONS, regionLabel as usCaRegionLabel } from "@/lib/regions";
 import { ViewToggle, FilterGroup, CheckboxRow, FilterChip } from "@/pages/Assets";
 import type { ViewMode } from "@/pages/Assets";
 import { composeAddress } from "@shared/address";
-import { COUNTRIES, countryName } from "@shared/countries";
-import { getCountryAddressConfig } from "@/lib/address-format";
 import {
   PHONE_COUNTRIES, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
 } from "@/lib/phone";
 import type { CountryCode } from "libphonenumber-js";
 import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
-import type { ServiceFacility, ServiceFacilityType } from "@shared/schema";
+import { AddressFields } from "@/components/AddressFields";
+import type { ServiceFacility, ServiceFacilityAddress, ServiceFacilityType } from "@shared/schema";
 
 type SortKey = "name-asc" | "name-desc" | "type-asc" | "distance-asc";
 
@@ -56,8 +55,18 @@ export default function ServiceFacilities() {
 
   const facilitiesQ = useQuery<ServiceFacility[]>({ queryKey: ["/api/service-facilities"] });
   const typesQ = useQuery<ServiceFacilityType[]>({ queryKey: ["/api/service-facility-types"] });
+  const addressesQ = useQuery<ServiceFacilityAddress[]>({ queryKey: ["/api/service-facility-addresses"] });
   const facilities = facilitiesQ.data ?? [];
   const types = typesQ.data ?? [];
+  const addressesByFacility = useMemo(() => {
+    const map = new Map<number, ServiceFacilityAddress[]>();
+    for (const a of addressesQ.data ?? []) {
+      const list = map.get(a.facilityId);
+      if (list) list.push(a);
+      else map.set(a.facilityId, [a]);
+    }
+    return map;
+  }, [addressesQ.data]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) return;
@@ -127,22 +136,6 @@ export default function ServiceFacilities() {
       toast({ title: "Could not copy address", variant: "destructive" });
     }
   };
-
-  const saveFacility = useMutation({
-    mutationFn: async (input: Partial<ServiceFacility> & { id?: number }) => {
-      const { id, ...body } = input;
-      return id
-        ? apiRequest("PATCH", `/api/service-facilities/${id}`, body)
-        : apiRequest("POST", "/api/service-facilities", body);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/service-facilities"] });
-      setAddOpen(false);
-      setEditFacility(null);
-      toast({ title: "Service facility saved" });
-    },
-    onError: (e) => toast({ title: "Save failed", description: String(e), variant: "destructive" }),
-  });
 
   const removeFacility = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/service-facilities/${id}`),
@@ -243,6 +236,7 @@ export default function ServiceFacilities() {
                 <FacilityListRow
                   key={facility.id}
                   facility={facility}
+                  additionalAddresses={addressesByFacility.get(facility.id) ?? []}
                   configuredType={facilityTypeByName(types, facility.type)}
                   distance={distanceFor(facility)}
                   onCopy={copyAddress}
@@ -258,6 +252,7 @@ export default function ServiceFacilities() {
                 <FacilityGridCard
                   key={facility.id}
                   facility={facility}
+                  additionalAddresses={addressesByFacility.get(facility.id) ?? []}
                   configuredType={facilityTypeByName(types, facility.type)}
                   distance={distanceFor(facility)}
                   onCopy={copyAddress}
@@ -275,8 +270,7 @@ export default function ServiceFacilities() {
         open={addOpen}
         onOpenChange={setAddOpen}
         types={types}
-        onSave={(input) => saveFacility.mutate(input)}
-        saving={saveFacility.isPending}
+        onSaved={() => setAddOpen(false)}
         defaultCountryCode={fleet?.defaultCountryCode}
         defaultCallingCode={fleet?.defaultCallingCode}
       />
@@ -285,8 +279,7 @@ export default function ServiceFacilities() {
         onOpenChange={(open) => { if (!open) setEditFacility(null); }}
         facility={editFacility}
         types={types}
-        onSave={(input) => saveFacility.mutate(input)}
-        saving={saveFacility.isPending}
+        onSaved={() => setEditFacility(null)}
         defaultCountryCode={fleet?.defaultCountryCode}
         defaultCallingCode={fleet?.defaultCallingCode}
       />
@@ -327,37 +320,66 @@ function FacilityTypeBadge({ type }: { type?: ServiceFacilityType }) {
   );
 }
 
-function AddressLine({ facility, onCopy, revealOnHover }: { facility: ServiceFacility; onCopy: (address: string) => void; revealOnHover: boolean }) {
-  const address = composeAddress(facility);
-  if (!address) return null;
+function AddressTypePill({ label }: { label: string }) {
   return (
-    <div className={`group/addr flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground ${revealOnHover ? "" : ""}`}>
-      <span className="min-w-0 truncate">{address}</span>
-      <button
-        type="button"
-        className={`inline-flex size-5 shrink-0 items-center justify-center rounded transition-opacity hover:bg-muted focus:opacity-100 ${revealOnHover ? "opacity-0 group-hover/addr:opacity-100" : ""}`}
-        onClick={(event) => { event.preventDefault(); event.stopPropagation(); onCopy(address); }}
-        aria-label="Copy address"
-        data-testid={`button-copy-facility-address-${facility.id}`}
-      >
-        <Copy className="size-3" />
-      </button>
-      <a
-        href={mapsUrlFor(address)}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
-        onClick={(event) => event.stopPropagation()}
-        data-testid={`link-facility-map-${facility.id}`}
-      >
-        <MapPin className="size-3" /> Map
-      </a>
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <Building2 className="size-3" />
+      {label}
+    </span>
+  );
+}
+
+function AddressLine({ facility, additionalAddresses, onCopy, revealOnHover }: {
+  facility: ServiceFacility;
+  additionalAddresses: ServiceFacilityAddress[];
+  onCopy: (address: string) => void;
+  revealOnHover: boolean;
+}) {
+  const baseAddress = composeAddress(facility);
+  const rows = [
+    ...(baseAddress ? [{ key: "primary", label: "Primary", address: baseAddress }] : []),
+    ...additionalAddresses
+      .map(a => ({ key: String(a.id), label: a.label?.trim() || (a.isPrimary ? "Primary" : "Secondary"), address: composeAddress(a) }))
+      .filter(row => row.address),
+  ];
+  // Only show a type pill once a facility has more than one address on file —
+  // a single-address facility displays its address plain, as it always has.
+  const showPills = rows.length > 1;
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {rows.map(row => (
+        <div key={row.key} className="group/addr flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+          {showPills && <AddressTypePill label={row.label} />}
+          <span className="min-w-0 truncate">{row.address}</span>
+          <button
+            type="button"
+            className={`inline-flex size-5 shrink-0 items-center justify-center rounded transition-opacity hover:bg-muted focus:opacity-100 ${revealOnHover ? "opacity-0 group-hover/addr:opacity-100" : ""}`}
+            onClick={(event) => { event.preventDefault(); event.stopPropagation(); onCopy(row.address); }}
+            aria-label="Copy address"
+            data-testid={`button-copy-facility-address-${facility.id}-${row.key}`}
+          >
+            <Copy className="size-3" />
+          </button>
+          <a
+            href={mapsUrlFor(row.address)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
+            onClick={(event) => event.stopPropagation()}
+            data-testid={`link-facility-map-${facility.id}-${row.key}`}
+          >
+            <MapPin className="size-3" /> Map
+          </a>
+        </div>
+      ))}
     </div>
   );
 }
 
-function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, onDelete, canAdmin }: {
+function FacilityGridCard({ facility, additionalAddresses, configuredType, distance, onCopy, onEdit, onDelete, canAdmin }: {
   facility: ServiceFacility;
+  additionalAddresses: ServiceFacilityAddress[];
   configuredType?: ServiceFacilityType;
   distance: number | null;
   onCopy: (address: string) => void;
@@ -375,7 +397,7 @@ function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, 
           </div>
           <FacilityRowActions facilityName={facility.name} onEdit={onEdit} onDelete={onDelete} canAdmin={canAdmin} />
         </div>
-        <AddressLine facility={facility} onCopy={onCopy} revealOnHover />
+        <AddressLine facility={facility} additionalAddresses={additionalAddresses} onCopy={onCopy} revealOnHover />
         {distance != null && <div className="text-[11px] text-muted-foreground">{formatDistanceMiles(distance)} away</div>}
       </div>
       <div className="mt-3 flex items-center gap-3">
@@ -389,8 +411,9 @@ function FacilityGridCard({ facility, configuredType, distance, onCopy, onEdit, 
   );
 }
 
-function FacilityListRow({ facility, configuredType, distance, onCopy, onEdit, onDelete, canAdmin }: {
+function FacilityListRow({ facility, additionalAddresses, configuredType, distance, onCopy, onEdit, onDelete, canAdmin }: {
   facility: ServiceFacility;
+  additionalAddresses: ServiceFacilityAddress[];
   configuredType?: ServiceFacilityType;
   distance: number | null;
   onCopy: (address: string) => void;
@@ -412,7 +435,7 @@ function FacilityListRow({ facility, configuredType, distance, onCopy, onEdit, o
             )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <AddressLine facility={facility} onCopy={onCopy} revealOnHover={false} />
+            <AddressLine facility={facility} additionalAddresses={additionalAddresses} onCopy={onCopy} revealOnHover={false} />
             {distance != null && <div className="text-[11px] text-muted-foreground">{formatDistanceMiles(distance)} away</div>}
           </div>
         </div>
@@ -436,13 +459,25 @@ function FacilityRowActions({ facilityName, onEdit, onDelete, canAdmin }: { faci
   );
 }
 
-function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, saving, defaultCountryCode, defaultCallingCode }: {
+type DraftFacilityAddress = {
+  id: number;
+  label: string;
+  isPrimary: boolean;
+  addressLine: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  isNew?: boolean;
+};
+
+function FacilityFormDialog({ open, onOpenChange, facility, types, onSaved, defaultCountryCode, defaultCallingCode }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   facility?: ServiceFacility | null;
   types: ServiceFacilityType[];
-  onSave: (input: Partial<ServiceFacility> & { id?: number }) => void;
-  saving: boolean;
+  onSaved: () => void;
   defaultCountryCode?: string;
   defaultCallingCode?: string | null;
 }) {
@@ -459,6 +494,14 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
   const [phoneCountry, setPhoneCountry] = useState<CountryCode>("US");
   const [technician, setTechnician] = useState("");
   const [notes, setNotes] = useState("");
+  const [draftAddresses, setDraftAddresses] = useState<DraftFacilityAddress[]>([]);
+  const [deletedAddressIds, setDeletedAddressIds] = useState<number[]>([]);
+  const nextTempId = useRef(0);
+
+  const addressesQ = useQuery<ServiceFacilityAddress[]>({
+    queryKey: ["/api/service-facility-addresses", { facilityId: facility?.id }],
+    enabled: open && !!facility?.id,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -482,39 +525,105 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
     setNotes(facility?.notes ?? "");
   }, [open, facility, defaultCountryCode, defaultCallingCode]);
 
-  const config = getCountryAddressConfig(country);
+  useEffect(() => {
+    if (!open) return;
+    setDraftAddresses((addressesQ.data ?? []).map(a => ({
+      id: a.id,
+      label: a.label ?? "",
+      isPrimary: a.isPrimary,
+      addressLine: a.addressLine ?? "",
+      addressLine2: a.addressLine2 ?? "",
+      city: a.city ?? "",
+      state: a.state ?? "",
+      zip: a.zip ?? "",
+      country: a.country,
+    })));
+    setDeletedAddressIds([]);
+  }, [open, facility?.id, addressesQ.data]);
 
-  const handleZipBlur = async () => {
-    const trimmed = zip.trim();
-    if (trimmed.length < 3) return;
-    try {
-      const res = await fetch(`https://api.zippopotam.us/${country.toLowerCase()}/${encodeURIComponent(trimmed)}`);
-      if (!res.ok) return; // country not supported by Zippopotam, or code not found — skip gracefully
-      const place = (await res.json())?.places?.[0];
-      if (!place) return;
-      if (place["place name"]) setCity(place["place name"]);
-      if (config.hasRegion && place["state abbreviation"]) setState(place["state abbreviation"]);
-    } catch {
-      toast({ title: "Couldn't look up that postal code", description: "You can still enter City/State manually.", variant: "destructive" });
-    }
+  const addDraftAddress = () => {
+    nextTempId.current -= 1;
+    setDraftAddresses(list => [...list, {
+      id: nextTempId.current,
+      label: "",
+      isPrimary: false,
+      addressLine: "",
+      addressLine2: "",
+      city: "",
+      state: "",
+      zip: "",
+      country,
+      isNew: true,
+    }]);
   };
+  const updateDraftAddress = (id: number, patch: Partial<DraftFacilityAddress>) => {
+    setDraftAddresses(list => list.map(a => a.id === id ? { ...a, ...patch } : a));
+  };
+  const removeDraftAddress = (addr: DraftFacilityAddress) => {
+    setDraftAddresses(list => list.filter(a => a.id !== addr.id));
+    if (!addr.isNew) setDeletedAddressIds(ids => [...ids, addr.id]);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const basePayload = {
+        name: name.trim(),
+        type: type === NO_TYPE ? null : type,
+        addressLine: addressLine.trim() || null,
+        addressLine2: addressLine2.trim() || null,
+        city: city.trim() || null,
+        state: state.trim() || null,
+        zip: zip.trim() || null,
+        country,
+        phone: phoneToE164(phone, phoneCountry),
+        technician: technician.trim() || null,
+        notes: notes.trim() || null,
+      };
+      let facilityId: number;
+      if (facility) {
+        await apiRequest("PATCH", `/api/service-facilities/${facility.id}`, basePayload);
+        facilityId = facility.id;
+      } else {
+        const created = await apiRequest("POST", "/api/service-facilities", basePayload).then(r => r.json());
+        facilityId = created.id;
+      }
+
+      const work: Promise<unknown>[] = [];
+      for (const id of deletedAddressIds) {
+        work.push(apiRequest("DELETE", `/api/service-facility-addresses/${id}`));
+      }
+      for (const addr of draftAddresses) {
+        const payload = {
+          facilityId,
+          label: addr.label.trim() || null,
+          isPrimary: addr.isPrimary,
+          addressLine: addr.addressLine.trim() || null,
+          addressLine2: addr.addressLine2.trim() || null,
+          city: addr.city.trim() || null,
+          state: addr.state.trim() || null,
+          zip: addr.zip.trim() || null,
+          country: addr.country,
+        };
+        work.push(
+          addr.isNew
+            ? apiRequest("POST", "/api/service-facility-addresses", payload)
+            : apiRequest("PATCH", `/api/service-facility-addresses/${addr.id}`, payload)
+        );
+      }
+      await Promise.all(work);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/service-facilities"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/service-facility-addresses"] });
+      toast({ title: "Service facility saved" });
+      onSaved();
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
 
   const submit = () => {
     if (!name.trim()) return;
-    onSave({
-      id: facility?.id,
-      name: name.trim(),
-      type: type === NO_TYPE ? null : type,
-      addressLine: addressLine.trim() || null,
-      addressLine2: addressLine2.trim() || null,
-      city: city.trim() || null,
-      state: state.trim() || null,
-      zip: zip.trim() || null,
-      country,
-      phone: phoneToE164(phone, phoneCountry),
-      technician: technician.trim() || null,
-      notes: notes.trim() || null,
-    });
+    saveMutation.mutate();
   };
 
   const hasChanges = open && (
@@ -529,6 +638,20 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
     || (phoneToE164(phone, phoneCountry) ?? "") !== (normalizePhoneToE164(facility?.phone, (facility?.country as CountryCode) ?? "US") ?? "")
     || technician.trim() !== (facility?.technician ?? "")
     || notes.trim() !== (facility?.notes ?? "")
+    || deletedAddressIds.length > 0
+    || draftAddresses.some(addr => {
+      if (addr.isNew) return true;
+      const original = (addressesQ.data ?? []).find(a => a.id === addr.id);
+      return !original
+        || addr.label.trim() !== (original.label ?? "")
+        || addr.isPrimary !== original.isPrimary
+        || addr.addressLine.trim() !== (original.addressLine ?? "")
+        || addr.addressLine2.trim() !== (original.addressLine2 ?? "")
+        || addr.city.trim() !== (original.city ?? "")
+        || addr.state.trim() !== (original.state ?? "")
+        || addr.zip.trim() !== (original.zip ?? "")
+        || addr.country !== original.country;
+    })
   );
 
   const { confirmOrRun: confirmClose, dialog: unsavedDialog } = useUnsavedChangeGuard({ hasChanges, onSave: submit });
@@ -537,56 +660,19 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
     else onOpenChange(next);
   };
 
-  const cityField = (
-    <div key="city">
-      <Label>City</Label>
-      <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Springfield" data-testid="input-facility-city" />
-    </div>
-  );
-  const regionField = config.hasRegion ? (
-    <div key="region">
-      <Label>{config.regionLabel}</Label>
-      {country === "US" || country === "CA" ? (
-        <SearchableColumnSelect
-          items={STATE_PROVINCE_OPTIONS.filter(option => option.group === (country === "US" ? "United States" : "Canada"))}
-          columns={[
-            { key: "code", label: "Code", get: o => o.value },
-            { key: "name", label: "Name", get: o => o.label },
-          ]}
-          getId={o => o.value}
-          value={state}
-          onSelect={setState}
-          triggerLabel={state ? usCaRegionLabel(state) : ""}
-          placeholder={`Select ${config.regionLabel.toLowerCase()}`}
-          data-testid="select-facility-state"
-        />
-      ) : (
-        <Input value={state} onChange={e => setState(e.target.value)} placeholder={config.regionLabel} data-testid="input-facility-state" />
-      )}
-    </div>
-  ) : null;
-  const zipField = (
-    <div key="postalCode">
-      <Label>ZIP/Postal Code</Label>
-      <Input value={zip} onChange={e => setZip(e.target.value)} onBlur={handleZipBlur} placeholder="62701" data-testid="input-facility-zip" />
-    </div>
-  );
-  const fieldByKey = { city: cityField, region: regionField, postalCode: zipField };
-  const orderedFields = config.order.map(key => fieldByKey[key]).filter(Boolean);
-
   const phoneCallingCode = PHONE_COUNTRIES.find(c => c.code === phoneCountry)?.callingCode;
 
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent hideCloseButton className="max-w-lg">
+      <DialogContent hideCloseButton className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader className="flex-row items-center justify-between space-y-0">
           <DialogTitle>{facility ? "Edit Service Facility" : "Add Service Facility"}</DialogTitle>
           <DialogHeaderActions
             onCancel={() => handleOpenChange(false)}
             onSave={submit}
             canSave={!!name.trim()}
-            isSaving={saving}
+            isSaving={saveMutation.isPending}
             hasChanges={hasChanges}
           />
         </DialogHeader>
@@ -605,32 +691,67 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label>Country</Label>
-            <SearchableColumnSelect
-              items={COUNTRIES}
-              columns={[
-                { key: "name", label: "Country", get: c => c.name },
-                { key: "code", label: "Code", get: c => c.code },
-              ]}
-              getId={c => c.code}
-              value={country}
-              onSelect={code => { setCountry(code); setState(""); }}
-              triggerLabel={countryName(country)}
-              placeholder="Select country"
-              data-testid="select-facility-country"
-            />
-          </div>
-          <div>
-            <Label>Address Line</Label>
-            <Input value={addressLine} onChange={e => setAddressLine(e.target.value)} placeholder="123 Main St" data-testid="input-facility-address-line" />
-          </div>
-          <div>
-            <Label>Address Line 2</Label>
-            <Input value={addressLine2} onChange={e => setAddressLine2(e.target.value)} placeholder="Suite, unit, etc. (optional)" data-testid="input-facility-address-line-2" />
-          </div>
-          <div className={`grid grid-cols-1 gap-3 ${orderedFields.length >= 3 ? "sm:grid-cols-[1fr_130px_120px]" : "sm:grid-cols-2"}`}>
-            {orderedFields}
+          <AddressFields
+            value={{ country, addressLine, addressLine2, city, state, zip }}
+            onChange={next => {
+              setCountry(next.country);
+              setAddressLine(next.addressLine);
+              setAddressLine2(next.addressLine2);
+              setCity(next.city);
+              setState(next.state);
+              setZip(next.zip);
+            }}
+            idPrefix="facility"
+          />
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">Additional Addresses</div>
+              <Button type="button" variant="outline" size="sm" onClick={addDraftAddress} data-testid="button-add-facility-address">
+                <Plus className="size-3.5 mr-1" /> Add Address
+              </Button>
+            </div>
+            {draftAddresses.length === 0 && (
+              <p className="text-xs text-muted-foreground">No additional addresses.</p>
+            )}
+            {draftAddresses.map(addr => (
+              <div key={addr.id} className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3" data-testid={`row-facility-address-${addr.id}`}>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs">Label</Label>
+                    <Input
+                      value={addr.label}
+                      onChange={e => updateDraftAddress(addr.id, { label: e.target.value })}
+                      placeholder="Mailing, Loading Dock, Warehouse…"
+                      data-testid={`input-facility-address-label-${addr.id}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 pb-2">
+                    <Switch
+                      checked={addr.isPrimary}
+                      onCheckedChange={checked => updateDraftAddress(addr.id, { isPrimary: checked })}
+                      data-testid={`switch-facility-address-primary-${addr.id}`}
+                    />
+                    <span className="text-xs text-muted-foreground">Primary</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => removeDraftAddress(addr)}
+                    aria-label="Remove address"
+                    data-testid={`button-remove-facility-address-${addr.id}`}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+                <AddressFields
+                  value={{ country: addr.country, addressLine: addr.addressLine, addressLine2: addr.addressLine2, city: addr.city, state: addr.state, zip: addr.zip }}
+                  onChange={next => updateDraftAddress(addr.id, next)}
+                  idPrefix={`facility-address-${addr.id}`}
+                />
+              </div>
+            ))}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

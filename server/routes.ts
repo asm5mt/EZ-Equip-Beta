@@ -45,6 +45,7 @@ import {
   insertFleetEquipmentTypeSchema,
   insertFleetFuelTypeSchema,
   insertServiceFacilitySchema,
+  insertServiceFacilityAddressSchema,
   insertServiceFacilityTypeSchema,
   insertFleetRoleSchema,
   insertInventoryCategorySchema,
@@ -583,6 +584,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/service-facilities/:id", requireSystemAdmin, async (req, res) => {
     try {
       const ok = await storage.deleteServiceFacility(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
+  });
+  // Additional (non-primary) addresses for a service facility — see
+  // shared/schema.ts's serviceFacilityAddresses comment for the model.
+  app.get("/api/service-facility-addresses", requireAuth, async (req, res) => {
+    const facilityId = req.query.facilityId ? Number(req.query.facilityId) : undefined;
+    res.json(await storage.listServiceFacilityAddresses(facilityId));
+  });
+  app.post("/api/service-facility-addresses", requireSystemAdmin, async (req, res) => {
+    try {
+      const parsed = insertServiceFacilityAddressSchema.parse(req.body);
+      const geo = await geocodeAddress(composeAddress(parsed));
+      res.json(await storage.createServiceFacilityAddress({ ...parsed, ...geo }));
+    } catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/service-facility-addresses/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const patch = insertServiceFacilityAddressSchema.partial().parse(req.body);
+      const addressFieldsChanged = (["addressLine", "addressLine2", "city", "state", "zip", "country"] as const).some(key => key in patch);
+      let geo: { latitude?: number | null; longitude?: number | null } = {};
+      if (addressFieldsChanged) {
+        const existing = await storage.getServiceFacilityAddress(Number(req.params.id));
+        geo = await geocodeAddress(composeAddress({ ...existing, ...patch }));
+      }
+      const updated = await storage.updateServiceFacilityAddress(Number(req.params.id), { ...patch, ...geo });
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(updated);
+    } catch (err) { handleError(res, err); }
+  });
+  app.delete("/api/service-facility-addresses/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteServiceFacilityAddress(Number(req.params.id));
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }

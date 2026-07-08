@@ -21,6 +21,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
 import { PLATE_JURISDICTIONS } from "@/lib/plates";
+import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
 import { FuelTypeIcon, activeFuelTypes, fuelTypeByName, mapVinFuelType } from "@/lib/fuel-types";
 import { CheckCircle2, Info, Loader2, Search } from "lucide-react";
 
@@ -467,26 +468,29 @@ export default function AssetForm({ mode }: { mode: "new" | "edit" }) {
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField name="plateJurisdiction" control={form.control} render={({ field }) => (
-                    <FormItem>
-                      <FieldLabel label="Plate State / Province" />
-                      <Select onValueChange={(value) => field.onChange(value === "none" ? null : value)} value={(field.value as string | null) ?? "none"}>
-                        <FormControl><SelectTrigger data-testid="select-plate-jurisdiction"><SelectValue placeholder="Select" /></SelectTrigger></FormControl>
-                        <SelectContent className="max-h-80">
-                          <SelectItem value="none">Not set</SelectItem>
-                          <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">United States</div>
-                          {PLATE_JURISDICTIONS.filter(j => j.country === "US").map(j => (
-                            <SelectItem key={j.code} value={j.code}>{j.label}</SelectItem>
-                          ))}
-                          <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Canada</div>
-                          {PLATE_JURISDICTIONS.filter(j => j.country === "CA").map(j => (
-                            <SelectItem key={j.code} value={j.code}>{j.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField name="plateJurisdiction" control={form.control} render={({ field }) => {
+                    const value = (field.value as string | null) ?? "none";
+                    const selected = PLATE_JURISDICTIONS.find(j => j.code === value);
+                    return (
+                      <FormItem>
+                        <FieldLabel label="Plate State / Province" />
+                        <SearchableColumnSelect
+                          items={[{ code: "none", short: "—", label: "Not set", country: "US" as const }, ...PLATE_JURISDICTIONS]}
+                          columns={[
+                            { key: "short", label: "Code", get: j => j.short },
+                            { key: "label", label: "State / Province", get: j => j.label },
+                          ]}
+                          getId={j => j.code}
+                          value={value}
+                          onSelect={(code) => field.onChange(code === "none" ? null : code)}
+                          triggerLabel={selected ? selected.label : "Not set"}
+                          placeholder="Select"
+                          data-testid="select-plate-jurisdiction"
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }} />
                   <FormField name="plateNumber" control={form.control} render={({ field }) => (
                     <FormItem>
                       <FieldLabel label="Plate Number" />
