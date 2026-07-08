@@ -1,0 +1,1 @@
+ALTER TABLE "fleets" ADD COLUMN "default_calling_code" text;

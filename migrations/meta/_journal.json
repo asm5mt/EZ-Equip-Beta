@@ -99,6 +99,13 @@
       "when": 1783484061424,
       "tag": "0013_cuddly_thunderbolts",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783486174403,
+      "tag": "0014_rich_marvel_boy",
+      "breakpoints": true
     }
   ]
 }

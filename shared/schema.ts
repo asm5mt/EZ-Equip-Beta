@@ -27,6 +27,12 @@ export const fleets = pgTable("fleets", {
   // selector for newly created Service Facilities. Independent of this
   // fleet's own `country` above.
   defaultCountryCode: text("default_country_code").notNull().default("US"),
+  // ISO 3166-1 alpha-2 identifying which country's dial code to default new
+  // Service Facilities' phone country selector to. Takes precedence over
+  // defaultCountryCode for that one purpose; null means "derive from
+  // defaultCountryCode instead" (the case for fleets created before this
+  // field existed).
+  defaultCallingCode: text("default_calling_code"),
   // Auto-geocoded server-side from the address fields above (Nominatim) —
   // never manually entered. Null when geocoding fails.
   latitude: real("latitude"),

@@ -18,6 +18,17 @@ export const PHONE_COUNTRIES: PhoneCountryOption[] = getCountries()
   .map(code => ({ code, name: countryName(code), callingCode: getCountryCallingCode(code) }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
+/** Same countries, sorted by dial code first (then name) for calling-code pickers. */
+export const PHONE_COUNTRIES_BY_CALLING_CODE: PhoneCountryOption[] = [...PHONE_COUNTRIES].sort((a, b) => {
+  const callingCodeDiff = Number(a.callingCode) - Number(b.callingCode);
+  return callingCodeDiff !== 0 ? callingCodeDiff : a.name.localeCompare(b.name);
+});
+
+/** Formats a calling-code picker label, e.g. "+1 — United States". */
+export function callingCodeLabel(country: Pick<PhoneCountryOption, "name" | "callingCode">): string {
+  return `+${country.callingCode} — ${country.name}`;
+}
+
 /** Live-formats a national number as the user types, e.g. "5551234567" -> "(555) 123-4567". */
 export function formatPhoneAsYouType(value: string, country: CountryCode): string {
   return new AsYouType(country).input(value);

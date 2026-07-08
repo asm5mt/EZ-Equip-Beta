@@ -278,6 +278,7 @@ export default function ServiceFacilities() {
         onSave={(input) => saveFacility.mutate(input)}
         saving={saveFacility.isPending}
         defaultCountryCode={fleet?.defaultCountryCode}
+        defaultCallingCode={fleet?.defaultCallingCode}
       />
       <FacilityFormDialog
         open={!!editFacility}
@@ -287,6 +288,7 @@ export default function ServiceFacilities() {
         onSave={(input) => saveFacility.mutate(input)}
         saving={saveFacility.isPending}
         defaultCountryCode={fleet?.defaultCountryCode}
+        defaultCallingCode={fleet?.defaultCallingCode}
       />
 
       <AlertDialog open={!!deleteFacility} onOpenChange={(open) => { if (!open) setDeleteFacility(null); }}>
@@ -434,7 +436,7 @@ function FacilityRowActions({ facilityName, onEdit, onDelete, canAdmin }: { faci
   );
 }
 
-function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, saving, defaultCountryCode }: {
+function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, saving, defaultCountryCode, defaultCallingCode }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   facility?: ServiceFacility | null;
@@ -442,6 +444,7 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
   onSave: (input: Partial<ServiceFacility> & { id?: number }) => void;
   saving: boolean;
   defaultCountryCode?: string;
+  defaultCallingCode?: string | null;
 }) {
   const { toast } = useToast();
   const [name, setName] = useState("");
@@ -469,10 +472,15 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
     const initialCountry = facility?.country ?? defaultCountryCode ?? "US";
     setCountry(initialCountry);
     setPhone(facility?.phone ? formatPhoneForDisplay(facility.phone, initialCountry as CountryCode) : "");
-    setPhoneCountry(phoneCountryFromE164(facility?.phone, initialCountry as CountryCode) ?? (defaultCountryCode as CountryCode) ?? "US");
+    setPhoneCountry(
+      phoneCountryFromE164(facility?.phone, initialCountry as CountryCode)
+      ?? (defaultCallingCode as CountryCode)
+      ?? (defaultCountryCode as CountryCode)
+      ?? "US"
+    );
     setTechnician(facility?.technician ?? "");
     setNotes(facility?.notes ?? "");
-  }, [open, facility, defaultCountryCode]);
+  }, [open, facility, defaultCountryCode, defaultCallingCode]);
 
   const config = getCountryAddressConfig(country);
 
@@ -548,7 +556,7 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
           getId={o => o.value}
           value={state}
           onSelect={setState}
-          triggerLabel={state ? `${state} — ${usCaRegionLabel(state)}` : ""}
+          triggerLabel={state ? usCaRegionLabel(state) : ""}
           placeholder={`Select ${config.regionLabel.toLowerCase()}`}
           data-testid="select-facility-state"
         />

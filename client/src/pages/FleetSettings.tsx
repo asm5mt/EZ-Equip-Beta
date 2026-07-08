@@ -29,7 +29,7 @@ import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { COUNTRIES, countryName } from "@shared/countries";
 import { getCountryAddressConfig } from "@/lib/address-format";
 import {
-  PHONE_COUNTRIES, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
+  PHONE_COUNTRIES, PHONE_COUNTRIES_BY_CALLING_CODE, callingCodeLabel, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
 } from "@/lib/phone";
 import type { CountryCode } from "libphonenumber-js";
 import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
@@ -78,6 +78,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
   const [draftPhone, setDraftPhone] = useState("");
   const [draftPhoneCountry, setDraftPhoneCountry] = useState<CountryCode>("US");
   const [draftDefaultCountryCode, setDraftDefaultCountryCode] = useState("US");
+  const [draftDefaultCallingCode, setDraftDefaultCallingCode] = useState<CountryCode | "">("");
   const [addressAutoFilled, setAddressAutoFilled] = useState<Set<"city" | "state">>(new Set());
   const [draftTypes, setDraftTypes] = useState<DraftEquipmentType[]>([]);
   const [deletedTypeIds, setDeletedTypeIds] = useState<number[]>([]);
@@ -112,6 +113,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     setDraftPhone(fleet?.phone ? formatPhoneForDisplay(fleet.phone, initialCountry as CountryCode) : "");
     setDraftPhoneCountry(phoneCountryFromE164(fleet?.phone, initialCountry as CountryCode) ?? (initialCountry as CountryCode) ?? "US");
     setDraftDefaultCountryCode(fleet?.defaultCountryCode ?? "US");
+    setDraftDefaultCallingCode((fleet?.defaultCallingCode as CountryCode) ?? "");
     setDraftTypes((typesQ.data ?? []).map(type => ({ ...type })));
     setDeletedTypeIds([]);
     setDraftFuelTypes((fuelTypesQ.data ?? []).map(type => ({ ...type })));
@@ -130,7 +132,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
 
   useEffect(() => {
     resetDraft();
-  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.addressLine2, fleet?.city, fleet?.state, fleet?.zip, fleet?.country, fleet?.phone, fleet?.defaultCountryCode, typesQ.data, fuelTypesQ.data]);
+  }, [fleet?.name, fleet?.currency, fleet?.addressLine, fleet?.addressLine2, fleet?.city, fleet?.state, fleet?.zip, fleet?.country, fleet?.phone, fleet?.defaultCountryCode, fleet?.defaultCallingCode, typesQ.data, fuelTypesQ.data]);
 
   const addressConfig = getCountryAddressConfig(draftCountry);
 
@@ -176,6 +178,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
       const nextPhone = phoneToE164(draftPhone, draftPhoneCountry);
       if ((nextPhone ?? "") !== (fleet.phone ?? "")) fleetPatch.phone = nextPhone;
       if (draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")) fleetPatch.defaultCountryCode = draftDefaultCountryCode;
+      if ((draftDefaultCallingCode || null) !== (fleet.defaultCallingCode ?? null)) fleetPatch.defaultCallingCode = draftDefaultCallingCode || null;
       if (Object.keys(fleetPatch).length) {
         work.push(apiRequest("PATCH", `/api/fleets/${fleet.id}`, fleetPatch));
       }
@@ -339,6 +342,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
     || draftCountry !== (fleet.country ?? "US")
     || (phoneToE164(draftPhone, draftPhoneCountry) ?? "") !== (normalizePhoneToE164(fleet.phone, (fleet.country as CountryCode) ?? "US") ?? "")
     || draftDefaultCountryCode !== (fleet.defaultCountryCode ?? "US")
+    || (draftDefaultCallingCode || null) !== (fleet.defaultCallingCode ?? null)
     || deletedTypeIds.length > 0
     || deletedFuelTypeIds.length > 0
     || draftTypes.some(type => {
@@ -464,7 +468,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Label>Default Country Code</Label>
-                    <HelpTooltip content="Pre-fills the address country and phone country for new Service Facilities." testId={`tooltip-fleet-default-country-${fleet.id}`} />
+                    <HelpTooltip content="Pre-fills the address country for new Service Facilities, and the phone country too if no Default Calling Code is set below." testId={`tooltip-fleet-default-country-${fleet.id}`} />
                   </div>
                 </div>
                 <SearchableColumnSelect
@@ -481,6 +485,46 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   disabled={!canAdmin || saveSettings.isPending}
                   data-testid="select-fleet-default-country-code"
                 />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label>Default Calling Code</Label>
+                    <HelpTooltip content="Pre-fills the phone country selector for new Service Facilities. Falls back to Default Country Code above when not set." testId={`tooltip-fleet-default-calling-code-${fleet.id}`} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <SearchableColumnSelect
+                    items={PHONE_COUNTRIES_BY_CALLING_CODE}
+                    columns={[
+                      { key: "callingCode", label: "Code", get: c => `+${c.callingCode}` },
+                      { key: "name", label: "Country", get: c => c.name },
+                    ]}
+                    getId={c => c.code}
+                    value={draftDefaultCallingCode}
+                    onSelect={code => setDraftDefaultCallingCode(code as CountryCode)}
+                    triggerLabel={(() => {
+                      const found = PHONE_COUNTRIES_BY_CALLING_CODE.find(c => c.code === draftDefaultCallingCode);
+                      return found ? callingCodeLabel(found) : "";
+                    })()}
+                    placeholder="Same as Default Country Code"
+                    disabled={!canAdmin || saveSettings.isPending}
+                    data-testid="select-fleet-default-calling-code"
+                  />
+                  {draftDefaultCallingCode && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto p-0 text-xs text-muted-foreground"
+                      onClick={() => setDraftDefaultCallingCode("")}
+                      disabled={!canAdmin || saveSettings.isPending}
+                      data-testid="button-clear-fleet-default-calling-code"
+                    >
+                      Clear (use Default Country Code)
+                    </Button>
+                  )}
+                </div>
               </div>
             </Card>
 
@@ -562,7 +606,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                             getId={o => o.value}
                             value={draftState}
                             onSelect={setDraftState}
-                            triggerLabel={draftState ? `${draftState} — ${usCaRegionLabel(draftState)}` : ""}
+                            triggerLabel={draftState ? usCaRegionLabel(draftState) : ""}
                             placeholder={`Select ${addressConfig.regionLabel.toLowerCase()}`}
                             className={addressAutoFilled.has("state") ? "border-[hsl(var(--status-ok)/0.4)] bg-[hsl(var(--status-ok)/0.1)] transition-colors" : undefined}
                             disabled={!canAdmin || saveSettings.isPending}
