@@ -544,10 +544,42 @@ export const insertInventoryMovementSchema = createInsertSchema(inventoryMovemen
 export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSchema>;
 export type InventoryMovement = typeof inventoryMovements.$inferSelect;
 
+// Genuinely safe-to-store, safe-to-render types only — no HTML/SVG/script-
+// capable formats. Enforced server-side below regardless of what a client
+// claims, since client-side checks alone aren't a real control.
+export const ALLOWED_ATTACHMENT_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+] as const;
+const allowedAttachmentMimeTypeSet = new Set<string>(ALLOWED_ATTACHMENT_MIME_TYPES);
+
+// The browser trusts the media type declared inside a data: URI itself (not
+// just whatever a separate `mimeType` field claims) when deciding how to
+// render/execute it, so that declared type must be validated too.
+function dataUrlDeclaredMimeType(dataUrl: string): string | null {
+  const match = /^data:([^;,]+)[;,]/.exec(dataUrl);
+  return match ? match[1].toLowerCase() : null;
+}
+
 export const insertAttachmentSchema = createInsertSchema(attachments, {
   createdAt: z.coerce.date(),
   size: z.coerce.number().int().min(0),
-}).omit({ id: true });
+  mimeType: z.string().refine(v => allowedAttachmentMimeTypeSet.has(v.toLowerCase()), {
+    message: "Unsupported attachment file type",
+  }),
+  dataUrl: z.string().refine(v => {
+    const declared = dataUrlDeclaredMimeType(v);
+    return !!declared && allowedAttachmentMimeTypeSet.has(declared);
+  }, { message: "Unsupported attachment file type" }),
+})
+  .omit({ id: true })
+  .refine(data => dataUrlDeclaredMimeType(data.dataUrl) === data.mimeType.toLowerCase(), {
+    message: "mimeType does not match file contents",
+    path: ["mimeType"],
+  });
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
 export type Attachment = typeof attachments.$inferSelect;
 

@@ -3,6 +3,14 @@ import argon2 from "argon2";
 import { z } from "zod";
 import { storage, userHasSystemAdminPermission } from "./storage";
 import type { User } from "@shared/schema";
+import { loginIpLimiter, loginUsernameLimiter } from "./rate-limit";
+
+// Verified against on any login attempt where the username doesn't exist (or
+// has no password set), so argon2.verify() always runs at comparable cost —
+// otherwise the "no such user" path returns near-instantly while the "wrong
+// password" path pays the full hash-verify cost, letting an attacker
+// enumerate valid usernames purely from response timing.
+const DUMMY_PASSWORD_HASH_PROMISE = argon2.hash("EZ-Equip-timing-safety-dummy-password");
 
 declare module "express-session" {
   interface SessionData {
@@ -131,19 +139,22 @@ export function registerAuthRoutes(app: Express) {
     });
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", loginIpLimiter, loginUsernameLimiter, async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "validation_error" });
     const { username, password } = parsed.data;
 
     const user = await storage.getUserByUsername(username);
+    // Always run a real argon2 verify, even when there's no matching user or
+    // password hash — verifying against a precomputed dummy hash keeps this
+    // path's timing indistinguishable from the "wrong password" path, so
+    // response time can't be used to enumerate usernames.
+    const ok = await argon2.verify(user?.passwordHash ?? await DUMMY_PASSWORD_HASH_PROMISE, password);
     // Constant-shape response whether the user doesn't exist or the password
     // is wrong — don't leak which one failed.
-    if (!user || !user.passwordHash) {
+    if (!user || !user.passwordHash || !ok) {
       return res.status(401).json({ error: "invalid_credentials" });
     }
-    const ok = await argon2.verify(user.passwordHash, password);
-    if (!ok) return res.status(401).json({ error: "invalid_credentials" });
 
     // Regenerate the session on login to prevent session fixation.
     req.session.regenerate((err) => {

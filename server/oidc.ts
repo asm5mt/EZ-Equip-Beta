@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import * as client from "openid-client";
 import { storage } from "./storage";
+import { oidcCallbackLimiter } from "./rate-limit";
 
 async function discoverConfig(issuerUrl: string, clientId: string, clientSecret?: string | null) {
   return client.discovery(new URL(issuerUrl), clientId, clientSecret || undefined);
@@ -37,7 +38,7 @@ export function registerOidcRoutes(app: Express) {
     }
   });
 
-  app.get("/api/auth/oidc/callback", async (req, res) => {
+  app.get("/api/auth/oidc/callback", oidcCallbackLimiter, async (req, res) => {
     const scratch = req.session.oidc;
     if (!scratch) return res.redirect("/?oidcError=1");
     delete req.session.oidc;

@@ -10,11 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EditablePageActions } from "@/components/EditablePageActions";
 import { Paperclip, FileText, Image as ImageIcon, Eye, Trash2 } from "lucide-react";
-import type { InventoryItem } from "@shared/schema";
+import { ALLOWED_ATTACHMENT_MIME_TYPES, type InventoryItem } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatNumber } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
+import { downloadAttachment, isImageAttachment, type ViewableAttachment } from "@/lib/attachments";
+import { AttachmentImageDialog } from "@/components/AttachmentImageDialog";
 
 const CONTAINERS = [
   { label: "Quart bottle", size: 1, unit: "qt" },
@@ -54,6 +56,7 @@ export default function InventoryStockForm({ itemId }: { itemId: number }) {
   const [containerUnit, setContainerUnit] = useState(template.unit);
   const [notes, setNotes] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [viewingImage, setViewingImage] = useState<ViewableAttachment | null>(null);
 
   const item = itemQ.data;
   const quantity = useMemo(() => {
@@ -103,11 +106,21 @@ export default function InventoryStockForm({ itemId }: { itemId: number }) {
 
   const addAttachments = async (files: FileList | null) => {
     if (!files?.length) return;
-    const next = await Promise.all(Array.from(files).map(file => new Promise<PendingAttachment>((resolve, reject) => {
+    const allFiles = Array.from(files);
+    const allowed = allFiles.filter(f => (ALLOWED_ATTACHMENT_MIME_TYPES as readonly string[]).includes(f.type));
+    if (allowed.length < allFiles.length) {
+      toast({
+        title: "Some files were skipped",
+        description: "Only images (JPEG/PNG/GIF/WebP) and PDF files can be attached.",
+        variant: "destructive",
+      });
+    }
+    if (!allowed.length) return;
+    const next = await Promise.all(allowed.map(file => new Promise<PendingAttachment>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve({
         fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
+        mimeType: file.type,
         size: file.size,
         dataUrl: String(reader.result),
       });
@@ -212,7 +225,7 @@ export default function InventoryStockForm({ itemId }: { itemId: number }) {
                     className="sr-only"
                     type="file"
                     multiple
-                    accept="image/*,.pdf,.doc,.docx,.txt,.csv"
+                    accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
                     onChange={e => void addAttachments(e.target.files)}
                     data-testid="input-restock-attachments"
                   />
@@ -227,6 +240,7 @@ export default function InventoryStockForm({ itemId }: { itemId: number }) {
                   <AttachmentPreview
                     key={`${attachment.fileName}-${idx}`}
                     attachment={attachment}
+                    onView={() => setViewingImage(attachment)}
                     onRemove={() => setAttachments(current => current.filter((_, i) => i !== idx))}
                     idx={idx}
                   />
@@ -237,14 +251,15 @@ export default function InventoryStockForm({ itemId }: { itemId: number }) {
 
         </Card>
       </div>
+      <AttachmentImageDialog attachment={viewingImage} onOpenChange={open => !open && setViewingImage(null)} />
     </AppShell>
   );
 }
 
-function AttachmentPreview({ attachment, onRemove, idx }: {
-  attachment: PendingAttachment; onRemove: () => void; idx: number;
+function AttachmentPreview({ attachment, onView, onRemove, idx }: {
+  attachment: PendingAttachment; onView: () => void; onRemove: () => void; idx: number;
 }) {
-  const isImage = attachment.mimeType.startsWith("image/");
+  const isImage = isImageAttachment(attachment);
   const isPdf = attachment.mimeType === "application/pdf";
   return (
     <div className="rounded-md border border-border p-3 flex items-center gap-3" data-testid={`card-restock-attachment-${idx}`}>
@@ -261,7 +276,7 @@ function AttachmentPreview({ attachment, onRemove, idx }: {
         <div className="text-sm font-medium truncate">{attachment.fileName}</div>
         <div className="text-xs text-muted-foreground">{attachment.mimeType || "file"} · {(attachment.size / 1024).toFixed(1)} KB</div>
       </div>
-      <Button type="button" variant="ghost" size="sm" onClick={() => window.open(attachment.dataUrl, "_blank")} data-testid={`button-view-restock-attachment-${idx}`}>
+      <Button type="button" variant="ghost" size="sm" onClick={() => isImage ? onView() : downloadAttachment(attachment)} data-testid={`button-view-restock-attachment-${idx}`}>
         <Eye className="size-4" />
       </Button>
       <Button type="button" variant="ghost" size="sm" onClick={onRemove} data-testid={`button-remove-restock-attachment-${idx}`}>
