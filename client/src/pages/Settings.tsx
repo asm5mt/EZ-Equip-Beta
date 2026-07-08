@@ -40,13 +40,19 @@ import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 type ThemeMode = "auto" | "dark" | "light";
 
 export default function Settings() {
-  const { users, canAdmin } = useAppContext();
+  const { users, canAdmin, systemAdmin } = useAppContext();
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const search = useSearch();
   const activeTab = new URLSearchParams(search).get("tab") ?? "general";
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
   const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
+  // Shares a queryKey with AuthenticationSection's own system-settings query
+  // (same admin-only endpoint), so react-query dedupes the fetch/cache.
+  const diagSettingsQ = useQuery<{ diagnosticsOverlayEnabled: boolean }>({
+    queryKey: ["/api/system-settings"],
+    enabled: systemAdmin,
+  });
 
   const persisted = useMemo(() => {
     const map = new Map((settingsQ.data ?? []).map(s => [s.key, s.value]));
@@ -59,8 +65,9 @@ export default function Settings() {
       defaultMeter: map.get("defaultMeter") || "mileage",
       orgName: orgInfoQ.data?.orgName ?? "",
       orgLogoUrl: orgInfoQ.data?.orgLogoUrl ?? "",
+      diagnosticsOverlayEnabled: diagSettingsQ.data?.diagnosticsOverlayEnabled ?? false,
     };
-  }, [settingsQ.data, orgInfoQ.data]);
+  }, [settingsQ.data, orgInfoQ.data, diagSettingsQ.data]);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("auto");
   const [themePack, setThemePack] = useState<string>("ezequip");
@@ -70,6 +77,7 @@ export default function Settings() {
   const [defaultMeter, setDefaultMeter] = useState("mileage");
   const [orgName, setOrgName] = useState("");
   const [orgLogoUrl, setOrgLogoUrl] = useState("");
+  const [diagnosticsOverlayEnabled, setDiagnosticsOverlayEnabled] = useState(false);
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -85,9 +93,13 @@ export default function Settings() {
     setDefaultMeter(persisted.defaultMeter);
     setOrgName(persisted.orgName);
     setOrgLogoUrl(persisted.orgLogoUrl);
+    setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
   }, [persisted]);
 
-  const draft = { themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl };
+  const draft = {
+    themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl,
+    diagnosticsOverlayEnabled,
+  };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
   const previewTheme = (value: ThemeMode) => {
@@ -103,11 +115,16 @@ export default function Settings() {
   const saveSettings = useMutation({
     mutationFn: async () => {
       await apiRequest("PATCH", "/api/app-settings", { themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter });
-      await apiRequest("PATCH", "/api/system-settings", { orgName: orgName.trim(), orgLogoUrl: orgLogoUrl.trim() });
+      await apiRequest("PATCH", "/api/system-settings", {
+        orgName: orgName.trim(),
+        orgLogoUrl: orgLogoUrl.trim(),
+        ...(systemAdmin ? { diagnosticsOverlayEnabled } : {}),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/app-settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/org-info"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/system-settings"] });
       toast({ title: "Settings saved" });
     },
     onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
@@ -122,6 +139,7 @@ export default function Settings() {
     setDefaultMeter(persisted.defaultMeter);
     setOrgName(persisted.orgName);
     setOrgLogoUrl(persisted.orgLogoUrl);
+    setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
     window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
@@ -261,6 +279,29 @@ export default function Settings() {
                 </div>
               </Card>
             </div>
+
+            {systemAdmin && (
+              <Card className="p-5 space-y-4" data-testid="card-diagnostics-overlay">
+                <div className="flex items-start gap-3">
+                  <Bug className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+                  <div>
+                    <h3 className="font-semibold">Diagnostics overlay</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Lets system admins toggle a troubleshooting panel with Ctrl+Shift+D (Cmd+Shift+D on Mac), showing
+                      the current route, page, and any open modal(s). Off by default.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-center gap-3">
+                  <Switch
+                    checked={diagnosticsOverlayEnabled}
+                    onCheckedChange={setDiagnosticsOverlayEnabled}
+                    data-testid="switch-diagnostics-overlay-enabled"
+                  />
+                  <span className="text-sm">{diagnosticsOverlayEnabled ? "Enabled" : "Disabled"}</span>
+                </label>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="users" className="mt-5 space-y-5">
@@ -517,6 +558,7 @@ function RolesPermissionsSection() {
                       onSave={() => createRole.mutate()}
                       canSave={!!canAdmin && !!name && !createRole.isPending}
                       isSaving={createRole.isPending}
+                      hasChanges={addRoleHasChanges}
                     />
                   </DialogHeader>
                   <div className="grid gap-3">
@@ -584,6 +626,7 @@ function RolesPermissionsSection() {
               onSave={() => saveRole.mutate()}
               canSave={!!canAdmin && roleDirty}
               isSaving={saveRole.isPending}
+              hasChanges={roleDirty}
             />
           </DialogHeader>
           {editingRole && (
@@ -679,7 +722,6 @@ function AuthenticationSection() {
   const [clientSecret, setClientSecret] = useState("");
   const [redirectUri, setRedirectUri] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; issuer?: string } | null>(null);
-  const [diagnosticsOverlayEnabled, setDiagnosticsOverlayEnabled] = useState(false);
 
   useEffect(() => {
     if (!settingsQ.data) return;
@@ -688,7 +730,6 @@ function AuthenticationSection() {
     setClientId(settingsQ.data.oidcClientId ?? "");
     setRedirectUri(settingsQ.data.oidcRedirectUri ?? `${window.location.origin}/api/auth/oidc/callback`);
     setClientSecret("");
-    setDiagnosticsOverlayEnabled(settingsQ.data.diagnosticsOverlayEnabled ?? false);
   }, [settingsQ.data]);
 
   const persisted = useMemo(() => ({
@@ -696,16 +737,13 @@ function AuthenticationSection() {
     oidcIssuerUrl: settingsQ.data?.oidcIssuerUrl ?? "",
     oidcClientId: settingsQ.data?.oidcClientId ?? "",
     oidcRedirectUri: settingsQ.data?.oidcRedirectUri ?? "",
-    diagnosticsOverlayEnabled: settingsQ.data?.diagnosticsOverlayEnabled ?? false,
   }), [settingsQ.data]);
   const dirty = authMode !== persisted.authMode || issuerUrl !== persisted.oidcIssuerUrl
-    || clientId !== persisted.oidcClientId || redirectUri !== persisted.oidcRedirectUri || clientSecret.length > 0
-    || diagnosticsOverlayEnabled !== persisted.diagnosticsOverlayEnabled;
+    || clientId !== persisted.oidcClientId || redirectUri !== persisted.oidcRedirectUri || clientSecret.length > 0;
 
   const saveMut = useMutation({
     mutationFn: async () => apiRequest("PATCH", "/api/system-settings", {
       authMode, oidcIssuerUrl: issuerUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri,
-      diagnosticsOverlayEnabled,
       ...(clientSecret ? { oidcClientSecret: clientSecret } : {}),
     }),
     onSuccess: () => {
@@ -790,27 +828,6 @@ function AuthenticationSection() {
             <Save className="size-4 mr-1.5" /> {saveMut.isPending ? "Saving…" : "Save"}
           </Button>
         </div>
-      </Card>
-
-      <Card className="p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <Bug className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
-          <div>
-            <h3 className="font-semibold">Diagnostics overlay</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Lets system admins toggle a troubleshooting panel with Ctrl+Shift+D (Cmd+Shift+D on Mac), showing the
-              current route, page, and any open modal(s). Off by default.
-            </p>
-          </div>
-        </div>
-        <label className="flex items-center gap-3">
-          <Switch
-            checked={diagnosticsOverlayEnabled}
-            onCheckedChange={setDiagnosticsOverlayEnabled}
-            data-testid="switch-diagnostics-overlay-enabled"
-          />
-          <span className="text-sm">{diagnosticsOverlayEnabled ? "Enabled" : "Disabled"}</span>
-        </label>
       </Card>
 
       <GroupMappingsCard />
@@ -1204,6 +1221,7 @@ function UserRow({ user }: { user: User }) {
               onSave={() => saveUser.mutate()}
               canSave={userDirty}
               isSaving={saveUser.isPending}
+              hasChanges={userDirty}
             />
           </DialogHeader>
           <div className="space-y-5">

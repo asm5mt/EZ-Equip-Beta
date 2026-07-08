@@ -539,6 +539,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
             onSave={() => saveTypes.mutate()}
             canSave={hasChanges}
             isSaving={saveTypes.isPending}
+            hasChanges={hasChanges}
           />
         </DialogHeader>
         <div className="space-y-4">
@@ -564,6 +565,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                     onSave={() => createCategory.mutate()}
                     canSave={!!canAdmin && !!fleetId && !!categoryName.trim()}
                     isSaving={createCategory.isPending}
+                    hasChanges={addCategoryHasChanges}
                   />
                 </DialogHeader>
                 <div className="space-y-4">
@@ -749,6 +751,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                 onSave={() => createField.mutate()}
                 canSave={!!canAdmin && !!fieldName.trim()}
                 isSaving={createField.isPending}
+                hasChanges={addFieldHasChanges}
               />
             </DialogHeader>
             <div className="space-y-4">

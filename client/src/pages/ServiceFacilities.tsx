@@ -661,6 +661,7 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
             onSave={() => saveTypes.mutate()}
             canSave={!!canAdmin && hasChanges}
             isSaving={saveTypes.isPending}
+            hasChanges={hasChanges}
           />
         </DialogHeader>
         <div className="space-y-4">

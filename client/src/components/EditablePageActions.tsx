@@ -173,14 +173,28 @@ export function DialogHeaderActions({
   onSave,
   canSave,
   isSaving,
+  hasChanges,
+  label,
 }: {
   onCancel: () => void;
   onSave: () => void;
   canSave: boolean;
   isSaving?: boolean;
+  /** Shows the compact "Unsaved changes" badge when true; renders nothing when false. */
+  hasChanges?: boolean;
+  /** Overrides the badge text shown when hasChanges is true (default "Unsaved changes"). */
+  label?: string;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1.5">
+      {hasChanges && (
+        <div
+          className="rounded-md border px-2 py-1 text-[10px] font-semibold tracking-wide status-warn"
+          data-testid="badge-unsaved-dialog-state"
+        >
+          {label ?? "Unsaved changes"}
+        </div>
+      )}
       <Button
         type="button"
         variant="cancel"

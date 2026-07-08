@@ -537,6 +537,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                     onCancel={() => handleAddFuelTypeOpenChange(false)}
                     onSave={addDraftFuelType}
                     canSave={!!canAdmin && !!fuelName.trim()}
+                    hasChanges={addFuelTypeHasChanges}
                   />
                 </DialogHeader>
                 <div className="space-y-4">
@@ -638,6 +639,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                     onCancel={() => handleAddTypeOpenChange(false)}
                     onSave={addDraftType}
                     canSave={!!canAdmin && !!name.trim()}
+                    hasChanges={addTypeHasChanges}
                   />
                 </DialogHeader>
                 <div className="space-y-4">
