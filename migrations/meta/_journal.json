@@ -85,6 +85,13 @@
       "when": 1783388607889,
       "tag": "0011_optimal_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783475539953,
+      "tag": "0012_daily_mandrill",
+      "breakpoints": true
     }
   ]
 }

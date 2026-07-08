@@ -106,6 +106,7 @@ export const systemSettings = pgTable("system_settings", {
   oidcRedirectUri: text("oidc_redirect_uri"),
   orgName: text("org_name"),
   orgLogoUrl: text("org_logo_url"),
+  diagnosticsOverlayEnabled: boolean("diagnostics_overlay_enabled").notNull().default(false),
 });
 
 export const inventoryCategories = pgTable("inventory_categories", {

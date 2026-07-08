@@ -15,6 +15,7 @@ import {
   Copy, Filter, LocateFixed, MapPin, Pencil, Phone, Plus, Save, Settings2, Trash2, X,
 } from "lucide-react";
 import { DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
@@ -649,7 +650,9 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      {open && <DiagnosticsRegistration name="Manage Facility Types" context={{ hasChanges }} />}
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent hideCloseButton className="max-w-lg">
         <DialogHeader className="flex-row items-center justify-between space-y-0">
           <DialogTitle>Manage Facility Types</DialogTitle>
@@ -707,7 +710,8 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
         </div>
         {unsavedDialog}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }
 

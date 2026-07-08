@@ -1014,6 +1014,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     oidcRedirectUri: z.string().url().optional().or(z.literal("")),
     orgName: z.string().optional().or(z.literal("")),
     orgLogoUrl: z.string().url().optional().or(z.literal("")),
+    diagnosticsOverlayEnabled: z.boolean().optional(),
   });
   app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
     try {

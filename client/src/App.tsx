@@ -9,6 +9,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppProvider, useAppContext } from "@/lib/app-context";
 import type { CurrentUser } from "@/lib/app-context";
+import { DiagnosticsProvider } from "@/lib/diagnostics-context";
+import { DiagnosticsOverlay } from "@/components/DiagnosticsOverlay";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { NoFleetAssigned } from "@/components/NoFleetAssigned";
 import Login from "@/pages/Login";
@@ -115,7 +117,11 @@ function AuthGate({ children }: { children: ReactNode }) {
       />
     );
   }
-  return <AppProvider me={meQ.data}>{children}</AppProvider>;
+  return (
+    <AppProvider me={meQ.data}>
+      <DiagnosticsProvider>{children}</DiagnosticsProvider>
+    </AppProvider>
+  );
 }
 
 function App() {
@@ -127,6 +133,7 @@ function App() {
             <Toaster />
             <Router hook={useHashLocation}>
               <AppRouter />
+              <DiagnosticsOverlay />
             </Router>
           </AuthGate>
         </AppErrorBoundary>

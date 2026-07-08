@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
@@ -31,7 +33,7 @@ import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
   Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
-  Palette,
+  Palette, Bug,
 } from "lucide-react";
 import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 
@@ -500,6 +502,9 @@ function RolesPermissionsSection() {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="font-semibold">Roles</h3>
             <div className="flex items-center gap-2">
+              {addRoleOpen && (
+                <DiagnosticsRegistration name="Add Role" context={{ fleetId: selectedFleet.id, hasChanges: addRoleHasChanges }} />
+              )}
               <Dialog open={addRoleOpen} onOpenChange={handleAddRoleOpenChange}>
                 <DialogTrigger asChild>
                   <Button size="sm" disabled={!canAdmin} data-testid="button-add-fleet-role"><Plus className="size-4 mr-1.5" /> Add Role</Button>
@@ -674,6 +679,7 @@ function AuthenticationSection() {
   const [clientSecret, setClientSecret] = useState("");
   const [redirectUri, setRedirectUri] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; issuer?: string } | null>(null);
+  const [diagnosticsOverlayEnabled, setDiagnosticsOverlayEnabled] = useState(false);
 
   useEffect(() => {
     if (!settingsQ.data) return;
@@ -682,6 +688,7 @@ function AuthenticationSection() {
     setClientId(settingsQ.data.oidcClientId ?? "");
     setRedirectUri(settingsQ.data.oidcRedirectUri ?? `${window.location.origin}/api/auth/oidc/callback`);
     setClientSecret("");
+    setDiagnosticsOverlayEnabled(settingsQ.data.diagnosticsOverlayEnabled ?? false);
   }, [settingsQ.data]);
 
   const persisted = useMemo(() => ({
@@ -689,13 +696,16 @@ function AuthenticationSection() {
     oidcIssuerUrl: settingsQ.data?.oidcIssuerUrl ?? "",
     oidcClientId: settingsQ.data?.oidcClientId ?? "",
     oidcRedirectUri: settingsQ.data?.oidcRedirectUri ?? "",
+    diagnosticsOverlayEnabled: settingsQ.data?.diagnosticsOverlayEnabled ?? false,
   }), [settingsQ.data]);
   const dirty = authMode !== persisted.authMode || issuerUrl !== persisted.oidcIssuerUrl
-    || clientId !== persisted.oidcClientId || redirectUri !== persisted.oidcRedirectUri || clientSecret.length > 0;
+    || clientId !== persisted.oidcClientId || redirectUri !== persisted.oidcRedirectUri || clientSecret.length > 0
+    || diagnosticsOverlayEnabled !== persisted.diagnosticsOverlayEnabled;
 
   const saveMut = useMutation({
     mutationFn: async () => apiRequest("PATCH", "/api/system-settings", {
       authMode, oidcIssuerUrl: issuerUrl, oidcClientId: clientId, oidcRedirectUri: redirectUri,
+      diagnosticsOverlayEnabled,
       ...(clientSecret ? { oidcClientSecret: clientSecret } : {}),
     }),
     onSuccess: () => {
@@ -780,6 +790,27 @@ function AuthenticationSection() {
             <Save className="size-4 mr-1.5" /> {saveMut.isPending ? "Saving…" : "Save"}
           </Button>
         </div>
+      </Card>
+
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Bug className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+          <div>
+            <h3 className="font-semibold">Diagnostics overlay</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Lets system admins toggle a troubleshooting panel with Ctrl+Shift+D (Cmd+Shift+D on Mac), showing the
+              current route, page, and any open modal(s). Off by default.
+            </p>
+          </div>
+        </div>
+        <label className="flex items-center gap-3">
+          <Switch
+            checked={diagnosticsOverlayEnabled}
+            onCheckedChange={setDiagnosticsOverlayEnabled}
+            data-testid="switch-diagnostics-overlay-enabled"
+          />
+          <span className="text-sm">{diagnosticsOverlayEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
       </Card>
 
       <GroupMappingsCard />
@@ -1161,6 +1192,9 @@ function UserRow({ user }: { user: User }) {
         </div>
       </div>
 
+      {editOpen && (
+        <DiagnosticsRegistration name="Edit User" context={{ userId: user.id, hasChanges: userDirty }} />
+      )}
       <Dialog open={editOpen} onOpenChange={handleEditUserOpenChange}>
         <DialogContent hideCloseButton className="max-w-2xl">
           <DialogHeader className="flex-row items-center justify-between space-y-0">

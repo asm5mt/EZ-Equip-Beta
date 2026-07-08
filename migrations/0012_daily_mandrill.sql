@@ -1,0 +1,1 @@
+ALTER TABLE "system_settings" ADD COLUMN "diagnostics_overlay_enabled" boolean DEFAULT false NOT NULL;

@@ -25,6 +25,7 @@ import { STATE_PROVINCE_OPTIONS } from "@/lib/regions";
 import type { FleetEquipmentType, FleetFuelType } from "@shared/schema";
 import { ArrowLeft, BadgeDollarSign, CheckCircle2, Fuel, MapPin, Pencil, Plus, Tags, Trash2 } from "lucide-react";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 
 type DraftEquipmentType = FleetEquipmentType & { isNew?: boolean };
 type DraftFuelType = FleetFuelType & { isNew?: boolean };
@@ -520,6 +521,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               label="Fuel Types"
               description="Configure the fuel options that appear on VIN-enabled asset forms and header pills."
             />
+            {addFuelTypeOpen && (
+              <DiagnosticsRegistration name="Add Fuel Type" context={{ fleetId, hasChanges: addFuelTypeHasChanges }} />
+            )}
             <Dialog open={addFuelTypeOpen} onOpenChange={handleAddFuelTypeOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-fuel-type">
@@ -618,6 +622,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
               label="Asset Types"
               description="Configure the asset tag, default meter, and whether VIN-powered features are available for this fleet."
             />
+            {addOpen && (
+              <DiagnosticsRegistration name="Add Asset Type" context={{ fleetId, hasChanges: addTypeHasChanges }} />
+            )}
             <Dialog open={addOpen} onOpenChange={handleAddTypeOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin || saveSettings.isPending} data-testid="button-open-add-equipment-type">

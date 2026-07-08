@@ -14,6 +14,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import {
   ArrowLeft, ChevronDown, ChevronRight, ChevronUp, PackagePlus, Pencil, Plus, Settings2, Star,
   Trash2, Type as TypeIcon,
@@ -546,6 +547,9 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
               label="Inventory Types"
               description="Create fleet-specific inventory categories and optional fields that appear on inventory items."
             />
+            {addCategoryOpen && (
+              <DiagnosticsRegistration name="Add Inventory Category" context={{ fleetId, hasChanges: addCategoryHasChanges }} />
+            )}
             <Dialog open={addCategoryOpen} onOpenChange={handleAddCategoryOpenChange}>
               <DialogTrigger asChild>
                 <Button size="sm" className="ml-auto" disabled={!canAdmin} data-testid="button-open-add-inventory-category">
@@ -730,6 +734,12 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
           </div>
         </div>
 
+        {fieldDialogCategoryId != null && (
+          <DiagnosticsRegistration
+            name="Add Inventory Field"
+            context={{ categoryId: fieldDialogCategoryId, hasChanges: addFieldHasChanges }}
+          />
+        )}
         <Dialog open={fieldDialogCategoryId != null} onOpenChange={handleAddFieldOpenChange}>
           <DialogContent hideCloseButton className="max-w-lg">
             <DialogHeader className="flex-row items-center justify-between space-y-0">
