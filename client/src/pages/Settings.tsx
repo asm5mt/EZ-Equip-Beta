@@ -835,31 +835,19 @@ function AuthenticationSection() {
   );
 }
 
+type DraftGroupMapping = OidcGroupMapping & { isNew?: boolean };
+
 function GroupMappingsCard() {
   const { fleets } = useAppContext();
   const { toast } = useToast();
   const mappingsQ = useQuery<OidcGroupMapping[]>({ queryKey: ["/api/oidc-group-mappings"] });
   const mappings = mappingsQ.data ?? [];
 
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newFleetId, setNewFleetId] = useState<number | null>(null);
-  const [newRoleId, setNewRoleId] = useState<number | null>(null);
-  const newFleetRolesQ = useQuery<FleetRoleWithPermissions[]>({ queryKey: ["/api/fleet-roles", { fleetId: newFleetId }], enabled: !!newFleetId });
-
-  const [draftMappings, setDraftMappings] = useState<OidcGroupMapping[]>(mappings);
+  const [draftMappings, setDraftMappings] = useState<DraftGroupMapping[]>(mappings);
   useEffect(() => {
     setDraftMappings(mappings);
   }, [mappings]);
 
-  const createMut = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/oidc-group-mappings", { groupName: newGroupName, fleetId: newFleetId, roleId: newRoleId })).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/oidc-group-mappings"] });
-      setNewGroupName(""); setNewFleetId(null); setNewRoleId(null);
-      toast({ title: "Group mapping added" });
-    },
-    onError: (e: any) => toast({ title: "Failed to add mapping", description: String(e?.message ?? e), variant: "destructive" }),
-  });
   const deleteMut = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/oidc-group-mappings/${id}`)).json(),
     onSuccess: () => {
@@ -872,18 +860,36 @@ function GroupMappingsCard() {
     setDraftMappings(dms => dms.map(m => m.id === id ? { ...m, ...patch } : m));
   };
 
+  const addDraftMapping = () => {
+    setDraftMappings(dms => [...dms, { id: -Date.now(), groupName: "", fleetId: fleets[0]?.id ?? 0, roleId: 0, isNew: true }]);
+  };
+
+  const removeDraftMapping = (mapping: DraftGroupMapping) => {
+    if (mapping.isNew) {
+      setDraftMappings(dms => dms.filter(m => m.id !== mapping.id));
+    } else {
+      deleteMut.mutate(mapping.id);
+    }
+  };
+
   const hasChanges = draftMappings.some(dm => {
+    if (dm.isNew) return true;
     const original = mappings.find(m => m.id === dm.id);
     return !original
       || dm.groupName !== original.groupName
       || dm.fleetId !== original.fleetId
       || dm.roleId !== original.roleId;
   });
+  const canSaveMappings = hasChanges && draftMappings.every(dm => dm.groupName.trim().length > 0 && !!dm.fleetId && !!dm.roleId);
 
   const saveMappings = useMutation({
     mutationFn: async () => {
       const work: Promise<unknown>[] = [];
       for (const dm of draftMappings) {
+        if (dm.isNew) {
+          work.push(apiRequest("POST", "/api/oidc-group-mappings", { groupName: dm.groupName.trim(), fleetId: dm.fleetId, roleId: dm.roleId }));
+          continue;
+        }
         const original = mappings.find(m => m.id === dm.id);
         if (!original) continue;
         const patch: Partial<OidcGroupMapping> = {};
@@ -917,7 +923,7 @@ function GroupMappingsCard() {
         showBack={false}
         hasChanges={hasChanges}
         isSaving={saveMappings.isPending}
-        canSave={hasChanges}
+        canSave={canSaveMappings}
         onCancel={cancelDraft}
         onSave={() => saveMappings.mutate()}
       />
@@ -938,7 +944,7 @@ function GroupMappingsCard() {
               mapping={mapping}
               fleets={fleets}
               onUpdate={patch => updateDraftMapping(mapping.id, patch)}
-              onDelete={() => deleteMut.mutate(mapping.id)}
+              onDelete={() => removeDraftMapping(mapping)}
               isDeleting={deleteMut.isPending}
             />
           ))}
@@ -950,40 +956,15 @@ function GroupMappingsCard() {
         </p>
       )}
 
-      <div className="rounded-md bg-muted p-4 space-y-3">
-        <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Add a mapping</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <div>
-            <Label>IdP Group</Label>
-            <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="fleet-admins" data-testid="input-new-mapping-group" />
-          </div>
-          <div>
-            <Label>Fleet</Label>
-            <Select value={newFleetId ? String(newFleetId) : undefined} onValueChange={v => { setNewFleetId(Number(v)); setNewRoleId(null); }}>
-              <SelectTrigger data-testid="select-new-mapping-fleet"><SelectValue placeholder="Choose fleet" /></SelectTrigger>
-              <SelectContent>{fleets.map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Role</Label>
-            <Select value={newRoleId ? String(newRoleId) : undefined} onValueChange={v => setNewRoleId(Number(v))} disabled={!newFleetId}>
-              <SelectTrigger data-testid="select-new-mapping-role"><SelectValue placeholder="Choose role" /></SelectTrigger>
-              <SelectContent>{(newFleetRolesQ.data ?? []).map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <Button disabled={!newGroupName || !newFleetId || !newRoleId || createMut.isPending} onClick={() => createMut.mutate()} data-testid="button-create-mapping">
-            <Plus className="size-4 mr-1.5" /> Add
-          </Button>
-        </div>
-      </div>
+      <Button size="sm" variant="outline" onClick={addDraftMapping} data-testid="button-add-mapping">
+        <Plus className="size-4 mr-1.5" /> Add Mapping
+      </Button>
     </Card>
   );
 }
 
 function GroupMappingRow({ mapping, fleets, onUpdate, onDelete, isDeleting }: {
-  mapping: OidcGroupMapping;
+  mapping: DraftGroupMapping;
   fleets: Fleet[];
   onUpdate: (patch: Partial<OidcGroupMapping>) => void;
   onDelete: () => void;
@@ -996,19 +977,20 @@ function GroupMappingRow({ mapping, fleets, onUpdate, onDelete, isDeleting }: {
       <TableCell>
         <Input
           value={mapping.groupName}
+          placeholder="fleet-admins"
           onChange={e => onUpdate({ groupName: e.target.value })}
           data-testid={`input-mapping-group-${mapping.id}`}
         />
       </TableCell>
       <TableCell>
-        <Select value={String(mapping.fleetId)} onValueChange={v => onUpdate({ fleetId: Number(v) })}>
-          <SelectTrigger data-testid={`select-mapping-fleet-${mapping.id}`}><SelectValue /></SelectTrigger>
+        <Select value={mapping.fleetId ? String(mapping.fleetId) : undefined} onValueChange={v => onUpdate({ fleetId: Number(v), roleId: 0 })}>
+          <SelectTrigger data-testid={`select-mapping-fleet-${mapping.id}`}><SelectValue placeholder="Choose fleet" /></SelectTrigger>
           <SelectContent>{fleets.map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}</SelectContent>
         </Select>
       </TableCell>
       <TableCell>
-        <Select value={String(mapping.roleId)} onValueChange={v => onUpdate({ roleId: Number(v) })}>
-          <SelectTrigger data-testid={`select-mapping-role-${mapping.id}`}><SelectValue /></SelectTrigger>
+        <Select value={mapping.roleId ? String(mapping.roleId) : undefined} onValueChange={v => onUpdate({ roleId: Number(v) })}>
+          <SelectTrigger data-testid={`select-mapping-role-${mapping.id}`}><SelectValue placeholder="Choose role" /></SelectTrigger>
           <SelectContent>{roles.map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}</SelectContent>
         </Select>
       </TableCell>

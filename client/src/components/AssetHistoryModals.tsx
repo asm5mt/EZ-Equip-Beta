@@ -20,7 +20,7 @@ import {
   Car,
   ChevronDown,
   Download,
-  Edit,
+  Pencil,
   FileSpreadsheet,
   FileText,
   Filter,
@@ -861,7 +861,7 @@ function RowActionButtons({
           aria-label={editLabel}
           title={editLabel}
         >
-          <Edit className="size-4" />
+          <Pencil className="size-4" />
         </Button>
       )}
       {onDelete && (

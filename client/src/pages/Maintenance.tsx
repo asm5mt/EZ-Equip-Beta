@@ -23,7 +23,7 @@ import {
   Plus,
   LayoutGrid,
   ListOrdered,
-  Edit,
+  Pencil,
 } from "lucide-react";
 import type {
   Asset,
@@ -354,7 +354,7 @@ function ScheduleCategoryCard({
                 aria-label="Edit schedule"
                 data-testid={`button-edit-schedule-${schedule.id}`}
               >
-                <Edit className="size-4" />
+                <Pencil className="size-4" />
               </Button>
             </Link>
           )}

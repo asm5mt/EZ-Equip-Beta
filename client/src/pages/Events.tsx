@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { ServiceEvent, Asset } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
 import { formatDate, formatNumber, formatCurrency, meterUnitLabel } from "@/lib/format";
-import { ArrowLeft, Edit } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 
 export default function Events() {
   const { fleet, canEdit } = useAppContext();
@@ -79,12 +79,12 @@ export default function Events() {
                       {canEdit ? (
                         <Link href={`/events/${e.id}/edit`}>
                           <Button variant="ghost" size="sm" className="mt-2" data-testid={`button-edit-event-${e.id}`}>
-                            <Edit className="size-4 mr-1.5" /> Edit
+                            <Pencil className="size-4 mr-1.5" /> Edit
                           </Button>
                         </Link>
                       ) : (
                         <Button variant="ghost" size="sm" disabled className="mt-2" data-testid={`button-edit-event-${e.id}`}>
-                          <Edit className="size-4 mr-1.5" /> Edit
+                          <Pencil className="size-4 mr-1.5" /> Edit
                         </Button>
                       )}
                     </div>

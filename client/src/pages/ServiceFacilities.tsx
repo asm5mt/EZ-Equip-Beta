@@ -569,6 +569,8 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSave, savin
   );
 }
 
+type DraftFacilityType = ServiceFacilityType & { isNew?: boolean };
+
 function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -576,25 +578,13 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
   canAdmin: boolean;
 }) {
   const { toast } = useToast();
-  const [name, setName] = useState("");
-  const [color, setColor] = useState("#64748b");
-  const [icon, setIcon] = useState("wrench");
 
-  const [draftTypes, setDraftTypes] = useState<ServiceFacilityType[]>(types);
+  const [draftTypes, setDraftTypes] = useState<DraftFacilityType[]>(types);
   useEffect(() => {
     setDraftTypes(types);
   }, [types]);
 
   const onError = (e: any) => toast({ title: "Save failed", description: String(e), variant: "destructive" });
-
-  const createType = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/service-facility-types", { name: name.trim(), color, icon }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/service-facility-types"] });
-      setName(""); setColor("#64748b"); setIcon("wrench");
-    },
-    onError,
-  });
 
   const deleteType = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/service-facility-types/${id}`),
@@ -606,18 +596,40 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
     setDraftTypes(dts => dts.map(t => t.id === id ? { ...t, ...patch } : t));
   };
 
+  const addDraftType = () => {
+    setDraftTypes(dts => [...dts, { id: -Date.now(), name: "", color: "#64748b", icon: "wrench", isNew: true }]);
+  };
+
+  const removeDraftType = (type: DraftFacilityType) => {
+    if (type.isNew) {
+      setDraftTypes(dts => dts.filter(t => t.id !== type.id));
+    } else {
+      deleteType.mutate(type.id);
+    }
+  };
+
   const hasChanges = draftTypes.some(dt => {
+    if (dt.isNew) return true;
     const original = types.find(t => t.id === dt.id);
     return !original
       || dt.name !== original.name
       || dt.color !== original.color
       || normalizeFacilityTypeIcon(dt.icon) !== normalizeFacilityTypeIcon(original.icon);
   });
+  const canSaveTypes = hasChanges && draftTypes.every(dt => dt.name.trim().length > 0);
 
   const saveTypes = useMutation({
     mutationFn: async () => {
       const work: Promise<unknown>[] = [];
       for (const dt of draftTypes) {
+        if (dt.isNew) {
+          work.push(apiRequest("POST", "/api/service-facility-types", {
+            name: dt.name.trim(),
+            color: dt.color,
+            icon: normalizeFacilityTypeIcon(dt.icon),
+          }));
+          continue;
+        }
         const original = types.find(t => t.id === dt.id);
         if (!original) continue;
         const patch: Partial<ServiceFacilityType> = {};
@@ -659,7 +671,7 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
           <DialogHeaderActions
             onCancel={() => handleOpenChange(false)}
             onSave={() => saveTypes.mutate()}
-            canSave={!!canAdmin && hasChanges}
+            canSave={!!canAdmin && canSaveTypes}
             isSaving={saveTypes.isPending}
             hasChanges={hasChanges}
           />
@@ -678,35 +690,22 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
                 />
                 <Input
                   className="h-9"
+                  placeholder="New type name"
                   value={type.name}
                   disabled={!canAdmin}
                   onChange={e => updateDraftType(type.id, { name: e.target.value })}
                   data-testid={`input-facility-type-name-${type.id}`}
                 />
-                <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin} onClick={() => deleteType.mutate(type.id)} data-testid={`button-delete-facility-type-${type.id}`}>
+                <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin} onClick={() => removeDraftType(type)} data-testid={`button-delete-facility-type-${type.id}`}>
                   <Trash2 className="size-4" />
                 </Button>
               </div>
             ))}
           </div>
           {canAdmin && (
-            <div className="grid grid-cols-[56px_1fr_100px_auto] items-center gap-2 rounded-md border border-dashed border-border px-2.5 py-2">
-              <Input type="color" className="h-9 p-1" value={color} onChange={e => setColor(e.target.value)} data-testid="input-new-facility-type-color" />
-              <Input className="h-9" placeholder="New type name" value={name} onChange={e => setName(e.target.value)} data-testid="input-new-facility-type-name" />
-              <Select value={icon} onValueChange={setIcon}>
-                <SelectTrigger className="h-9" data-testid="select-new-facility-type-icon"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {FACILITY_TYPE_ICON_OPTIONS.map(option => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <span className="inline-flex items-center gap-2"><option.Icon className="size-4" />{option.label}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" disabled={!name.trim() || createType.isPending} onClick={() => createType.mutate()} data-testid="button-create-facility-type">
-                <Plus className="size-4" />
-              </Button>
-            </div>
+            <Button size="sm" variant="outline" onClick={addDraftType} data-testid="button-add-facility-type">
+              <Plus className="size-4 mr-1.5" /> Add Type
+            </Button>
           )}
         </div>
         {unsavedDialog}

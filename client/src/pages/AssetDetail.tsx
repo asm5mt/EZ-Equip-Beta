@@ -6,7 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, ArrowLeft, CalendarDays, Car, CheckCircle2, Clock3, Copy, Gauge, Info, Loader2, MessageSquareWarning, Package, Plus, Search, Settings2, Trash2, Wrench, X, Edit, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarDays, Car, CheckCircle2, Clock3, Copy, Gauge, Info, Loader2, MessageSquareWarning, Package, Plus, Search, Settings2, Trash2, Wrench, X, Pencil, Sparkles, Wand2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Asset, MaintenanceSchedule, ServiceEvent, MeterReading, ServiceLineItem, FleetEquipmentType, FleetFuelType } from "@shared/schema";
@@ -90,6 +90,8 @@ export default function AssetDetail() {
   const [activeTab, setActiveTab] = useState("overview");
   useEffect(() => { setActiveTab("overview"); }, [assetId]);
   const [pendingDeleteScheduleId, setPendingDeleteScheduleId] = useState<number | null>(null);
+  const [pendingDeleteServiceId, setPendingDeleteServiceId] = useState<number | null>(null);
+  const [pendingDeleteMeterId, setPendingDeleteMeterId] = useState<number | null>(null);
   const [safetyEntry, setSafetyEntry] = useState<RecallCacheEntry | null>(null);
   const [safetyLoading, setSafetyLoading] = useState(false);
   const [safetyError, setSafetyError] = useState<string | null>(null);
@@ -197,14 +199,8 @@ export default function AssetDetail() {
     },
     onError: (e) => toast({ title: "Delete failed", description: String(e), variant: "destructive" }),
   });
-  const onDeleteServiceEvent = (id: number) => {
-    if (!window.confirm("Delete this service entry? Related line items will be removed and consumed stock will be restored.")) return;
-    deleteService.mutate(id);
-  };
-  const onDeleteMeterReading = (id: number) => {
-    if (!window.confirm("Delete this meter reading? The asset's current meter will be recalculated from remaining readings.")) return;
-    deleteMeterReading.mutate(id);
-  };
+  const onDeleteServiceEvent = (id: number) => setPendingDeleteServiceId(id);
+  const onDeleteMeterReading = (id: number) => setPendingDeleteMeterId(id);
 
   if (!assetId) return null;
   const asset = assetQ.data;
@@ -407,12 +403,12 @@ export default function AssetDetail() {
                 {canEdit ? (
                   <Link href={`/assets/${asset.id}/edit`}>
                     <Button variant="ghost" size="sm" data-testid="button-edit-asset" aria-label="Edit asset">
-                      <Edit className="size-4" />
+                      <Pencil className="size-4" />
                     </Button>
                   </Link>
                 ) : (
                   <Button variant="ghost" size="sm" disabled data-testid="button-edit-asset" aria-label="Edit asset">
-                    <Edit className="size-4" />
+                    <Pencil className="size-4" />
                   </Button>
                 )}
               </div>
@@ -550,10 +546,10 @@ export default function AssetDetail() {
                         <Badge variant="outline" className={`text-[10px] tracking-wide ${statusClass(ev.status)}`}>{statusLabel(ev.status)}</Badge>
                         {canEdit ? (
                           <Link href={schedule.scope === "fleet" ? `/maintenance/schedules/${schedule.id}/edit` : `/assets/${assetId}/schedules/${schedule.id}/edit`}>
-                            <Button variant="ghost" size="icon" className="size-10 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
+                            <Button variant="ghost" size="icon" className="size-10 hover:bg-[hsl(var(--primary)/0.08)] hover:text-[hsl(var(--primary))]" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Pencil className="size-4" /></Button>
                           </Link>
                         ) : (
-                          <Button variant="ghost" disabled size="icon" className="size-10" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Edit className="size-4" /></Button>
+                          <Button variant="ghost" disabled size="icon" className="size-10" data-testid={`button-edit-schedule-${schedule.id}`} aria-label="Edit schedule"><Pencil className="size-4" /></Button>
                         )}
                         <Button variant="ghost" disabled={!canEdit} size="icon" className="size-10 hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]" onClick={() => setPendingDeleteScheduleId(schedule.id)} data-testid={`button-delete-schedule-${schedule.id}`} aria-label="Delete schedule">
                           <Trash2 className="size-4" />
@@ -667,7 +663,7 @@ export default function AssetDetail() {
                                     aria-label="Edit service entry"
                                     title="Edit service entry"
                                   >
-                                    <Edit className="size-4" />
+                                    <Pencil className="size-4" />
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -774,7 +770,7 @@ export default function AssetDetail() {
                               aria-label="Edit meter reading"
                               title="Edit meter reading"
                             >
-                              <Edit className="size-4" />
+                              <Pencil className="size-4" />
                             </Button>
                             <Button
                               variant="ghost"
@@ -936,6 +932,56 @@ export default function AssetDetail() {
               data-testid="button-confirm-delete-schedule"
             >
               {pendingDeleteSchedule?.scope === "fleet" ? "Remove" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingDeleteServiceId != null} onOpenChange={open => { if (!open) setPendingDeleteServiceId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this service entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Related line items will be removed and consumed stock will be restored. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-service">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDeleteServiceId == null) return;
+                deleteService.mutate(pendingDeleteServiceId);
+                setPendingDeleteServiceId(null);
+              }}
+              data-testid="button-confirm-delete-service"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingDeleteMeterId != null} onOpenChange={open => { if (!open) setPendingDeleteMeterId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this meter reading?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The asset's current meter will be recalculated from remaining readings. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-meter">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDeleteMeterId == null) return;
+                deleteMeterReading.mutate(pendingDeleteMeterId);
+                setPendingDeleteMeterId(null);
+              }}
+              data-testid="button-confirm-delete-meter"
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

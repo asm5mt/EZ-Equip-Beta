@@ -320,6 +320,9 @@ function ItemRow({ item, categoryFields, fleetCurrency, canEdit, isLow, needsReo
   );
 }
 
+type DraftInventoryCategory = InventoryCategory & { isNew?: boolean };
+type DraftInventoryCategoryField = InventoryCategoryField & { isNew?: boolean };
+
 function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fleetId, canAdmin }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -338,8 +341,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState("text");
 
-  const [draftCategories, setDraftCategories] = useState<InventoryCategory[]>(categories);
-  const [draftFields, setDraftFields] = useState<InventoryCategoryField[]>(fields);
+  const [draftCategories, setDraftCategories] = useState<DraftInventoryCategory[]>(categories);
+  const [draftFields, setDraftFields] = useState<DraftInventoryCategoryField[]>(fields);
 
   useEffect(() => {
     setDraftCategories(categories);
@@ -350,23 +353,21 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
 
   const onError = (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" });
 
-  const createCategory = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/inventory-categories", {
-      fleetId,
+  const addDraftCategory = () => {
+    setDraftCategories(cats => [...cats, {
+      id: -Date.now(),
+      fleetId: fleetId ?? 0,
       name: categoryName.trim(),
       description: categoryDescription.trim() || null,
       active: true,
-      sortOrder: categories.length,
+      sortOrder: draftCategories.length,
       color: categoryColor,
       icon: normalizeInventoryIcon(categoryIcon),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
-      setCategoryName(""); setCategoryDescription(""); setCategoryColor("#64748b"); setCategoryIcon("package");
-      setAddCategoryOpen(false);
-    },
-    onError,
-  });
+      isNew: true,
+    }]);
+    setCategoryName(""); setCategoryDescription(""); setCategoryColor("#64748b"); setCategoryIcon("package");
+    setAddCategoryOpen(false);
+  };
 
   const deleteCategory = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/inventory-categories/${id}`),
@@ -377,28 +378,43 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
     onError,
   });
 
-  const createField = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/inventory-category-fields", {
-      categoryId: fieldDialogCategoryId,
+  const removeDraftCategory = (category: DraftInventoryCategory) => {
+    if (category.isNew) {
+      setDraftCategories(cats => cats.filter(c => c.id !== category.id));
+      setDraftFields(flds => flds.filter(f => f.categoryId !== category.id));
+    } else {
+      deleteCategory.mutate(category.id);
+    }
+  };
+
+  const addDraftField = () => {
+    setDraftFields(flds => [...flds, {
+      id: -Date.now(),
+      categoryId: fieldDialogCategoryId!,
       name: fieldName.trim(),
       fieldType,
       required: false,
-      sortOrder: fields.filter(f => f.categoryId === fieldDialogCategoryId).length,
+      sortOrder: draftFields.filter(f => f.categoryId === fieldDialogCategoryId).length,
       highlightField: false,
       inTitle: false,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] });
-      setFieldName(""); setFieldType("text"); setFieldDialogCategoryId(null);
-    },
-    onError,
-  });
+      isNew: true,
+    }]);
+    setFieldName(""); setFieldType("text"); setFieldDialogCategoryId(null);
+  };
 
   const deleteField = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/inventory-category-fields/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/inventory-category-fields"] }),
     onError,
   });
+
+  const removeDraftField = (field: DraftInventoryCategoryField) => {
+    if (field.isNew) {
+      setDraftFields(flds => flds.filter(f => f.id !== field.id));
+    } else {
+      deleteField.mutate(field.id);
+    }
+  };
 
   const moveCategory = (index: number, direction: -1 | 1) => {
     const targetIndex = index + direction;
@@ -443,6 +459,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   };
 
   const hasChanges = draftCategories.some(dc => {
+    if (dc.isNew) return true;
     const original = categories.find(c => c.id === dc.id);
     return !original
       || dc.name !== original.name
@@ -451,6 +468,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
       || normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon)
       || dc.sortOrder !== original.sortOrder;
   }) || draftFields.some(df => {
+    if (df.isNew) return true;
     const original = fields.find(f => f.id === df.id);
     return !original
       || df.name !== original.name
@@ -460,11 +478,32 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
       || df.highlightField !== original.highlightField
       || df.sortOrder !== original.sortOrder;
   });
+  const canSaveTypes = hasChanges
+    && draftCategories.every(dc => dc.name.trim().length > 0)
+    && draftFields.every(df => df.name.trim().length > 0);
 
   const saveTypes = useMutation({
     mutationFn: async () => {
-      const work: Promise<unknown>[] = [];
+      // Sequential, not Promise.all: new fields may reference a brand-new
+      // (unsaved) category by its temporary negative id, so every new
+      // category must be created and its real id resolved before any field
+      // POSTs fire.
+      const categoryIdMap = new Map<number, number>();
       for (const dc of draftCategories) {
+        if (dc.isNew) {
+          const res = await apiRequest("POST", "/api/inventory-categories", {
+            fleetId,
+            name: dc.name.trim(),
+            description: (dc.description ?? "").trim() || null,
+            active: true,
+            sortOrder: dc.sortOrder,
+            color: dc.color,
+            icon: normalizeInventoryIcon(dc.icon),
+          });
+          const created = await res.json();
+          categoryIdMap.set(dc.id, created.id);
+          continue;
+        }
         const original = categories.find(c => c.id === dc.id);
         if (!original) continue;
         const patch: Partial<InventoryCategory> = {};
@@ -473,9 +512,22 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
         if (dc.color !== original.color) patch.color = dc.color;
         if (normalizeInventoryIcon(dc.icon) !== normalizeInventoryIcon(original.icon)) patch.icon = normalizeInventoryIcon(dc.icon);
         if (dc.sortOrder !== original.sortOrder) patch.sortOrder = dc.sortOrder;
-        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-categories/${dc.id}`, patch));
+        if (Object.keys(patch).length) await apiRequest("PATCH", `/api/inventory-categories/${dc.id}`, patch);
       }
       for (const df of draftFields) {
+        const resolvedCategoryId = categoryIdMap.get(df.categoryId) ?? df.categoryId;
+        if (df.isNew) {
+          await apiRequest("POST", "/api/inventory-category-fields", {
+            categoryId: resolvedCategoryId,
+            name: df.name.trim(),
+            fieldType: df.fieldType,
+            required: df.required,
+            sortOrder: df.sortOrder,
+            highlightField: df.highlightField,
+            inTitle: df.inTitle,
+          });
+          continue;
+        }
         const original = fields.find(f => f.id === df.id);
         if (!original) continue;
         const patch: Partial<InventoryCategoryField> = {};
@@ -485,9 +537,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
         if (df.inTitle !== original.inTitle) patch.inTitle = df.inTitle;
         if (df.highlightField !== original.highlightField) patch.highlightField = df.highlightField;
         if (df.sortOrder !== original.sortOrder) patch.sortOrder = df.sortOrder;
-        if (Object.keys(patch).length) work.push(apiRequest("PATCH", `/api/inventory-category-fields/${df.id}`, patch));
+        if (Object.keys(patch).length) await apiRequest("PATCH", `/api/inventory-category-fields/${df.id}`, patch);
       }
-      await Promise.all(work);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-categories"] });
@@ -518,7 +569,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   };
   const { confirmOrRun: confirmAddCategoryClose, dialog: addCategoryUnsavedDialog } = useUnsavedChangeGuard({
     hasChanges: addCategoryHasChanges,
-    onSave: () => createCategory.mutate(),
+    onSave: addDraftCategory,
   });
   const handleAddCategoryOpenChange = (next: boolean) => {
     if (!next) confirmAddCategoryClose(() => { resetAddCategoryDraft(); setAddCategoryOpen(false); });
@@ -531,7 +582,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
   };
   const { confirmOrRun: confirmAddFieldClose, dialog: addFieldUnsavedDialog } = useUnsavedChangeGuard({
     hasChanges: addFieldHasChanges,
-    onSave: () => createField.mutate(),
+    onSave: addDraftField,
   });
   const handleAddFieldOpenChange = (next: boolean) => {
     if (!next) confirmAddFieldClose(() => { resetAddFieldDraft(); setFieldDialogCategoryId(null); });
@@ -547,7 +598,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
           <DialogHeaderActions
             onCancel={() => handleOpenChange(false)}
             onSave={() => saveTypes.mutate()}
-            canSave={hasChanges}
+            canSave={canSaveTypes}
             isSaving={saveTypes.isPending}
             hasChanges={hasChanges}
           />
@@ -572,9 +623,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                   <DialogTitle>Add Inventory Type</DialogTitle>
                   <DialogHeaderActions
                     onCancel={() => handleAddCategoryOpenChange(false)}
-                    onSave={() => createCategory.mutate()}
+                    onSave={addDraftCategory}
                     canSave={!!canAdmin && !!fleetId && !!categoryName.trim()}
-                    isSaving={createCategory.isPending}
                     hasChanges={addCategoryHasChanges}
                   />
                 </DialogHeader>
@@ -653,7 +703,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                     <Button variant="secondary" size="sm" disabled={!canAdmin} onClick={() => setFieldDialogCategoryId(category.id)} data-testid={`button-open-add-inventory-field-${category.id}`}>
                       <Plus className="size-4 mr-1.5" /> Add Field
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin} onClick={() => deleteCategory.mutate(category.id)} data-testid={`button-delete-inventory-category-${category.id}`}>
+                    <Button variant="ghost" size="icon" className="h-9 w-9" disabled={!canAdmin} onClick={() => removeDraftCategory(category)} data-testid={`button-delete-inventory-category-${category.id}`}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
@@ -733,7 +783,7 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
                               Key spec — shown as a highlight badge on this category's items. Only one field per category can be the key spec.
                             </TooltipContent>
                           </Tooltip>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin} onClick={() => deleteField.mutate(field.id)} data-testid={`button-delete-inventory-field-${field.id}`}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canAdmin} onClick={() => removeDraftField(field)} data-testid={`button-delete-inventory-field-${field.id}`}>
                             <Trash2 className="size-4" />
                           </Button>
                         </div>
@@ -758,9 +808,8 @@ function ManageInventoryTypesDialog({ open, onOpenChange, categories, fields, fl
               <DialogTitle>Add Field</DialogTitle>
               <DialogHeaderActions
                 onCancel={() => handleAddFieldOpenChange(false)}
-                onSave={() => createField.mutate()}
+                onSave={addDraftField}
                 canSave={!!canAdmin && !!fieldName.trim()}
-                isSaving={createField.isPending}
                 hasChanges={addFieldHasChanges}
               />
             </DialogHeader>
