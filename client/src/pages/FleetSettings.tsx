@@ -29,7 +29,7 @@ import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { COUNTRIES, countryName } from "@shared/countries";
 import { getCountryAddressConfig } from "@/lib/address-format";
 import {
-  PHONE_COUNTRIES, PHONE_COUNTRIES_BY_CALLING_CODE, callingCodeLabel, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
+  PHONE_COUNTRIES, PHONE_COUNTRIES_BY_CALLING_CODE, callingCodeLabel, examplePhoneForDisplay, formatPhoneAsYouType, formatPhoneForDisplay, phoneCountryFromE164, phoneToE164, normalizePhoneToE164,
 } from "@/lib/phone";
 import type { CountryCode } from "libphonenumber-js";
 import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
@@ -472,11 +472,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Label>Default Country Code</Label>
-                    <HelpTooltip content="Pre-fills the address country for new Service Facilities, and the phone country too if no Default Calling Code is set below." testId={`tooltip-fleet-default-country-${fleet.id}`} />
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Label>Country</Label>
+                  <HelpTooltip content="Default country for new Service Facility addresses, and for their phone numbers too if no Calling Code default is set below." testId={`tooltip-fleet-default-country-${fleet.id}`} />
                 </div>
                 <SearchableColumnSelect
                   items={COUNTRIES}
@@ -494,11 +492,9 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4 items-start">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Label>Default Calling Code</Label>
-                    <HelpTooltip content="Pre-fills the phone country selector for new Service Facilities. Falls back to Default Country Code above when not set." testId={`tooltip-fleet-default-calling-code-${fleet.id}`} />
-                  </div>
+                <div className="flex items-center gap-2">
+                  <Label>Calling Code</Label>
+                  <HelpTooltip content="Default calling code for new Service Facility phone numbers. Falls back to the Country default above when not set." testId={`tooltip-fleet-default-calling-code-${fleet.id}`} />
                 </div>
                 <div className="space-y-1.5">
                   <SearchableColumnSelect
@@ -514,23 +510,19 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                       const found = PHONE_COUNTRIES_BY_CALLING_CODE.find(c => c.code === draftDefaultCallingCode);
                       return found ? callingCodeLabel(found) : "";
                     })()}
-                    placeholder="Same as Default Country Code"
+                    placeholder="Search calling code…"
                     disabled={!canAdmin || saveSettings.isPending}
                     data-testid="select-fleet-default-calling-code"
                   />
-                  {draftDefaultCallingCode && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto p-0 text-xs text-muted-foreground"
-                      onClick={() => setDraftDefaultCallingCode("")}
-                      disabled={!canAdmin || saveSettings.isPending}
-                      data-testid="button-clear-fleet-default-calling-code"
-                    >
-                      Clear (use Default Country Code)
-                    </Button>
-                  )}
+                  {(() => {
+                    const previewCountry = (draftDefaultCallingCode || draftDefaultCountryCode) as CountryCode;
+                    const example = examplePhoneForDisplay(previewCountry);
+                    return example ? (
+                      <p className="text-xs text-muted-foreground" data-testid="text-fleet-default-calling-code-example">
+                        Example: {example}
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             </Card>

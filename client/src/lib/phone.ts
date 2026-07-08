@@ -2,10 +2,12 @@ import {
   AsYouType,
   getCountries,
   getCountryCallingCode,
+  getExampleNumber,
   isValidPhoneNumber,
   parsePhoneNumberFromString,
   type CountryCode,
 } from "libphonenumber-js";
+import examplePhoneNumbers from "libphonenumber-js/examples.mobile.json";
 import { countryName } from "@shared/countries";
 
 export interface PhoneCountryOption {
@@ -68,4 +70,9 @@ export function phoneToE164(nationalInput: string, country: CountryCode): string
 export function isPhoneValid(nationalInput: string, country: CountryCode): boolean {
   if (!nationalInput.trim()) return true;
   return isValidPhoneNumber(nationalInput, country);
+}
+
+/** A sample formatted number for the given country, e.g. "(201) 555-0123", from libphonenumber-js's own example-number data. */
+export function examplePhoneForDisplay(country: CountryCode): string {
+  return getExampleNumber(country, examplePhoneNumbers)?.formatNational() ?? "";
 }

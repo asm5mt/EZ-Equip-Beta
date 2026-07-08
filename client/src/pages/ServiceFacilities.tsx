@@ -895,13 +895,31 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
       <DialogContent hideCloseButton className="max-w-lg">
         <DialogHeader className="flex-row items-center justify-between space-y-0">
           <DialogTitle>Manage Facility Types</DialogTitle>
-          <DialogHeaderActions
-            onCancel={() => handleOpenChange(false)}
-            onSave={() => saveTypes.mutate()}
-            canSave={!!canAdmin && canSaveTypes}
-            isSaving={saveTypes.isPending}
-            hasChanges={hasChanges}
-          />
+          <div className="flex shrink-0 items-center gap-2.5">
+            {canAdmin && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-7"
+                  onClick={addDraftType}
+                  aria-label="Add facility type"
+                  data-testid="button-add-facility-type"
+                >
+                  <Plus className="size-4" />
+                </Button>
+                <div className="h-5 w-px bg-border" aria-hidden="true" />
+              </>
+            )}
+            <DialogHeaderActions
+              onCancel={() => handleOpenChange(false)}
+              onSave={() => saveTypes.mutate()}
+              canSave={!!canAdmin && canSaveTypes}
+              isSaving={saveTypes.isPending}
+              hasChanges={hasChanges}
+            />
+          </div>
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid gap-2">
@@ -929,11 +947,6 @@ function ManageFacilityTypesDialog({ open, onOpenChange, types, canAdmin }: {
               </div>
             ))}
           </div>
-          {canAdmin && (
-            <Button size="sm" variant="outline" onClick={addDraftType} data-testid="button-add-facility-type">
-              <Plus className="size-4 mr-1.5" /> Add Type
-            </Button>
-          )}
         </div>
         {unsavedDialog}
       </DialogContent>
