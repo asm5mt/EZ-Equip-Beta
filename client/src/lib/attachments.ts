@@ -4,6 +4,11 @@ export interface ViewableAttachment {
   dataUrl: string;
 }
 
+/** A file staged client-side, not yet uploaded — created before the parent record is saved. */
+export interface PendingAttachment extends ViewableAttachment {
+  size: number;
+}
+
 export function isImageAttachment(attachment: Pick<ViewableAttachment, "mimeType">): boolean {
   return attachment.mimeType.startsWith("image/");
 }

@@ -644,14 +644,19 @@ export default function AssetDetail() {
                           const fluids = eventLines.filter(l => /oil|fluid|atf|coolant/i.test(`${l.itemName} ${l.spec ?? ""}`)).map(l => `${l.itemName} (${formatNumber(l.quantity)} ${l.unit ?? ""})`);
                           const parts = eventLines.filter(l => !/oil|fluid|atf|coolant/i.test(l.itemName)).map(l => l.partNumber ? `${l.itemName} ${l.partNumber}` : l.itemName);
                           return (
-                            <tr key={e.id} data-testid={`history-event-${e.id}`}>
+                            <tr
+                              key={e.id}
+                              data-testid={`history-event-${e.id}`}
+                              className="cursor-pointer hover:bg-muted/40"
+                              onClick={() => navigate(`/events/${e.id}/view`)}
+                            >
                               <td className="num whitespace-nowrap">{formatDate(e.performedAt)}</td>
                               <td className="num whitespace-nowrap">{formatNumber(e.meterAtService)} {meterUnitLabel(asset!.meterType, asset?.meterLabel)}</td>
                               <td className="font-medium">{e.title}</td>
                               <td>{fluids.join(", ") || "—"}</td>
                               <td>{parts.join(", ") || "—"}</td>
                               <td className="max-w-xs">{e.notes ?? "—"}</td>
-                              <td>
+                              <td onClick={ev => ev.stopPropagation()}>
                                 <div className="flex items-center gap-1 justify-end">
                                   <Button
                                     variant="ghost"

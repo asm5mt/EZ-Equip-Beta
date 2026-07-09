@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, Save, X, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, X, AlertTriangle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -83,6 +83,8 @@ export function EditablePageActions({
   label,
   description,
   children,
+  readOnly,
+  readOnlyAction,
 }: {
   hasChanges: boolean;
   isSaving?: boolean;
@@ -100,6 +102,10 @@ export function EditablePageActions({
   description?: string;
   /** Extra content rendered inline next to the Back button, e.g. a page-identity pill. */
   children?: ReactNode;
+  /** True for a read-only view mode: hides the Cancel/Save pair entirely (nothing can be saved), regardless of readOnlyAction. */
+  readOnly?: boolean;
+  /** When set (and readOnly is true), renders a single action button (e.g. "Edit") for switching into edit mode. */
+  readOnlyAction?: { label: string; onClick: () => void; testId?: string };
 }) {
   const { confirmOrRun, dialog } = useUnsavedChangeGuard({ hasChanges, onSave });
 
@@ -136,24 +142,38 @@ export function EditablePageActions({
               {label ?? "Unsaved changes"}
             </div>
           )}
-          <Button
-            type="button"
-            variant="cancel"
-            onClick={() => confirmOrRun(onCancel)}
-            disabled={isSaving}
-            data-testid="button-cancel"
-          >
-            <X className="size-4 mr-1.5" /> Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="success"
-            onClick={onSave}
-            disabled={!canSave || isSaving}
-            data-testid="button-save"
-          >
-            <Save className="size-4 mr-1.5" /> {isSaving ? savePendingLabel : saveLabel}
-          </Button>
+          {readOnly ? (
+            readOnlyAction && (
+              <Button
+                type="button"
+                onClick={readOnlyAction.onClick}
+                data-testid={readOnlyAction.testId ?? "button-enter-edit-mode"}
+              >
+                <Pencil className="size-4 mr-1.5" /> {readOnlyAction.label}
+              </Button>
+            )
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="cancel"
+                onClick={() => confirmOrRun(onCancel)}
+                disabled={isSaving}
+                data-testid="button-cancel"
+              >
+                <X className="size-4 mr-1.5" /> Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="success"
+                onClick={onSave}
+                disabled={!canSave || isSaving}
+                data-testid="button-save"
+              >
+                <Save className="size-4 mr-1.5" /> {isSaving ? savePendingLabel : saveLabel}
+              </Button>
+            </>
+          )}
         </div>
       </div>
       {dialog}

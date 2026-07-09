@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
@@ -241,11 +241,16 @@ function ItemRow({ item, categoryFields, fleetCurrency, canEdit, isLow, needsReo
   needsReorder: boolean;
   onDelete: () => void;
 }) {
+  const [, navigate] = useLocation();
   const title = inventoryItemTitle(item, categoryFields);
   const highlightBadge = inventoryItemHighlightBadge(item, categoryFields);
 
   return (
-    <div className="p-3 rounded-md border border-border" data-testid={`card-inventory-${item.id}`}>
+    <div
+      className="p-3 rounded-md border border-border cursor-pointer hover:bg-muted/40"
+      onClick={() => navigate(`/inventory/${item.id}/view`)}
+      data-testid={`card-inventory-${item.id}`}
+    >
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0 flex items-start gap-2">
           {(isLow || needsReorder) && (
@@ -280,7 +285,7 @@ function ItemRow({ item, categoryFields, fleetCurrency, canEdit, isLow, needsReo
             {item.costTracking && item.unitCost != null && <> &bull; {formatCurrency(item.unitCost, fleetCurrency)}</>}
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
           {canEdit ? (
             <Link href={`/inventory/${item.id}/add-stock`}>
               <Button size="sm" variant="secondary" data-testid={`button-restock-inventory-${item.id}`}>

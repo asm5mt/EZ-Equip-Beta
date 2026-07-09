@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { EditablePageActions } from "@/components/EditablePageActions";
-import { Plus, Trash2, Paperclip, FileText, Image as ImageIcon, Eye, ChevronsUpDown, Pencil, Save as SaveIcon, Copy } from "lucide-react";
+import { Trash2, ChevronsUpDown, Pencil, Save as SaveIcon, Copy, Plus } from "lucide-react";
 import { z } from "zod";
 import type { Asset, InventoryCategory, InventoryCategoryField, MaintenanceSchedule, InventoryItem, ServiceEvent, ServiceFacility, ServiceLineItem } from "@shared/schema";
 import { scheduleIntervalSummary, formatCurrency } from "@/lib/format";
@@ -31,9 +31,8 @@ import { tintedBadgeStyle } from "@/lib/badges";
 import { schedulesApplicableToAsset } from "@/lib/schedule";
 import { mapsUrlFor } from "@/lib/maps";
 import { composeAddress } from "@shared/address";
-import { ALLOWED_ATTACHMENT_MIME_TYPES } from "@shared/schema";
-import { downloadAttachment, isImageAttachment, type ViewableAttachment } from "@/lib/attachments";
-import { AttachmentImageDialog } from "@/components/AttachmentImageDialog";
+import type { PendingAttachment } from "@/lib/attachments";
+import { AttachmentsSection } from "@/components/AttachmentsSection";
 
 const NON_INVENTORY_CATEGORY = "__non_inventory__";
 const UNSCHEDULED_SERVICE = "__unscheduled_service__";
@@ -68,26 +67,24 @@ const formSchema = z.object({
   lineItems: z.array(lineSchema).default([]),
 });
 type FormValues = z.infer<typeof formSchema>;
-type PendingAttachment = {
-  fileName: string;
-  mimeType: string;
-  size: number;
-  dataUrl: string;
-};
 
 export default function ServiceForm() {
   const [, params] = useRoute("/assets/:assetId/services/new");
   const [, editParams] = useRoute("/events/:id/edit");
+  const [, viewParams] = useRoute("/events/:id/view");
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { fleet, canEdit } = useAppContext();
   const editEventId = editParams ? Number(editParams.id) : 0;
+  const viewEventId = viewParams ? Number(viewParams.id) : 0;
+  const eventId = editEventId || viewEventId;
+  const formMode: "new" | "edit" | "view" = editEventId ? "edit" : viewEventId ? "view" : "new";
+  const readOnly = formMode === "view";
   const fleetCurrency = fleet?.currency ?? "USD";
   const costLabel = `Total Cost (${fleetCurrency} ${currencySymbol(fleetCurrency)})`;
-  const eventQ = useQuery<ServiceEvent>({ queryKey: ["/api/service-events", editEventId], enabled: !!editEventId });
+  const eventQ = useQuery<ServiceEvent>({ queryKey: ["/api/service-events", eventId], enabled: !!eventId });
   const assetId = params ? Number(params.assetId) : (eventQ.data?.assetId ?? 0);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [viewingImage, setViewingImage] = useState<ViewableAttachment | null>(null);
   const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
   const [scheduleSearch, setScheduleSearch] = useState("");
   const [facilityPickerOpen, setFacilityPickerOpen] = useState(false);
@@ -110,8 +107,8 @@ export default function ServiceForm() {
     queryKey: ["/api/inventory-category-fields", { fleetId: fleet?.id }], enabled: !!fleet,
   });
   const existingLinesQ = useQuery<ServiceLineItem[]>({
-    queryKey: ["/api/service-line-items", { serviceEventId: editEventId }],
-    enabled: !!editEventId,
+    queryKey: ["/api/service-line-items", { serviceEventId: eventId }],
+    enabled: !!eventId,
   });
 
   const form = useForm<FormValues>({
@@ -151,7 +148,7 @@ export default function ServiceForm() {
   const linesInitializedRef = useRef(false);
   useEffect(() => {
     if (linesInitializedRef.current) return;
-    if (!existingLinesQ.data?.length || !editEventId) return;
+    if (!existingLinesQ.data?.length || !eventId) return;
     if (inventoryQ.isLoading) return; // wait so we can resolve each line's category from its inventory item
     linesInitializedRef.current = true;
     const items = inventoryQ.data ?? [];
@@ -172,7 +169,7 @@ export default function ServiceForm() {
         locked: true,
       } as any;
     }));
-  }, [existingLinesQ.data, editEventId, inventoryQ.data, inventoryQ.isLoading]);
+  }, [existingLinesQ.data, eventId, inventoryQ.data, inventoryQ.isLoading]);
 
   const lineItems = form.watch("lineItems");
   const setLines = (next: typeof lineItems) => form.setValue("lineItems", next, { shouldDirty: true });
@@ -217,6 +214,18 @@ export default function ServiceForm() {
           unitCost: line.unitCost,
           notes: line.notes || null,
         })));
+        for (const attachment of attachments) {
+          await apiRequest("POST", "/api/attachments", {
+            entityType: "service-event",
+            entityId: editEventId,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            size: attachment.size,
+            dataUrl: attachment.dataUrl,
+            notes: null,
+            createdAt: new Date().toISOString(),
+          });
+        }
         return event;
       }
       const eventRes = await apiRequest("POST", "/api/service-events", eventPayload);
@@ -256,6 +265,7 @@ export default function ServiceForm() {
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-movements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attachments"] });
       toast({ title: "Service event recorded" });
       navigate(`/assets/${assetId}`);
     },
@@ -330,47 +340,23 @@ export default function ServiceForm() {
     await navigator.clipboard?.writeText(address);
     toast({ title: "Address copied" });
   };
-  const addAttachments = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const allFiles = Array.from(files);
-    const allowed = allFiles.filter(f => (ALLOWED_ATTACHMENT_MIME_TYPES as readonly string[]).includes(f.type));
-    if (allowed.length < allFiles.length) {
-      toast({
-        title: "Some files were skipped",
-        description: "Only images (JPEG/PNG/GIF/WebP) and PDF files can be attached.",
-        variant: "destructive",
-      });
-    }
-    if (!allowed.length) return;
-    const next = await Promise.all(allowed.map(file => new Promise<PendingAttachment>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({
-        fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
-        dataUrl: String(reader.result),
-      });
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    })));
-    setAttachments(current => [...current, ...next]);
-  };
 
-  const workOrderFunction = editEventId ? "EDIT WORK ORDER" : "NEW WORK ORDER";
-  const workOrderIdentity = editEventId ? `Work Order #${editEventId}` : "New Work Order";
-  const formMode = editEventId ? "edit" : "new";
+  const workOrderFunction = formMode === "edit" ? "EDIT WORK ORDER" : formMode === "view" ? "VIEW WORK ORDER" : "NEW WORK ORDER";
+  const workOrderIdentity = eventId ? `Work Order #${eventId}` : "New Work Order";
 
   return (
     <AppShell title={assetQ.data?.friendlyName ?? "Asset"} subtitle={workOrderFunction}>
       <div className="space-y-5">
         <EditablePageActions
-          hasChanges={form.formState.isDirty || attachments.length > 0}
+          hasChanges={!readOnly && (form.formState.isDirty || attachments.length > 0)}
           isSaving={save.isPending}
           canSave={canEdit}
           onBack={goBack}
           onCancel={goBack}
           onSave={form.handleSubmit(submit)}
           description={formMode === "edit" ? "You're editing this work order" : undefined}
+          readOnly={readOnly}
+          readOnlyAction={canEdit ? { label: "Edit", onClick: () => navigate(`/events/${eventId}/edit`), testId: "button-edit-work-order" } : undefined}
         >
           <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground" data-testid="text-work-order-identity">
             {workOrderIdentity}
@@ -383,7 +369,7 @@ export default function ServiceForm() {
           <form onSubmit={form.handleSubmit(submit)}>
             <Card className="p-5 space-y-5">
 
-              {!canEdit && (
+              {!canEdit && !readOnly && (
                 <div className="rounded-md border border-[hsl(var(--status-warn)/0.35)] bg-[hsl(var(--status-warn)/0.08)] p-3 text-sm">
                   Viewer access is read-only. Switch to an editor or admin user to save service entries.
                 </div>
@@ -394,7 +380,7 @@ export default function ServiceForm() {
                   <Label>Service Schedule</Label>
                   <Popover open={schedulePickerOpen} onOpenChange={open => { setSchedulePickerOpen(open); if (!open) setScheduleSearch(""); }}>
                     <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" role="combobox" aria-expanded={schedulePickerOpen} className="w-full justify-between font-normal" data-testid="select-schedule">
+                      <Button type="button" variant="outline" role="combobox" aria-expanded={schedulePickerOpen} className="w-full justify-between font-normal" disabled={readOnly} data-testid="select-schedule">
                         <span className="truncate">{selectedSchedule ? selectedSchedule.name : "Unscheduled Service"}</span>
                         <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
                       </Button>
@@ -426,30 +412,30 @@ export default function ServiceForm() {
                   </Popover>
                 </div>
                 <FormField name="title" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-4"><FormLabel>Service Title</FormLabel><FormControl><Input data-testid="input-title" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem className="xl:col-span-4"><FormLabel>Service Title</FormLabel><FormControl><Input data-testid="input-title" {...field} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                 )} />
                 {!scheduleId && (
                   <div className="xl:col-span-4">
                     <Label>Type</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      <Button type="button" variant={form.watch("eventType") === "repair" ? "default" : "outline"} onClick={() => form.setValue("eventType", "repair", { shouldDirty: true })} data-testid="button-event-type-repair">Repair</Button>
-                      <Button type="button" variant={form.watch("eventType") === "unscheduled" ? "default" : "outline"} onClick={() => form.setValue("eventType", "unscheduled", { shouldDirty: true })} data-testid="button-event-type-unscheduled">Unscheduled</Button>
+                      <Button type="button" variant={form.watch("eventType") === "repair" ? "default" : "outline"} onClick={() => form.setValue("eventType", "repair", { shouldDirty: true })} disabled={readOnly} data-testid="button-event-type-repair">Repair</Button>
+                      <Button type="button" variant={form.watch("eventType") === "unscheduled" ? "default" : "outline"} onClick={() => form.setValue("eventType", "unscheduled", { shouldDirty: true })} disabled={readOnly} data-testid="button-event-type-unscheduled">Unscheduled</Button>
                     </div>
                   </div>
                 )}
                 <FormField name="performedAt" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-2"><FormLabel>Performed At</FormLabel><FormControl><Input type="date" data-testid="input-performed-at" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem className="xl:col-span-2"><FormLabel>Performed At</FormLabel><FormControl><Input type="date" data-testid="input-performed-at" {...field} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField name="meterAtService" control={form.control} render={({ field }) => (
                   <FormItem className="xl:col-span-2"><FormLabel>Meter</FormLabel>
-                    <FormControl><Input type="number" step="any" data-testid="input-meter-at-service" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
+                    <FormControl><Input type="number" step="any" data-testid="input-meter-at-service" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                 )} />
 
                 <div className="xl:col-span-4">
                   <Label>Work Performed By</Label>
                   <Popover open={facilityPickerOpen} onOpenChange={open => { setFacilityPickerOpen(open); if (!open) setFacilitySearch(""); }}>
                     <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" role="combobox" aria-expanded={facilityPickerOpen} className="w-full justify-between font-normal" data-testid="select-work-facility">
+                      <Button type="button" variant="outline" role="combobox" aria-expanded={facilityPickerOpen} className="w-full justify-between font-normal" disabled={readOnly} data-testid="select-work-facility">
                         <span className="truncate">{serviceFacilityId ? (vendor || "Service Facility") : "In-House"}</span>
                         <ChevronsUpDown className="size-4 opacity-50 shrink-0 ml-2" />
                       </Button>
@@ -482,7 +468,7 @@ export default function ServiceForm() {
                 </div>
                 <FormField name="cost" control={form.control} render={({ field }) => (
                   <FormItem className="xl:col-span-2"><FormLabel>{costLabel}</FormLabel>
-                    <FormControl><Input type="number" step="any" data-testid="input-cost" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} /></FormControl><FormMessage /></FormItem>
+                    <FormControl><Input type="number" step="any" data-testid="input-cost" value={field.value ?? ""} onChange={e => field.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                 )} />
                 {serviceFacilityId ? (
                   <div className="xl:col-span-6 rounded-md border border-border p-3 space-y-1" data-testid="block-facility-address">
@@ -506,15 +492,15 @@ export default function ServiceForm() {
                 ) : (
                   <>
                     <FormField name="vendor" control={form.control} render={({ field }) => (
-                      <FormItem className="xl:col-span-3"><FormLabel>Vendor / Shop</FormLabel><FormControl><Input data-testid="input-vendor" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+                      <FormItem className="xl:col-span-3"><FormLabel>Vendor / Shop</FormLabel><FormControl><Input data-testid="input-vendor" {...field} value={field.value ?? ""} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                     )} />
                     <FormField name="technician" control={form.control} render={({ field }) => (
-                      <FormItem className="xl:col-span-3"><FormLabel>Technician / Contact</FormLabel><FormControl><Input data-testid="input-technician" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+                      <FormItem className="xl:col-span-3"><FormLabel>Technician / Contact</FormLabel><FormControl><Input data-testid="input-technician" {...field} value={field.value ?? ""} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </>
                 )}
                 <FormField name="notes" control={form.control} render={({ field }) => (
-                  <FormItem className="xl:col-span-12"><FormLabel>Notes</FormLabel><FormControl><Textarea rows={2} data-testid="textarea-service-notes" {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+                  <FormItem className="xl:col-span-12"><FormLabel>Notes</FormLabel><FormControl><Textarea rows={2} data-testid="textarea-service-notes" {...field} value={field.value ?? ""} disabled={readOnly} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
             </Card>
@@ -525,9 +511,11 @@ export default function ServiceForm() {
                   <h3 className="font-semibold">Line Items</h3>
                   <p className="text-sm text-muted-foreground mt-1">Choose an inventory category first, then select a stocked item in that category or capture a one-off line.</p>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => addLine()} data-testid="button-add-line">
-                  <Plus className="size-4 mr-1.5" /> Add Line
-                </Button>
+                {!readOnly && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => addLine()} data-testid="button-add-line">
+                    <Plus className="size-4 mr-1.5" /> Add Line
+                  </Button>
+                )}
               </div>
               {lineItems.length === 0 && <p className="text-sm text-muted-foreground">No line items added.</p>}
               <div className="space-y-3">
@@ -544,6 +532,7 @@ export default function ServiceForm() {
                       setLines(next);
                     }}
                     onRemove={() => removeLine(idx)}
+                    readOnly={readOnly}
                     idx={idx}
                     currency={fleetCurrency}
                   />
@@ -551,88 +540,30 @@ export default function ServiceForm() {
               </div>
             </Card>
 
-            <Card className="p-5 mt-5 space-y-4">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <h3 className="font-semibold">Attachments</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Attach images, PDFs, receipts, or documents to this work order.</p>
-                </div>
-                <Button type="button" variant="outline" size="sm" asChild data-testid="button-add-service-attachment">
-                  <label>
-                    <Paperclip className="size-4 mr-1.5" /> Add Files
-                    <input
-                      className="sr-only"
-                      type="file"
-                      multiple
-                      accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
-                      onChange={e => void addAttachments(e.target.files)}
-                      data-testid="input-service-attachments"
-                    />
-                  </label>
-                </Button>
-              </div>
-              {attachments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No attachments staged yet. Files added here are saved with the work order.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {attachments.map((attachment, idx) => (
-                    <AttachmentPreview
-                      key={`${attachment.fileName}-${idx}`}
-                      attachment={attachment}
-                      onView={() => setViewingImage(attachment)}
-                      onRemove={() => setAttachments(current => current.filter((_, i) => i !== idx))}
-                      idx={idx}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
+            <AttachmentsSection
+              entityType="service-event"
+              entityId={eventId || undefined}
+              readOnly={readOnly}
+              pendingAttachments={attachments}
+              onPendingAttachmentsChange={setAttachments}
+              description="Attach images, PDFs, receipts, or documents to this work order."
+              testId="service-attachment"
+            />
           </form>
         </Form>
       </div>
-      <AttachmentImageDialog attachment={viewingImage} onOpenChange={open => !open && setViewingImage(null)} />
     </AppShell>
   );
 }
 
-function AttachmentPreview({ attachment, onView, onRemove, idx }: {
-  attachment: PendingAttachment; onView: () => void; onRemove: () => void; idx: number;
-}) {
-  const isImage = isImageAttachment(attachment);
-  const isPdf = attachment.mimeType === "application/pdf";
-  return (
-    <div className="rounded-md border border-border p-3 flex items-center gap-3" data-testid={`card-service-attachment-${idx}`}>
-      <div className="size-12 rounded-md bg-muted flex items-center justify-center overflow-hidden shrink-0">
-        {isImage ? (
-          <img src={attachment.dataUrl} alt={attachment.fileName} className="h-full w-full object-cover" />
-        ) : isPdf ? (
-          <FileText className="size-5 text-muted-foreground" />
-        ) : (
-          <ImageIcon className="size-5 text-muted-foreground" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium truncate">{attachment.fileName}</div>
-        <div className="text-xs text-muted-foreground">{attachment.mimeType || "file"} · {(attachment.size / 1024).toFixed(1)} KB</div>
-      </div>
-      <Button type="button" variant="ghost" size="sm" onClick={() => isImage ? onView() : downloadAttachment(attachment)} data-testid={`button-view-attachment-${idx}`}>
-        <Eye className="size-4" />
-      </Button>
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} data-testid={`button-remove-attachment-${idx}`}>
-        <Trash2 className="size-4" />
-      </Button>
-    </div>
-  );
-}
-
-function LineItemRow({ line, inventory, categories: inventoryCategories, categoryFields, onChange, onRemove, idx, currency }: {
-  line: any; inventory: InventoryItem[]; categories: InventoryCategory[]; categoryFields: InventoryCategoryField[]; onChange: (l: any) => void; onRemove: () => void; idx: number; currency: string;
+function LineItemRow({ line, inventory, categories: inventoryCategories, categoryFields, onChange, onRemove, readOnly, idx, currency }: {
+  line: any; inventory: InventoryItem[]; categories: InventoryCategory[]; categoryFields: InventoryCategoryField[]; onChange: (l: any) => void; onRemove: () => void; readOnly?: boolean; idx: number; currency: string;
 }) {
   const [itemPickerOpen, setItemPickerOpen] = useState(false);
   const [itemSearch, setItemSearch] = useState("");
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState("");
-  const locked = !!line.locked;
+  const locked = readOnly || !!line.locked;
   const itemChosen = !!line.itemChosen;
   const isOneOff = itemChosen && line.inventoryItemId == null;
   const isInventoryItem = itemChosen && line.inventoryItemId != null;
@@ -736,14 +667,16 @@ function LineItemRow({ line, inventory, categories: inventoryCategories, categor
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button type="button" variant="outline" size="sm" onClick={() => onChange({ ...line, locked: false })} data-testid={`button-edit-line-${idx}`}>
-            <Pencil className="size-4 mr-1.5" /> Edit
-          </Button>
-          <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={onRemove} data-testid={`button-remove-line-${idx}`} aria-label="Delete line">
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-1 shrink-0">
+            <Button type="button" variant="outline" size="sm" onClick={() => onChange({ ...line, locked: false })} data-testid={`button-edit-line-${idx}`}>
+              <Pencil className="size-4 mr-1.5" /> Edit
+            </Button>
+            <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={onRemove} data-testid={`button-remove-line-${idx}`} aria-label="Delete line">
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

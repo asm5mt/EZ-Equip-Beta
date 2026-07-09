@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -18,10 +18,13 @@ import { useAppContext } from "@/lib/app-context";
 import { currencySymbol } from "@/lib/currencies";
 import { insertInventoryItemSchema, type InsertInventoryItem, type InventoryCategory, type InventoryCategoryField, type InventoryItem } from "@shared/schema";
 import { EditablePageActions } from "@/components/EditablePageActions";
+import { AttachmentsSection } from "@/components/AttachmentsSection";
+import type { PendingAttachment } from "@/lib/attachments";
 import { inventoryItemTitle } from "@/lib/inventory-display";
+import { modeBadgeClass, modeLabel } from "@/lib/mode-styles";
 
 interface Props {
-  mode: "new" | "edit";
+  mode: "new" | "edit" | "view";
   itemId?: number;
 }
 
@@ -34,10 +37,12 @@ export default function InventoryForm({ mode, itemId }: Props) {
   const [, navigate] = useLocation();
   const { fleet, canEdit } = useAppContext();
   const { toast } = useToast();
+  const readOnly = mode === "view";
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
 
   const itemQ = useQuery<InventoryItem>({
     queryKey: ["/api/inventory-items", itemId],
-    enabled: mode === "edit" && !!itemId,
+    enabled: mode !== "new" && !!itemId,
   });
   const categoriesQ = useQuery<InventoryCategory[]>({
     queryKey: ["/api/inventory-categories", { fleetId: fleet?.id }],
@@ -68,20 +73,38 @@ export default function InventoryForm({ mode, itemId }: Props) {
   });
 
   useEffect(() => {
-    if (mode === "edit" && itemQ.data) {
+    if (mode !== "new" && itemQ.data) {
       form.reset(itemQ.data as any);
     } else if (mode === "new" && fleet?.id) {
       form.setValue("fleetId", fleet.id);
     }
   }, [mode, itemQ.data, fleet?.id]);
 
+  const uploadPendingAttachments = async (entityId: number) => {
+    for (const attachment of pendingAttachments) {
+      await apiRequest("POST", "/api/attachments", {
+        entityType: "inventory-item",
+        entityId,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        dataUrl: attachment.dataUrl,
+        notes: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  };
+
   const createMut = useMutation({
     mutationFn: async (data: InsertInventoryItem) => {
       const res = await apiRequest("POST", "/api/inventory-items", data);
-      return res.json();
+      const item = await res.json();
+      await uploadPendingAttachments(item.id);
+      return item;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attachments"] });
       toast({ title: "Inventory item created" });
       navigate("/inventory");
     },
@@ -91,10 +114,13 @@ export default function InventoryForm({ mode, itemId }: Props) {
   const updateMut = useMutation({
     mutationFn: async (data: InsertInventoryItem) => {
       const res = await apiRequest("PATCH", `/api/inventory-items/${itemId}`, data);
-      return res.json();
+      const item = await res.json();
+      await uploadPendingAttachments(item.id);
+      return item;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attachments"] });
       toast({ title: "Inventory item updated" });
       navigate("/inventory");
     },
@@ -189,24 +215,32 @@ export default function InventoryForm({ mode, itemId }: Props) {
 
   const isPending = createMut.isPending || updateMut.isPending;
   const goBack = () => navigate("/inventory");
+  const pageTitle = mode === "new" ? "Add Inventory Item" : mode === "view" ? "View Inventory Item" : "Edit Inventory Item";
+  const pageSubtitle = mode === "new" ? "NEW INVENTORY ITEM" : mode === "view" ? "VIEW INVENTORY ITEM" : "EDIT INVENTORY ITEM";
 
   return (
-    <AppShell title={mode === "new" ? "Add Inventory Item" : "Edit Inventory Item"} subtitle={mode === "new" ? "NEW INVENTORY ITEM" : "EDIT INVENTORY ITEM"}>
+    <AppShell title={pageTitle} subtitle={pageSubtitle}>
       <div className="max-w-3xl space-y-5">
         <EditablePageActions
-          hasChanges={form.formState.isDirty}
+          hasChanges={!readOnly && (form.formState.isDirty || pendingAttachments.length > 0)}
           isSaving={isPending}
           canSave={canEdit}
           onBack={goBack}
           onCancel={goBack}
           onSave={form.handleSubmit(onSubmit)}
           saveLabel={mode === "new" ? "Save" : "Save Changes"}
-        />
+          readOnly={readOnly}
+          readOnlyAction={canEdit && itemId ? { label: "Edit", onClick: () => navigate(`/inventory/${itemId}/edit`), testId: "button-edit-inventory-item" } : undefined}
+        >
+          <div className={`rounded-md border px-3 py-2 text-xs font-semibold tracking-wide ${modeBadgeClass(mode)}`} data-testid="text-inventory-item-mode">
+            {modeLabel(mode)}
+          </div>
+        </EditablePageActions>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <Card className="p-5 space-y-4">
               <h3 className="font-semibold">Item</h3>
-              {!canEdit && (
+              {!canEdit && !readOnly && (
                 <div className="rounded-md border border-[hsl(var(--status-warn)/0.35)] bg-[hsl(var(--status-warn)/0.08)] p-3 text-sm">
                   Viewer access is read-only. Switch to an editor or admin user to save inventory changes.
                 </div>
@@ -219,6 +253,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                       {...field}
                       value={field.value ?? ""}
                       readOnly={selectedCategoryFields.length > 0}
+                      disabled={readOnly}
                       className={selectedCategoryFields.length > 0 ? "bg-muted/35" : undefined}
                       data-testid="input-inventory-name"
                       placeholder={selectedCategoryFields.length > 0 ? "Builds from category fields" : "Mobil 1 Extended Performance 5W-30"}
@@ -240,6 +275,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                       {...field}
                       value={field.value ?? ""}
                       onChange={e => field.onChange(e.target.value || null)}
+                      disabled={readOnly}
                       data-testid="input-inventory-display-name"
                       placeholder="Optional — overrides the title shown everywhere"
                     />
@@ -257,7 +293,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                     <Select value={field.value ?? ""} onValueChange={(value) => {
                       field.onChange(value);
                       form.setValue("customFields", null, { shouldDirty: true });
-                    }}>
+                    }} disabled={readOnly}>
                       <FormControl><SelectTrigger data-testid="select-inventory-category"><SelectValue placeholder="Choose category" /></SelectTrigger></FormControl>
                       <SelectContent>
                         {categoryOptions.map(category => <SelectItem key={category.id} value={category.name}>{category.name}</SelectItem>)}
@@ -270,7 +306,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                 <FormField name="unit" control={form.control} render={({ field }) => (
                   <FormItem>
                     <FormLabel>Unit</FormLabel>
-                    <Select value={field.value ?? "each"} onValueChange={field.onChange}>
+                    <Select value={field.value ?? "each"} onValueChange={field.onChange} disabled={readOnly}>
                       <FormControl><SelectTrigger data-testid="select-inventory-unit"><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
                         {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -300,7 +336,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                       <div key={field.id}>
                         <Label>{field.name}{field.required ? " *" : ""}</Label>
                         {field.fieldType === "boolean" ? (
-                          <Select value={customValues[field.id] ?? ""} onValueChange={value => setCustomValue(field.id, value)}>
+                          <Select value={customValues[field.id] ?? ""} onValueChange={value => setCustomValue(field.id, value)} disabled={readOnly}>
                             <SelectTrigger data-testid={`select-custom-field-${field.id}`}><SelectValue placeholder="Choose" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="yes">Yes</SelectItem>
@@ -313,6 +349,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                             step={field.fieldType === "number" || field.fieldType === "currency" ? "0.01" : undefined}
                             value={customValues[field.id] ?? ""}
                             onChange={e => setCustomValue(field.id, e.target.value)}
+                            disabled={readOnly}
                             data-testid={`input-custom-field-${field.id}`}
                           />
                         )}
@@ -324,7 +361,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
               <FormField name="notes" control={form.control} render={({ field }) => (
                 <FormItem>
                   <FormLabel>Notes</FormLabel>
-                  <FormControl><Textarea rows={3} {...field} value={field.value ?? ""} data-testid="textarea-inventory-notes" /></FormControl>
+                  <FormControl><Textarea rows={3} {...field} value={field.value ?? ""} disabled={readOnly} data-testid="textarea-inventory-notes" /></FormControl>
                 </FormItem>
               )} />
             </Card>
@@ -336,7 +373,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                   <FormItem>
                     <FormLabel>On Hand</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.01" {...field} value={field.value ?? 0} onChange={e => field.onChange(e.target.value === "" ? 0 : Number(e.target.value))} data-testid="input-inventory-on-hand" />
+                      <Input type="number" step="0.01" {...field} value={field.value ?? 0} onChange={e => field.onChange(e.target.value === "" ? 0 : Number(e.target.value))} disabled={readOnly} data-testid="input-inventory-on-hand" />
                     </FormControl>
                   </FormItem>
                 )} />
@@ -355,6 +392,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                           field.onChange(checked);
                           if (!checked) form.setValue("unitCost", null, { shouldDirty: true });
                         }}
+                        disabled={readOnly}
                         data-testid="switch-inventory-cost-tracking"
                       />
                     </FormControl>
@@ -364,7 +402,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                       <FormItem>
                         <FormLabel>{costLabel}</FormLabel>
                         <FormControl>
-                          <Input type="number" step="0.01" {...costField} value={costField.value ?? ""} onChange={e => costField.onChange(e.target.value === "" ? null : Number(e.target.value))} data-testid="input-inventory-unit-cost" />
+                          <Input type="number" step="0.01" {...costField} value={costField.value ?? ""} onChange={e => costField.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} data-testid="input-inventory-unit-cost" />
                         </FormControl>
                       </FormItem>
                     )} />
@@ -387,6 +425,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                           if (!checked) form.setValue("lowStockQuantity", null, { shouldDirty: true });
                           else if (form.getValues("lowStockQuantity") == null) form.setValue("lowStockQuantity", form.getValues("onHand") ?? 0, { shouldDirty: true });
                         }}
+                        disabled={readOnly}
                         data-testid="switch-inventory-low-stock-alert"
                       />
                     </FormControl>
@@ -396,7 +435,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                       <FormItem>
                         <FormLabel>Low Stock Quantity</FormLabel>
                         <FormControl>
-                          <Input type="number" step="0.01" {...qtyField} value={qtyField.value ?? ""} onChange={e => qtyField.onChange(e.target.value === "" ? null : Number(e.target.value))} data-testid="input-inventory-low-stock-quantity" />
+                          <Input type="number" step="0.01" {...qtyField} value={qtyField.value ?? ""} onChange={e => qtyField.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} data-testid="input-inventory-low-stock-quantity" />
                         </FormControl>
                       </FormItem>
                     )} />
@@ -423,6 +462,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                             if (form.getValues("reorderQuantity") == null) form.setValue("reorderQuantity", 1, { shouldDirty: true });
                           }
                         }}
+                        disabled={readOnly}
                         data-testid="switch-inventory-reorder-reminder"
                       />
                     </FormControl>
@@ -433,7 +473,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                         <FormItem>
                           <FormLabel>Reorder Alert Quantity</FormLabel>
                           <FormControl>
-                            <Input type="number" step="0.01" {...pointField} value={pointField.value ?? ""} onChange={e => pointField.onChange(e.target.value === "" ? null : Number(e.target.value))} data-testid="input-inventory-reorder-point" />
+                            <Input type="number" step="0.01" {...pointField} value={pointField.value ?? ""} onChange={e => pointField.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} data-testid="input-inventory-reorder-point" />
                           </FormControl>
                         </FormItem>
                       )} />
@@ -441,7 +481,7 @@ export default function InventoryForm({ mode, itemId }: Props) {
                         <FormItem>
                           <FormLabel>Reorder Quantity</FormLabel>
                           <FormControl>
-                            <Input type="number" step="0.01" {...qtyField} value={qtyField.value ?? ""} onChange={e => qtyField.onChange(e.target.value === "" ? null : Number(e.target.value))} data-testid="input-inventory-reorder-qty" />
+                            <Input type="number" step="0.01" {...qtyField} value={qtyField.value ?? ""} onChange={e => qtyField.onChange(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} data-testid="input-inventory-reorder-qty" />
                           </FormControl>
                         </FormItem>
                       )} />
@@ -451,6 +491,15 @@ export default function InventoryForm({ mode, itemId }: Props) {
               )} />
             </Card>
 
+            <AttachmentsSection
+              entityType="inventory-item"
+              entityId={mode === "new" ? undefined : itemId}
+              readOnly={readOnly}
+              pendingAttachments={pendingAttachments}
+              onPendingAttachmentsChange={setPendingAttachments}
+              description="Attach photos, spec sheets, or receipts for this item."
+              testId="inventory-attachment"
+            />
           </form>
         </Form>
       </div>

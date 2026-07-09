@@ -65,6 +65,7 @@ function AppRouter() {
       <Route path="/assets/:id/services/new">{(params) => <RequireEdit fallback={`/assets/${params.id}`}><ServiceForm /></RequireEdit>}</Route>
       <Route path="/assets/:id/service/new">{(params) => <RequireEdit fallback={`/assets/${params.id}`}><ServiceForm /></RequireEdit>}</Route>
       <Route path="/events/:id/edit">{() => <RequireEdit fallback="/"><ServiceForm /></RequireEdit>}</Route>
+      <Route path="/events/:id/view" component={ServiceForm} />
       <Route path="/assets/:id" component={AssetDetail} />
       <Route path="/meter-readings" component={MeterReadings} />
       <Route path="/events" component={Events} />
@@ -73,6 +74,7 @@ function AppRouter() {
       <Route path="/inventory/new">{() => <RequireEdit fallback="/inventory"><InventoryForm mode="new" /></RequireEdit>}</Route>
       <Route path="/inventory/:id/add-stock">{(params) => <RequireEdit fallback="/inventory"><InventoryStockForm itemId={Number(params.id)} /></RequireEdit>}</Route>
       <Route path="/inventory/:id/edit">{(params) => <RequireEdit fallback="/inventory"><InventoryForm mode="edit" itemId={Number(params.id)} /></RequireEdit>}</Route>
+      <Route path="/inventory/:id/view">{(params) => <InventoryForm mode="view" itemId={Number(params.id)} />}</Route>
       <Route path="/service-facilities" component={ServiceFacilities} />
       <Route path="/reports" component={Reports} />
       <Route path="/search" component={Search} />

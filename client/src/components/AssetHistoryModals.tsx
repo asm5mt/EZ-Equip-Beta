@@ -1069,7 +1069,12 @@ export function ServiceHistoryModal({
                 .filter((l) => !/oil|fluid|atf|coolant/i.test(l.itemName))
                 .map((l) => (l.partNumber ? `${l.itemName} ${l.partNumber}` : l.itemName));
               return (
-                <tr key={e.id} data-testid={`service-history-modal-row-${e.id}`}>
+                <tr
+                  key={e.id}
+                  data-testid={`service-history-modal-row-${e.id}`}
+                  className="cursor-pointer hover:bg-muted/40"
+                  onClick={() => navigate(`/events/${e.id}/view`)}
+                >
                   <td className="num whitespace-nowrap pl-3">{formatDate(e.performedAt)}</td>
                   <td className="num whitespace-nowrap">
                     {e.meterAtService != null ? `${formatNumber(e.meterAtService)} ${meterUnit}` : "—"}
@@ -1078,7 +1083,7 @@ export function ServiceHistoryModal({
                   <td>{fluids.join(", ") || "—"}</td>
                   <td>{parts.join(", ") || "—"}</td>
                   <td className="max-w-xs">{e.notes ?? "—"}</td>
-                  <td className="history-modal-actions-col">
+                  <td className="history-modal-actions-col" onClick={ev => ev.stopPropagation()}>
                     <RowActionButtons
                       canEdit={canEdit}
                       editTestId={`button-edit-service-${e.id}`}
