@@ -28,12 +28,13 @@ import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
-import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping } from "@shared/schema";
+import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping, AuditLog } from "@shared/schema";
+import { formatRelativeTime } from "@/lib/format";
 import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
   Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
-  Palette, Bug,
+  Palette, Bug, History, ChevronDown, ChevronRight, ChevronLeft,
 } from "lucide-react";
 import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 
@@ -44,12 +45,16 @@ export default function Settings() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const search = useSearch();
-  const activeTab = new URLSearchParams(search).get("tab") ?? "general";
+  const rawTab = new URLSearchParams(search).get("tab") ?? "general";
+  // The Audit Log tab reveals a system-wide activity feed — if a non-admin
+  // somehow lands on ?tab=audit (stale link, manual URL edit), fall back to
+  // General rather than rendering a trigger/content that doesn't exist.
+  const activeTab = rawTab === "audit" && !systemAdmin ? "general" : rawTab;
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
   const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
   // Shares a queryKey with AuthenticationSection's own system-settings query
   // (same admin-only endpoint), so react-query dedupes the fetch/cache.
-  const diagSettingsQ = useQuery<{ diagnosticsOverlayEnabled: boolean }>({
+  const diagSettingsQ = useQuery<{ diagnosticsOverlayEnabled: boolean; auditLogRetentionDays: number | null }>({
     queryKey: ["/api/system-settings"],
     enabled: systemAdmin,
   });
@@ -66,6 +71,7 @@ export default function Settings() {
       orgName: orgInfoQ.data?.orgName ?? "",
       orgLogoUrl: orgInfoQ.data?.orgLogoUrl ?? "",
       diagnosticsOverlayEnabled: diagSettingsQ.data?.diagnosticsOverlayEnabled ?? false,
+      auditLogRetentionDays: diagSettingsQ.data?.auditLogRetentionDays ?? null,
     };
   }, [settingsQ.data, orgInfoQ.data, diagSettingsQ.data]);
 
@@ -78,6 +84,8 @@ export default function Settings() {
   const [orgName, setOrgName] = useState("");
   const [orgLogoUrl, setOrgLogoUrl] = useState("");
   const [diagnosticsOverlayEnabled, setDiagnosticsOverlayEnabled] = useState(false);
+  // Raw text input — blank means "keep forever" (persisted as null).
+  const [auditLogRetentionDaysInput, setAuditLogRetentionDaysInput] = useState("");
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -94,11 +102,14 @@ export default function Settings() {
     setOrgName(persisted.orgName);
     setOrgLogoUrl(persisted.orgLogoUrl);
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
+    setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
   }, [persisted]);
+
+  const auditLogRetentionDays = auditLogRetentionDaysInput.trim() === "" ? null : Number(auditLogRetentionDaysInput);
 
   const draft = {
     themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl,
-    diagnosticsOverlayEnabled,
+    diagnosticsOverlayEnabled, auditLogRetentionDays,
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
@@ -118,7 +129,7 @@ export default function Settings() {
       await apiRequest("PATCH", "/api/system-settings", {
         orgName: orgName.trim(),
         orgLogoUrl: orgLogoUrl.trim(),
-        ...(systemAdmin ? { diagnosticsOverlayEnabled } : {}),
+        ...(systemAdmin ? { diagnosticsOverlayEnabled, auditLogRetentionDays } : {}),
       });
     },
     onSuccess: () => {
@@ -140,6 +151,7 @@ export default function Settings() {
     setOrgName(persisted.orgName);
     setOrgLogoUrl(persisted.orgLogoUrl);
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
+    setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
     window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
@@ -178,11 +190,12 @@ export default function Settings() {
         />
 
         <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto" data-testid="tabs-settings">
+          <TabsList className={`grid w-full grid-cols-2 ${systemAdmin ? "sm:grid-cols-5" : "sm:grid-cols-4"} h-auto`} data-testid="tabs-settings">
             <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
             <TabsTrigger value="roles" data-testid="tab-roles">Roles & Permissions</TabsTrigger>
             <TabsTrigger value="auth" data-testid="tab-auth">Authentication</TabsTrigger>
+            {systemAdmin && <TabsTrigger value="audit" data-testid="tab-audit">Audit Log</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="mt-5 space-y-5">
@@ -302,6 +315,31 @@ export default function Settings() {
                 </label>
               </Card>
             )}
+
+            {systemAdmin && (
+              <Card className="p-5 space-y-4" data-testid="card-audit-log-retention">
+                <div className="flex items-start gap-3">
+                  <History className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+                  <div>
+                    <h3 className="font-semibold">Audit log retention</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      How long audit log entries are kept before automatic cleanup. Leave blank to keep forever.
+                    </p>
+                  </div>
+                </div>
+                <div className="max-w-xs">
+                  <Label>Retention (days)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={auditLogRetentionDaysInput}
+                    onChange={e => setAuditLogRetentionDaysInput(e.target.value)}
+                    placeholder="Keep forever"
+                    data-testid="input-audit-log-retention-days"
+                  />
+                </div>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="users" className="mt-5 space-y-5">
@@ -344,6 +382,12 @@ export default function Settings() {
           <TabsContent value="auth" className="mt-5">
             <AuthenticationSection />
           </TabsContent>
+
+          {systemAdmin && (
+            <TabsContent value="audit" className="mt-5">
+              <AuditLogSection />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppShell>
@@ -1353,5 +1397,239 @@ function UserRow({ user }: { user: User }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log
+// ---------------------------------------------------------------------------
+
+const AUDIT_ENTITY_TYPES = [
+  "fleet", "site", "user", "fleet_membership", "fleet_equipment_type", "fleet_fuel_type",
+  "service_facility", "service_facility_address", "service_facility_type", "fleet_role",
+  "inventory_category", "inventory_category_field", "asset", "meter_reading",
+  "maintenance_schedule", "service_event", "service_line_item", "inventory_item",
+  "inventory_movement", "attachment", "app_setting", "system_settings", "oidc_group_mapping",
+] as const;
+
+const AUDIT_LOG_PAGE_SIZE = 50;
+
+function prettifyEntityType(type: string): string {
+  return type.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+function auditActionBadge(action: string) {
+  if (action === "create") return <Badge variant="outline" className="text-[10px] tracking-wide status-ok">Create</Badge>;
+  if (action === "update") return <Badge variant="outline" className="text-[10px] tracking-wide status-warn">Update</Badge>;
+  return <Badge variant="destructive" className="text-[10px] tracking-wide">Delete</Badge>;
+}
+
+type AuditLogResponse = { rows: AuditLog[]; total: number };
+
+function AuditLogSection() {
+  const { fleets, users } = useAppContext();
+  const [filterFleetId, setFilterFleetId] = useState("all");
+  const [filterEntityType, setFilterEntityType] = useState("all");
+  const [filterActorUserId, setFilterActorUserId] = useState("all");
+  const [filterAction, setFilterAction] = useState("all");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const resetPage = () => setOffset(0);
+
+  const queryParams = {
+    fleetId: filterFleetId !== "all" ? filterFleetId : undefined,
+    entityType: filterEntityType !== "all" ? filterEntityType : undefined,
+    actorUserId: filterActorUserId !== "all" ? filterActorUserId : undefined,
+    action: filterAction !== "all" ? filterAction : undefined,
+    from: filterFrom || undefined,
+    to: filterTo || undefined,
+    limit: AUDIT_LOG_PAGE_SIZE,
+    offset,
+  };
+
+  const auditQ = useQuery<AuditLogResponse>({ queryKey: ["/api/audit-log", queryParams] });
+  const rows = auditQ.data?.rows ?? [];
+  const total = auditQ.data?.total ?? 0;
+  const rangeStart = total === 0 ? 0 : offset + 1;
+  const rangeEnd = Math.min(offset + rows.length, total);
+
+  const fleetsById = new Map(fleets.map(f => [f.id, f]));
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <History className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+          <div>
+            <h3 className="font-semibold">Audit Log</h3>
+            <p className="text-sm text-muted-foreground mt-1">System-wide record of every create, update, and delete.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div>
+            <Label>From</Label>
+            <Input type="date" value={filterFrom} onChange={e => { setFilterFrom(e.target.value); resetPage(); }} data-testid="input-audit-log-from" />
+          </div>
+          <div>
+            <Label>To</Label>
+            <Input type="date" value={filterTo} onChange={e => { setFilterTo(e.target.value); resetPage(); }} data-testid="input-audit-log-to" />
+          </div>
+          <div>
+            <Label>Fleet</Label>
+            <Select value={filterFleetId} onValueChange={v => { setFilterFleetId(v); resetPage(); }}>
+              <SelectTrigger data-testid="select-audit-log-fleet"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All fleets</SelectItem>
+                {fleets.map(f => <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Entity Type</Label>
+            <Select value={filterEntityType} onValueChange={v => { setFilterEntityType(v); resetPage(); }}>
+              <SelectTrigger data-testid="select-audit-log-entity-type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {AUDIT_ENTITY_TYPES.map(t => <SelectItem key={t} value={t}>{prettifyEntityType(t)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Action</Label>
+            <Select value={filterAction} onValueChange={v => { setFilterAction(v); resetPage(); }}>
+              <SelectTrigger data-testid="select-audit-log-action"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All actions</SelectItem>
+                <SelectItem value="create">Create</SelectItem>
+                <SelectItem value="update">Update</SelectItem>
+                <SelectItem value="delete">Delete</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Actor</Label>
+            <Select value={filterActorUserId} onValueChange={v => { setFilterActorUserId(v); resetPage(); }}>
+              <SelectTrigger data-testid="select-audit-log-actor"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All actors</SelectItem>
+                {users.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.displayName || u.username}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-0 overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8"></TableHead>
+              <TableHead>Time</TableHead>
+              <TableHead>Actor</TableHead>
+              <TableHead>Action</TableHead>
+              <TableHead>Entity Type</TableHead>
+              <TableHead>Entity Label</TableHead>
+              <TableHead>Fleet</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody data-testid="list-audit-log">
+            {rows.flatMap(row => {
+              const isExpanded = expandedId === row.id;
+              const createdAt = new Date(row.createdAt);
+              const mainRow = (
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer hover-elevate"
+                  onClick={() => setExpandedId(isExpanded ? null : row.id)}
+                  data-testid={`row-audit-log-${row.id}`}
+                >
+                  <TableCell>{isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</TableCell>
+                  <TableCell title={createdAt.toLocaleString()}>{formatRelativeTime(createdAt)}</TableCell>
+                  <TableCell>{row.actorLabel}</TableCell>
+                  <TableCell>{auditActionBadge(row.action)}</TableCell>
+                  <TableCell>{prettifyEntityType(row.entityType)}</TableCell>
+                  <TableCell className="max-w-[220px] truncate">{row.entityLabel}</TableCell>
+                  <TableCell>{row.fleetId != null ? (fleetsById.get(row.fleetId)?.name ?? `Fleet #${row.fleetId}`) : "—"}</TableCell>
+                </TableRow>
+              );
+              if (!isExpanded) return [mainRow];
+              return [mainRow, (
+                <TableRow key={`${row.id}-detail`} data-testid={`row-audit-log-detail-${row.id}`}>
+                  <TableCell colSpan={7} className="bg-muted/30">
+                    <AuditLogDetail row={row} />
+                  </TableCell>
+                </TableRow>
+              )];
+            })}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-6" data-testid="text-no-audit-log-entries">
+                  {auditQ.isLoading ? "Loading…" : "No audit log entries match these filters."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span data-testid="text-audit-log-range">
+          {total === 0 ? "0 of 0" : `${rangeStart}–${rangeEnd} of ${total}`}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(o => Math.max(0, o - AUDIT_LOG_PAGE_SIZE))} data-testid="button-audit-log-prev">
+            <ChevronLeft className="size-4 mr-1" /> Prev
+          </Button>
+          <Button variant="outline" size="sm" disabled={rangeEnd >= total} onClick={() => setOffset(o => o + AUDIT_LOG_PAGE_SIZE)} data-testid="button-audit-log-next">
+            Next <ChevronRight className="size-4 ml-1" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatAuditChangeValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function AuditLogDetail({ row }: { row: AuditLog }) {
+  const changes = row.changes as Record<string, any> | null;
+  const isRedacted = (v: unknown): v is { changed: true } =>
+    !!v && typeof v === "object" && "changed" in (v as object) && !("from" in (v as object));
+
+  return (
+    <div className="space-y-2 py-1">
+      <div className="text-xs text-muted-foreground">IP address: {row.ipAddress ?? "—"}</div>
+      {row.action === "update" && changes && Object.keys(changes).length > 0 ? (
+        <div className="space-y-1">
+          {Object.entries(changes).map(([field, diff]) => (
+            <div key={field} className="flex flex-wrap items-center gap-2 font-mono text-xs">
+              <span className="font-semibold text-foreground">{field}</span>
+              {isRedacted(diff) ? (
+                <span className="text-muted-foreground">(redacted)</span>
+              ) : (
+                <>
+                  <span className="text-destructive line-through">{formatAuditChangeValue((diff as any)?.from)}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="status-ok px-1 rounded">{formatAuditChangeValue((diff as any)?.to)}</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : changes ? (
+        <pre className="text-xs bg-background border border-border rounded-md p-3 overflow-x-auto">
+          {JSON.stringify(changes, null, 2)}
+        </pre>
+      ) : (
+        <div className="text-xs text-muted-foreground">No changes recorded.</div>
+      )}
+    </div>
   );
 }

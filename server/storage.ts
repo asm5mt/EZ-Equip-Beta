@@ -24,6 +24,7 @@ import {
   appSettings,
   oidcGroupMappings,
   systemSettings,
+  auditLog,
 } from "@shared/schema";
 import type {
   Fleet, InsertFleet,
@@ -50,12 +51,13 @@ import type {
   AppSetting, InsertAppSetting,
   OidcGroupMapping, InsertOidcGroupMapping,
   SystemSettings, InsertSystemSettings,
+  AuditLog,
 } from "@shared/schema";
 import type { PermissionKey } from "@shared/permissions";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import path from "node:path";
 import { recordAudit, diffChanges, redactSnapshot } from "./audit";
 
@@ -185,6 +187,17 @@ async function ensureEveryFleetHasAdmin() {
     }
     await db.insert(fleetMemberships).values({ fleetId: fleet.id, userId: firstUser.id, roleId: adminRoleId });
   }
+}
+
+export interface AuditLogFilters {
+  fleetId?: number;
+  entityType?: string;
+  actorUserId?: number;
+  action?: "create" | "update" | "delete";
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +334,9 @@ export interface IStorage {
   createOidcGroupMapping(input: InsertOidcGroupMapping): Promise<OidcGroupMapping>;
   updateOidcGroupMapping(id: number, input: Partial<InsertOidcGroupMapping>): Promise<OidcGroupMapping | undefined>;
   deleteOidcGroupMapping(id: number): Promise<boolean>;
+
+  // audit log
+  listAuditLog(filters: AuditLogFilters): Promise<{ rows: AuditLog[]; total: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1371,6 +1387,36 @@ export class DatabaseStorage implements IStorage {
       await recordAudit({ action: "delete", entityType: "oidc_group_mapping", entityId: id, entityLabel: existing.groupName, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
     }
     return removed;
+  }
+
+  // -- audit log ----
+  async listAuditLog(filters: AuditLogFilters): Promise<{ rows: AuditLog[]; total: number }> {
+    const conditions = [];
+    if (filters.fleetId != null) conditions.push(eq(auditLog.fleetId, filters.fleetId));
+    if (filters.entityType) conditions.push(eq(auditLog.entityType, filters.entityType));
+    if (filters.actorUserId != null) conditions.push(eq(auditLog.actorUserId, filters.actorUserId));
+    if (filters.action) conditions.push(eq(auditLog.action, filters.action));
+    if (filters.from) {
+      const fromDate = new Date(filters.from);
+      if (!Number.isNaN(fromDate.getTime())) conditions.push(gte(auditLog.createdAt, fromDate));
+    }
+    if (filters.to) {
+      const toDate = new Date(filters.to);
+      if (!Number.isNaN(toDate.getTime())) conditions.push(lte(auditLog.createdAt, toDate));
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+    const offset = Math.max(filters.offset ?? 0, 0);
+
+    const rowsQuery = db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(limit).offset(offset);
+    const countQuery = db.select({ count: sql<number>`count(*)`.mapWith(Number) }).from(auditLog);
+
+    const [rows, countRows] = await Promise.all([
+      where ? rowsQuery.where(where) : rowsQuery,
+      where ? countQuery.where(where) : countQuery,
+    ]);
+    return { rows, total: countRows[0]?.count ?? 0 };
   }
 }
 

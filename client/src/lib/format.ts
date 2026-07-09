@@ -78,6 +78,24 @@ export function formatWithCommas(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+// Compact "time ago" label for recent timestamps, falling back to a plain
+// date once it's more than a month old.
+export function formatRelativeTime(d: Date | string | number | null | undefined): string {
+  if (!d) return "—";
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "—";
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return formatDate(date);
+}
+
 // Build a compact one-line interval summary used in dropdowns / cards:
 //   "5,000 mi / 90 days"  |  "5,000 mi"  |  "90 days"
 export function scheduleIntervalSummary(

@@ -1050,6 +1050,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     orgName: z.string().optional().or(z.literal("")),
     orgLogoUrl: z.string().url().optional().or(z.literal("")),
     diagnosticsOverlayEnabled: z.boolean().optional(),
+    auditLogRetentionDays: z.coerce.number().int().min(1).nullable().optional(),
   });
   app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
     try {
@@ -1102,6 +1103,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!ok) return res.status(404).json({ error: "not_found" });
       res.json({ ok: true });
     } catch (err) { handleError(res, err); }
+  });
+
+  // ---------- Audit log ----------
+  app.get("/api/audit-log", requireSystemAdmin, async (req, res) => {
+    const fleetId = req.query.fleetId ? Number(req.query.fleetId) : undefined;
+    const entityType = req.query.entityType ? String(req.query.entityType) : undefined;
+    const actorUserId = req.query.actorUserId ? Number(req.query.actorUserId) : undefined;
+    const actionRaw = req.query.action ? String(req.query.action) : undefined;
+    const action = actionRaw === "create" || actionRaw === "update" || actionRaw === "delete" ? actionRaw : undefined;
+    const from = req.query.from ? String(req.query.from) : undefined;
+    const to = req.query.to ? String(req.query.to) : undefined;
+    const limit = req.query.limit ? Math.min(Math.max(Number(req.query.limit), 1), 200) : 50;
+    const offset = req.query.offset ? Math.max(Number(req.query.offset), 0) : 0;
+    const result = await storage.listAuditLog({ fleetId, entityType, actorUserId, action, from, to, limit, offset });
+    res.json(result);
   });
 
   // ---------- Per-user auth provider management ----------
