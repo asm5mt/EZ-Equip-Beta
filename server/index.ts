@@ -7,6 +7,8 @@ import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { initStorage, pool } from "./storage";
 import { attachCurrentUser, bootstrapAdminPassword } from "./auth";
+import { auditContext } from "./audit";
+import { cleanupAuditLog } from "./retention";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -64,6 +66,13 @@ app.use(session({
 
 app.use(attachCurrentUser);
 
+app.use((req, _res, next) => {
+  auditContext.run(
+    { userId: req.user?.id ?? null, actorLabel: req.user?.username ?? "system", ip: req.ip ?? null },
+    next,
+  );
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -105,6 +114,11 @@ app.use((req, res, next) => {
   await initStorage();
   await bootstrapAdminPassword();
   await registerRoutes(httpServer, app);
+
+  await cleanupAuditLog().catch(err => console.error("[retention] Audit log cleanup failed:", err));
+  setInterval(() => {
+    cleanupAuditLog().catch(err => console.error("[retention] Audit log cleanup failed:", err));
+  }, 1000 * 60 * 60 * 24);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

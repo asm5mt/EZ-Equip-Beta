@@ -57,6 +57,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import path from "node:path";
+import { recordAudit, diffChanges, redactSnapshot } from "./audit";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not set");
@@ -332,11 +333,16 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async updateFleet(id: number, input: Partial<InsertFleet>): Promise<Fleet | undefined> {
+    const before = await this.getFleet(id);
     const [row] = await db.update(fleets).set(input).where(eq(fleets.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "fleet", entityId: row.id, entityLabel: row.name, fleetId: null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async createFleet(input: InsertFleet): Promise<Fleet> {
     const [fleet] = await db.insert(fleets).values(input).returning();
+    await recordAudit({ action: "create", entityType: "fleet", entityId: fleet.id, entityLabel: fleet.name, fleetId: null, changes: redactSnapshot(fleet) });
     await this.seedDefaultFleetRoles(fleet.id);
     for (const fuel of DEFAULT_FUEL_TYPE_ROWS) {
       await db.insert(fleetFuelTypes).values({ fleetId: fleet.id, ...fuel });
@@ -359,6 +365,7 @@ export class DatabaseStorage implements IStorage {
   // before their parents; attachments are cleaned up too even though they
   // have no DB-level FK (polymorphic entityType/entityId).
   async deleteFleet(id: number): Promise<boolean> {
+    const existingFleet = await this.getFleet(id);
     const fleetAssets = await db.select({ id: assets.id }).from(assets).where(eq(assets.fleetId, id));
     const assetIds = fleetAssets.map(a => a.id);
 
@@ -430,7 +437,11 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(sites).where(eq(sites.fleetId, id));
     const result = await db.delete(fleets).where(eq(fleets.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existingFleet) {
+      await recordAudit({ action: "delete", entityType: "fleet", entityId: id, entityLabel: existingFleet.name, fleetId: null, changes: redactSnapshot(existingFleet) });
+    }
+    return removed;
   }
 
   private async seedDefaultFleetRoles(fleetId: number): Promise<void> {
@@ -452,6 +463,7 @@ export class DatabaseStorage implements IStorage {
   }
   async createSite(input: InsertSite): Promise<Site> {
     const [site] = await db.insert(sites).values(input).returning();
+    await recordAudit({ action: "create", entityType: "site", entityId: site.id, entityLabel: site.name, fleetId: site.fleetId, changes: redactSnapshot(site) });
     return site;
   }
 
@@ -469,13 +481,19 @@ export class DatabaseStorage implements IStorage {
   }
   async createUser(input: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(input).returning();
+    await recordAudit({ action: "create", entityType: "user", entityId: user.id, entityLabel: user.username, fleetId: null, changes: redactSnapshot(user) });
     return user;
   }
   async updateUser(id: number, input: Partial<InsertUser>): Promise<User | undefined> {
+    const before = await this.getUser(id);
     const [row] = await db.update(users).set(input).where(eq(users.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "user", entityId: row.id, entityLabel: row.username, fleetId: null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteUser(id: number): Promise<boolean> {
+    const existing = await this.getUser(id);
     const memberships = await db.select().from(fleetMemberships).where(eq(fleetMemberships.userId, id));
     for (const membership of memberships) {
       if (await isAdminRoleId(membership.roleId)) {
@@ -484,10 +502,18 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(fleetMemberships).where(eq(fleetMemberships.userId, id));
     const result = await db.delete(users).where(eq(users.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "user", entityId: id, entityLabel: existing.username, fleetId: null, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listFleetMemberships(): Promise<FleetMembership[]> {
     return db.select().from(fleetMemberships);
+  }
+  private async fleetMembershipLabel(userId: number, roleId: number): Promise<string> {
+    const [user, role] = await Promise.all([this.getUser(userId), this.getFleetRole(roleId)]);
+    return `${user?.username ?? `user #${userId}`} → ${role?.name ?? `role #${roleId}`}`;
   }
   async upsertFleetMembership(input: InsertFleetMembership): Promise<FleetMembership> {
     const [existing] = await db.select().from(fleetMemberships)
@@ -498,9 +524,11 @@ export class DatabaseStorage implements IStorage {
       }
       const [updated] = await db.update(fleetMemberships).set({ roleId: input.roleId, grantedBy: input.grantedBy ?? "manual" })
         .where(eq(fleetMemberships.id, existing.id)).returning();
+      await recordAudit({ action: "update", entityType: "fleet_membership", entityId: updated.id, entityLabel: await this.fleetMembershipLabel(updated.userId, updated.roleId), fleetId: updated.fleetId, changes: diffChanges(existing, updated) });
       return updated;
     }
     const [created] = await db.insert(fleetMemberships).values(input).returning();
+    await recordAudit({ action: "create", entityType: "fleet_membership", entityId: created.id, entityLabel: await this.fleetMembershipLabel(created.userId, created.roleId), fleetId: created.fleetId, changes: redactSnapshot(created) });
     return created;
   }
   async deleteFleetMembership(fleetId: number, userId: number): Promise<boolean> {
@@ -511,7 +539,11 @@ export class DatabaseStorage implements IStorage {
     }
     const result = await db.delete(fleetMemberships)
       .where(and(eq(fleetMemberships.fleetId, fleetId), eq(fleetMemberships.userId, userId)));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "fleet_membership", entityId: existing.id, entityLabel: await this.fleetMembershipLabel(existing.userId, existing.roleId), fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listFleetEquipmentTypes(fleetId?: number): Promise<FleetEquipmentType[]> {
     const q = db.select().from(fleetEquipmentTypes).orderBy(fleetEquipmentTypes.name);
@@ -523,15 +555,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createFleetEquipmentType(input: InsertFleetEquipmentType): Promise<FleetEquipmentType> {
     const [row] = await db.insert(fleetEquipmentTypes).values(input).returning();
+    await recordAudit({ action: "create", entityType: "fleet_equipment_type", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateFleetEquipmentType(id: number, input: Partial<InsertFleetEquipmentType>): Promise<FleetEquipmentType | undefined> {
+    const before = await this.getFleetEquipmentType(id);
     const [row] = await db.update(fleetEquipmentTypes).set(input).where(eq(fleetEquipmentTypes.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "fleet_equipment_type", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteFleetEquipmentType(id: number): Promise<boolean> {
+    const existing = await this.getFleetEquipmentType(id);
     const result = await db.delete(fleetEquipmentTypes).where(eq(fleetEquipmentTypes.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "fleet_equipment_type", entityId: id, entityLabel: existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listFleetFuelTypes(fleetId?: number): Promise<FleetFuelType[]> {
     if (fleetId) {
@@ -551,15 +593,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createFleetFuelType(input: InsertFleetFuelType): Promise<FleetFuelType> {
     const [row] = await db.insert(fleetFuelTypes).values(input).returning();
+    await recordAudit({ action: "create", entityType: "fleet_fuel_type", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateFleetFuelType(id: number, input: Partial<InsertFleetFuelType>): Promise<FleetFuelType | undefined> {
+    const before = await this.getFleetFuelType(id);
     const [row] = await db.update(fleetFuelTypes).set(input).where(eq(fleetFuelTypes.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "fleet_fuel_type", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteFleetFuelType(id: number): Promise<boolean> {
+    const existing = await this.getFleetFuelType(id);
     const result = await db.delete(fleetFuelTypes).where(eq(fleetFuelTypes.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "fleet_fuel_type", entityId: id, entityLabel: existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listServiceFacilities(): Promise<ServiceFacility[]> {
     return await db.select().from(serviceFacilities).orderBy(serviceFacilities.name);
@@ -570,13 +622,19 @@ export class DatabaseStorage implements IStorage {
   }
   async createServiceFacility(input: InsertServiceFacility): Promise<ServiceFacility> {
     const [row] = await db.insert(serviceFacilities).values(input).returning();
+    await recordAudit({ action: "create", entityType: "service_facility", entityId: row.id, entityLabel: row.name, fleetId: null, changes: redactSnapshot(row) });
     return row;
   }
   async updateServiceFacility(id: number, input: Partial<InsertServiceFacility>): Promise<ServiceFacility | undefined> {
+    const before = await this.getServiceFacility(id);
     const [row] = await db.update(serviceFacilities).set(input).where(eq(serviceFacilities.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "service_facility", entityId: row.id, entityLabel: row.name, fleetId: null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteServiceFacility(id: number): Promise<boolean> {
+    const existing = await this.getServiceFacility(id);
     // No ON DELETE CASCADE/SET NULL is declared at the DB level anywhere in this
     // codebase (see deleteFleet()'s comment) — clear the live FK on any service
     // events that reference this facility before deleting it. Their snapshot
@@ -585,7 +643,11 @@ export class DatabaseStorage implements IStorage {
     await db.update(serviceEvents).set({ serviceFacilityId: null }).where(eq(serviceEvents.serviceFacilityId, id));
     await db.delete(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.facilityId, id));
     const result = await db.delete(serviceFacilities).where(eq(serviceFacilities.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "service_facility", entityId: id, entityLabel: existing.name, fleetId: null, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listServiceFacilityAddresses(facilityId?: number): Promise<ServiceFacilityAddress[]> {
     if (facilityId) {
@@ -597,17 +659,30 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.select().from(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.id, id));
     return row;
   }
+  private serviceFacilityAddressLabel(row: ServiceFacilityAddress): string {
+    return row.label || row.addressLine || `Address for facility #${row.facilityId}`;
+  }
   async createServiceFacilityAddress(input: InsertServiceFacilityAddress): Promise<ServiceFacilityAddress> {
     const [row] = await db.insert(serviceFacilityAddresses).values(input).returning();
+    await recordAudit({ action: "create", entityType: "service_facility_address", entityId: row.id, entityLabel: this.serviceFacilityAddressLabel(row), fleetId: null, changes: redactSnapshot(row) });
     return row;
   }
   async updateServiceFacilityAddress(id: number, input: Partial<InsertServiceFacilityAddress>): Promise<ServiceFacilityAddress | undefined> {
+    const before = await this.getServiceFacilityAddress(id);
     const [row] = await db.update(serviceFacilityAddresses).set(input).where(eq(serviceFacilityAddresses.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "service_facility_address", entityId: row.id, entityLabel: this.serviceFacilityAddressLabel(row), fleetId: null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteServiceFacilityAddress(id: number): Promise<boolean> {
+    const existing = await this.getServiceFacilityAddress(id);
     const result = await db.delete(serviceFacilityAddresses).where(eq(serviceFacilityAddresses.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "service_facility_address", entityId: id, entityLabel: this.serviceFacilityAddressLabel(existing), fleetId: null, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listServiceFacilityTypes(): Promise<ServiceFacilityType[]> {
     return await db.select().from(serviceFacilityTypes).orderBy(serviceFacilityTypes.name);
@@ -618,15 +693,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createServiceFacilityType(input: InsertServiceFacilityType): Promise<ServiceFacilityType> {
     const [row] = await db.insert(serviceFacilityTypes).values(input).returning();
+    await recordAudit({ action: "create", entityType: "service_facility_type", entityId: row.id, entityLabel: row.name, fleetId: null, changes: redactSnapshot(row) });
     return row;
   }
   async updateServiceFacilityType(id: number, input: Partial<InsertServiceFacilityType>): Promise<ServiceFacilityType | undefined> {
+    const before = await this.getServiceFacilityType(id);
     const [row] = await db.update(serviceFacilityTypes).set(input).where(eq(serviceFacilityTypes.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "service_facility_type", entityId: row.id, entityLabel: row.name, fleetId: null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteServiceFacilityType(id: number): Promise<boolean> {
+    const existing = await this.getServiceFacilityType(id);
     const result = await db.delete(serviceFacilityTypes).where(eq(serviceFacilityTypes.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "service_facility_type", entityId: id, entityLabel: existing.name, fleetId: null, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async getFleetRole(id: number): Promise<FleetRole | undefined> {
     const [row] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, id));
@@ -654,10 +739,15 @@ export class DatabaseStorage implements IStorage {
   }
   async createFleetRole(input: InsertFleetRole): Promise<FleetRole> {
     const [row] = await db.insert(fleetRoles).values(input).returning();
+    await recordAudit({ action: "create", entityType: "fleet_role", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateFleetRole(id: number, input: Partial<InsertFleetRole>): Promise<FleetRole | undefined> {
+    const before = await this.getFleetRole(id);
     const [row] = await db.update(fleetRoles).set(input).where(eq(fleetRoles.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "fleet_role", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteFleetRole(id: number): Promise<boolean> {
@@ -677,7 +767,11 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(fleetRolePermissions).where(eq(fleetRolePermissions.roleId, id));
     const result = await db.delete(fleetRoles).where(eq(fleetRoles.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "fleet_role", entityId: id, entityLabel: existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async setFleetRolePermissions(roleId: number, keys: string[]): Promise<void> {
     const [role] = await db.select().from(fleetRoles).where(eq(fleetRoles.id, roleId));
@@ -711,16 +805,26 @@ export class DatabaseStorage implements IStorage {
   }
   async createInventoryCategory(input: InsertInventoryCategory): Promise<InventoryCategory> {
     const [row] = await db.insert(inventoryCategories).values(input).returning();
+    await recordAudit({ action: "create", entityType: "inventory_category", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateInventoryCategory(id: number, input: Partial<InsertInventoryCategory>): Promise<InventoryCategory | undefined> {
+    const before = await this.getInventoryCategory(id);
     const [row] = await db.update(inventoryCategories).set(input).where(eq(inventoryCategories.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "inventory_category", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteInventoryCategory(id: number): Promise<boolean> {
+    const existing = await this.getInventoryCategory(id);
     await db.delete(inventoryCategoryFields).where(eq(inventoryCategoryFields.categoryId, id));
     const result = await db.delete(inventoryCategories).where(eq(inventoryCategories.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "inventory_category", entityId: id, entityLabel: existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listInventoryCategoryFields(categoryId?: number, fleetId?: number): Promise<InventoryCategoryField[]> {
     if (categoryId != null) {
@@ -740,28 +844,39 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.select().from(inventoryCategoryFields).where(eq(inventoryCategoryFields.id, id));
     return row;
   }
+  private async fleetIdForCategory(categoryId: number): Promise<number | null> {
+    const category = await this.getInventoryCategory(categoryId);
+    return category?.fleetId ?? null;
+  }
   async createInventoryCategoryField(input: InsertInventoryCategoryField): Promise<InventoryCategoryField> {
     if (input.highlightField) {
       await db.update(inventoryCategoryFields).set({ highlightField: false }).where(eq(inventoryCategoryFields.categoryId, input.categoryId));
     }
     const [row] = await db.insert(inventoryCategoryFields).values(input).returning();
+    await recordAudit({ action: "create", entityType: "inventory_category_field", entityId: row.id, entityLabel: row.name, fleetId: await this.fleetIdForCategory(row.categoryId), changes: redactSnapshot(row) });
     return row;
   }
   async updateInventoryCategoryField(id: number, input: Partial<InsertInventoryCategoryField>): Promise<InventoryCategoryField | undefined> {
-    if (input.highlightField) {
-      const [existing] = await db.select().from(inventoryCategoryFields).where(eq(inventoryCategoryFields.id, id));
-      if (existing) {
-        await db.update(inventoryCategoryFields)
-          .set({ highlightField: false })
-          .where(and(eq(inventoryCategoryFields.categoryId, existing.categoryId), ne(inventoryCategoryFields.id, id)));
-      }
+    const before = await this.getInventoryCategoryField(id);
+    if (input.highlightField && before) {
+      await db.update(inventoryCategoryFields)
+        .set({ highlightField: false })
+        .where(and(eq(inventoryCategoryFields.categoryId, before.categoryId), ne(inventoryCategoryFields.id, id)));
     }
     const [row] = await db.update(inventoryCategoryFields).set(input).where(eq(inventoryCategoryFields.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "inventory_category_field", entityId: row.id, entityLabel: row.name, fleetId: await this.fleetIdForCategory(row.categoryId), changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteInventoryCategoryField(id: number): Promise<boolean> {
+    const existing = await this.getInventoryCategoryField(id);
     const result = await db.delete(inventoryCategoryFields).where(eq(inventoryCategoryFields.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "inventory_category_field", entityId: id, entityLabel: existing.name, fleetId: await this.fleetIdForCategory(existing.categoryId), changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
 
   // -- assets ----
@@ -775,15 +890,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createAsset(input: InsertAsset): Promise<Asset> {
     const [row] = await db.insert(assets).values(input).returning();
+    await recordAudit({ action: "create", entityType: "asset", entityId: row.id, entityLabel: row.friendlyName || row.vin || `Asset #${row.id}`, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateAsset(id: number, input: Partial<InsertAsset>): Promise<Asset | undefined> {
+    const before = await this.getAsset(id);
     const [row] = await db.update(assets).set(input).where(eq(assets.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "asset", entityId: row.id, entityLabel: row.friendlyName || row.vin || `Asset #${row.id}`, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteAsset(id: number): Promise<boolean> {
+    const existing = await this.getAsset(id);
     const result = await db.delete(assets).where(eq(assets.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "asset", entityId: id, entityLabel: existing.friendlyName || existing.vin || `Asset #${id}`, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
 
   // -- meter readings ----
@@ -805,20 +930,29 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
   async updateMeterReading(id: number, input: Partial<InsertMeterReading>): Promise<MeterReading | undefined> {
+    const before = await this.getMeterReading(id);
     const [updated] = await db.update(meterReadings).set(input).where(eq(meterReadings.id, id)).returning();
-    if (updated) await this.refreshAssetMeterFromReadings(updated.assetId);
+    if (updated) {
+      const asset = await this.refreshAssetMeterFromReadings(updated.assetId);
+      if (before) {
+        await recordAudit({ action: "update", entityType: "meter_reading", entityId: updated.id, entityLabel: `${updated.value} ${updated.readingType}`, fleetId: asset?.fleetId ?? null, changes: diffChanges(before, updated) });
+      }
+    }
     return updated;
   }
   async deleteMeterReading(id: number): Promise<boolean> {
     const existing = await this.getMeterReading(id);
     const result = await db.delete(meterReadings).where(eq(meterReadings.id, id));
     const removed = (result.rowCount ?? 0) > 0;
-    if (removed && existing) await this.refreshAssetMeterFromReadings(existing.assetId);
+    if (removed && existing) {
+      const asset = await this.refreshAssetMeterFromReadings(existing.assetId);
+      await recordAudit({ action: "delete", entityType: "meter_reading", entityId: id, entityLabel: `${existing.value} ${existing.readingType}`, fleetId: asset?.fleetId ?? null, changes: redactSnapshot(existing) });
+    }
     return removed;
   }
-  private async refreshAssetMeterFromReadings(assetId: number) {
+  private async refreshAssetMeterFromReadings(assetId: number): Promise<Asset | undefined> {
     const asset = await this.getAsset(assetId);
-    if (!asset) return;
+    if (!asset) return undefined;
     // Find most recent remaining reading; if none, leave as-is.
     const [latest] = await db.select().from(meterReadings)
       .where(eq(meterReadings.assetId, assetId))
@@ -829,6 +963,7 @@ export class DatabaseStorage implements IStorage {
         .set({ currentMeter: latest.value, meterAsOf: latest.readingDate, meterType: latest.readingType })
         .where(eq(assets.id, assetId));
     }
+    return asset;
   }
   async createMeterReading(input: InsertMeterReading): Promise<MeterReading> {
     const [reading] = await db.insert(meterReadings).values(input).returning();
@@ -843,6 +978,7 @@ export class DatabaseStorage implements IStorage {
           .where(eq(assets.id, asset.id));
       }
     }
+    await recordAudit({ action: "create", entityType: "meter_reading", entityId: reading.id, entityLabel: `${reading.value} ${reading.readingType}`, fleetId: asset?.fleetId ?? null, changes: redactSnapshot(reading) });
     return reading;
   }
 
@@ -900,17 +1036,27 @@ export class DatabaseStorage implements IStorage {
       assetId: scope === "fleet" ? null : input.assetId ?? null,
     } as InsertMaintenanceSchedule;
     const [row] = await db.insert(maintenanceSchedules).values(values).returning();
+    await recordAudit({ action: "create", entityType: "maintenance_schedule", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateSchedule(id: number, input: Partial<InsertMaintenanceSchedule>): Promise<MaintenanceSchedule | undefined> {
+    const before = await this.getSchedule(id);
     const [row] = await db.update(maintenanceSchedules).set(input).where(eq(maintenanceSchedules.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "maintenance_schedule", entityId: row.id, entityLabel: row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteSchedule(id: number): Promise<boolean> {
+    const existing = await this.getSchedule(id);
     // Cascade: remove assignments for this schedule.
     await db.delete(maintenanceScheduleAssignments).where(eq(maintenanceScheduleAssignments.scheduleId, id));
     const result = await db.delete(maintenanceSchedules).where(eq(maintenanceSchedules.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "maintenance_schedule", entityId: id, entityLabel: existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
 
   async listScheduleAssignments(scheduleId?: number, fleetId?: number): Promise<MaintenanceScheduleAssignment[]> {
@@ -976,9 +1122,9 @@ export class DatabaseStorage implements IStorage {
   }
   async createServiceEvent(input: InsertServiceEvent): Promise<ServiceEvent> {
     const [event] = await db.insert(serviceEvents).values(input).returning();
+    const asset = await this.getAsset(input.assetId);
     // Auto-create a meter reading when the service captured one.
     if (input.meterAtService != null) {
-      const asset = await this.getAsset(input.assetId);
       await this.createMeterReading({
         assetId: input.assetId,
         readingType: asset?.meterType ?? "mileage",
@@ -988,13 +1134,20 @@ export class DatabaseStorage implements IStorage {
         source: "service-event",
       } as InsertMeterReading);
     }
+    await recordAudit({ action: "create", entityType: "service_event", entityId: event.id, entityLabel: event.title, fleetId: asset?.fleetId ?? null, changes: redactSnapshot(event) });
     return event;
   }
   async updateServiceEvent(id: number, input: Partial<InsertServiceEvent>): Promise<ServiceEvent | undefined> {
+    const before = await this.getServiceEvent(id);
     const [row] = await db.update(serviceEvents).set(input).where(eq(serviceEvents.id, id)).returning();
+    if (row && before) {
+      const asset = await this.getAsset(row.assetId);
+      await recordAudit({ action: "update", entityType: "service_event", entityId: row.id, entityLabel: row.title, fleetId: asset?.fleetId ?? null, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteServiceEvent(id: number): Promise<boolean> {
+    const event = await this.getServiceEvent(id);
     // Restore any consumed inventory (mirroring replaceLineItems behavior) and remove line items + movements.
     const existing = await this.listLineItems(id);
     for (const line of existing) {
@@ -1007,7 +1160,12 @@ export class DatabaseStorage implements IStorage {
     await db.delete(inventoryMovements).where(eq(inventoryMovements.serviceEventId, id));
     await db.delete(serviceLineItems).where(eq(serviceLineItems.serviceEventId, id));
     const result = await db.delete(serviceEvents).where(eq(serviceEvents.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && event) {
+      const asset = await this.getAsset(event.assetId);
+      await recordAudit({ action: "delete", entityType: "service_event", entityId: id, entityLabel: event.title, fleetId: asset?.fleetId ?? null, changes: redactSnapshot(event) });
+    }
+    return removed;
   }
   async listLineItems(serviceEventId?: number, assetId?: number): Promise<ServiceLineItem[]> {
     if (serviceEventId != null) {
@@ -1027,12 +1185,12 @@ export class DatabaseStorage implements IStorage {
   }
   async createLineItem(input: InsertServiceLineItem): Promise<ServiceLineItem> {
     const [line] = await db.insert(serviceLineItems).values(input).returning();
+    const event = await this.getServiceEvent(input.serviceEventId);
     if (input.inventoryItemId) {
       // Decrement stock and record movement.
       await db.update(inventoryItems)
         .set({ onHand: sql`${inventoryItems.onHand} - ${input.quantity}` })
         .where(eq(inventoryItems.id, input.inventoryItemId));
-      const event = await this.getServiceEvent(input.serviceEventId);
       await db.insert(inventoryMovements).values({
         inventoryItemId: input.inventoryItemId,
         movementType: "consumption",
@@ -1042,6 +1200,8 @@ export class DatabaseStorage implements IStorage {
         notes: `Consumed by service event #${input.serviceEventId}`,
       });
     }
+    const asset = event ? await this.getAsset(event.assetId) : undefined;
+    await recordAudit({ action: "create", entityType: "service_line_item", entityId: line.id, entityLabel: line.itemName, fleetId: asset?.fleetId ?? null, changes: redactSnapshot(line) });
     return line;
   }
   async replaceLineItems(serviceEventId: number, input: InsertServiceLineItem[]): Promise<ServiceLineItem[]> {
@@ -1074,15 +1234,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createInventoryItem(input: InsertInventoryItem): Promise<InventoryItem> {
     const [row] = await db.insert(inventoryItems).values(input).returning();
+    await recordAudit({ action: "create", entityType: "inventory_item", entityId: row.id, entityLabel: row.displayName || row.name, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateInventoryItem(id: number, input: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined> {
+    const before = await this.getInventoryItem(id);
     const [row] = await db.update(inventoryItems).set(input).where(eq(inventoryItems.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "inventory_item", entityId: row.id, entityLabel: row.displayName || row.name, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteInventoryItem(id: number): Promise<boolean> {
+    const existing = await this.getInventoryItem(id);
     const result = await db.delete(inventoryItems).where(eq(inventoryItems.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "inventory_item", entityId: id, entityLabel: existing.displayName || existing.name, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
   async listInventoryMovements(itemId?: number): Promise<InventoryMovement[]> {
     const q = db.select().from(inventoryMovements).orderBy(desc(inventoryMovements.occurredAt));
@@ -1097,6 +1267,9 @@ export class DatabaseStorage implements IStorage {
     await db.update(inventoryItems)
       .set({ onHand: sql`${inventoryItems.onHand} + ${input.quantity}` })
       .where(eq(inventoryItems.id, input.inventoryItemId));
+    const item = await this.getInventoryItem(input.inventoryItemId);
+    const label = `${movement.movementType} ${movement.quantity}${item ? ` — ${item.displayName || item.name}` : ""}`;
+    await recordAudit({ action: "create", entityType: "inventory_movement", entityId: movement.id, entityLabel: label, fleetId: item?.fleetId ?? null, changes: redactSnapshot(movement) });
     return movement;
   }
 
@@ -1108,8 +1281,30 @@ export class DatabaseStorage implements IStorage {
       (!entityId || a.entityId === entityId)
     );
   }
+  // Attachments are polymorphic (entityType/entityId, no direct fleetId column) —
+  // resolve fleetId by walking to whichever concrete entity they're attached to.
+  private async fleetIdForAttachmentTarget(entityType: string, entityId: number): Promise<number | null> {
+    if (entityType === "inventory-item") {
+      const item = await this.getInventoryItem(entityId);
+      return item?.fleetId ?? null;
+    }
+    if (entityType === "service-event") {
+      const event = await this.getServiceEvent(entityId);
+      if (!event) return null;
+      const asset = await this.getAsset(event.assetId);
+      return asset?.fleetId ?? null;
+    }
+    if (entityType === "inventory-movement") {
+      const movement = await this.getInventoryMovement(entityId);
+      if (!movement) return null;
+      const item = await this.getInventoryItem(movement.inventoryItemId);
+      return item?.fleetId ?? null;
+    }
+    return null;
+  }
   async createAttachment(input: InsertAttachment): Promise<Attachment> {
     const [row] = await db.insert(attachments).values(input).returning();
+    await recordAudit({ action: "create", entityType: "attachment", entityId: row.id, entityLabel: row.fileName, fleetId: await this.fleetIdForAttachmentTarget(row.entityType, row.entityId), changes: redactSnapshot(row) });
     return row;
   }
 
@@ -1122,9 +1317,14 @@ export class DatabaseStorage implements IStorage {
     if (existing) {
       const [updated] = await db.update(appSettings).set({ value: input.value, updatedAt: input.updatedAt })
         .where(eq(appSettings.key, input.key)).returning();
+      // appSettings has no integer id (key is the text primary key) — entityId
+      // has no natural value here, so 0 is used as a placeholder; the key
+      // itself is carried in entityLabel.
+      await recordAudit({ action: "update", entityType: "app_setting", entityId: 0, entityLabel: input.key, fleetId: null, changes: diffChanges(existing, updated) });
       return updated;
     }
     const [created] = await db.insert(appSettings).values(input).returning();
+    await recordAudit({ action: "create", entityType: "app_setting", entityId: 0, entityLabel: input.key, fleetId: null, changes: redactSnapshot(created) });
     return created;
   }
 
@@ -1138,6 +1338,7 @@ export class DatabaseStorage implements IStorage {
   async updateSystemSettings(patch: Partial<InsertSystemSettings>): Promise<SystemSettings> {
     const existing = await this.getSystemSettings();
     const [updated] = await db.update(systemSettings).set(patch).where(eq(systemSettings.id, existing.id)).returning();
+    await recordAudit({ action: "update", entityType: "system_settings", entityId: updated.id, entityLabel: "System Settings", fleetId: null, changes: diffChanges(existing, updated) });
     return updated;
   }
 
@@ -1151,15 +1352,25 @@ export class DatabaseStorage implements IStorage {
   }
   async createOidcGroupMapping(input: InsertOidcGroupMapping): Promise<OidcGroupMapping> {
     const [row] = await db.insert(oidcGroupMappings).values(input).returning();
+    await recordAudit({ action: "create", entityType: "oidc_group_mapping", entityId: row.id, entityLabel: row.groupName, fleetId: row.fleetId, changes: redactSnapshot(row) });
     return row;
   }
   async updateOidcGroupMapping(id: number, input: Partial<InsertOidcGroupMapping>): Promise<OidcGroupMapping | undefined> {
+    const before = await this.getOidcGroupMapping(id);
     const [row] = await db.update(oidcGroupMappings).set(input).where(eq(oidcGroupMappings.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "oidc_group_mapping", entityId: row.id, entityLabel: row.groupName, fleetId: row.fleetId, changes: diffChanges(before, row) });
+    }
     return row;
   }
   async deleteOidcGroupMapping(id: number): Promise<boolean> {
+    const existing = await this.getOidcGroupMapping(id);
     const result = await db.delete(oidcGroupMappings).where(eq(oidcGroupMappings.id, id));
-    return (result.rowCount ?? 0) > 0;
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "oidc_group_mapping", entityId: id, entityLabel: existing.groupName, fleetId: existing.fleetId, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
 }
 

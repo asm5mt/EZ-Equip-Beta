@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, boolean, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, real, boolean, timestamp, serial, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -122,6 +122,37 @@ export const systemSettings = pgTable("system_settings", {
   orgName: text("org_name"),
   orgLogoUrl: text("org_logo_url"),
   diagnosticsOverlayEnabled: boolean("diagnostics_overlay_enabled").notNull().default(false),
+  // null = keep audit log rows forever.
+  auditLogRetentionDays: integer("audit_log_retention_days"),
+});
+
+// ----- Audit log -------------------------------------------------------------
+// Append-only trail of every create/update/delete performed through
+// server/storage.ts. See server/audit.ts for the capture mechanism.
+
+export const auditLog = pgTable("audit_log", {
+  id: serial("id").primaryKey(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  // No FK cascade — the row must survive the acting user being deleted later.
+  actorUserId: integer("actor_user_id"),
+  // Snapshot of the acting user's username at the time of the action, or
+  // "system" for actions triggered outside a request (e.g. bootstrap).
+  actorLabel: text("actor_label").notNull(),
+  // Null for entities that aren't fleet-scoped (users, fleets themselves,
+  // service facilities, system settings).
+  fleetId: integer("fleet_id").references(() => fleets.id),
+  action: text("action").notNull(), // 'create' | 'update' | 'delete'
+  entityType: text("entity_type").notNull(), // table name, e.g. 'asset'
+  entityId: integer("entity_id").notNull(),
+  // Human-readable snapshot so the log stays legible after the entity itself
+  // is deleted.
+  entityLabel: text("entity_label").notNull(),
+  // update: { field: { from, to } } for changed fields only.
+  // create: a snapshot of key fields. delete: a snapshot of the row at
+  // deletion time. passwordHash/oidcClientSecret are never stored as raw
+  // values — see server/audit.ts's redaction.
+  changes: jsonb("changes"),
+  ipAddress: text("ip_address"),
 });
 
 export const inventoryCategories = pgTable("inventory_categories", {
@@ -588,6 +619,9 @@ export const insertAppSettingSchema = createInsertSchema(appSettings, {
 });
 export type InsertAppSetting = z.infer<typeof insertAppSettingSchema>;
 export type AppSetting = typeof appSettings.$inferSelect;
+
+export type InsertAuditLog = typeof auditLog.$inferInsert;
+export type AuditLog = typeof auditLog.$inferSelect;
 
 // ===========================================================================
 // Service-due rule shared on the wire
