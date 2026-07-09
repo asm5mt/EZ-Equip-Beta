@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import helmet from "helmet";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
@@ -16,6 +17,14 @@ declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
   }
+}
+
+// Vite's dev server injects an inline script for React Fast Refresh that
+// helmet's default script-src 'self' CSP would block, breaking local dev.
+// Production serves a static build with no inline scripts, so full
+// defaults apply there.
+if (process.env.NODE_ENV === "production") {
+  app.use(helmet());
 }
 
 app.use(

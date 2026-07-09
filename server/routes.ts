@@ -336,7 +336,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerAuthRoutes(app);
   registerOidcRoutes(app);
 
-  app.get("/api/nhtsa/safety", async (req, res) => {
+  app.get("/api/nhtsa/safety", requireAuth, async (req, res) => {
     const make = String(req.query.make ?? "").trim();
     const model = String(req.query.model ?? "").trim();
     const modelYear = String(req.query.modelYear ?? req.query.year ?? "").trim();
@@ -404,7 +404,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.get("/api/nhtsa/recalls", async (req, res) => {
+  app.get("/api/nhtsa/recalls", requireAuth, async (req, res) => {
     const make = String(req.query.make ?? "").trim();
     const model = String(req.query.model ?? "").trim();
     const modelYear = String(req.query.modelYear ?? req.query.year ?? "").trim();
