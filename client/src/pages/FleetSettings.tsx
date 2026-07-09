@@ -371,7 +371,7 @@ export default function FleetSettings({ fleetId }: { fleetId: number }) {
                   aria-label="Rename fleet"
                   data-testid="button-rename-fleet"
                 >
-                  <Pencil className="size-3.5" />
+                  <Pencil className="size-4" />
                 </Button>
               )}
             </div>

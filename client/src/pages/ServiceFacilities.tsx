@@ -707,7 +707,7 @@ function FacilityFormDialog({ open, onOpenChange, facility, types, onSaved, defa
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium">Additional Addresses</div>
               <Button type="button" variant="outline" size="sm" onClick={addDraftAddress} data-testid="button-add-facility-address">
-                <Plus className="size-3.5 mr-1" /> Add Address
+                <Plus className="size-4 mr-1.5" /> Add Address
               </Button>
             </div>
             {draftAddresses.length === 0 && (

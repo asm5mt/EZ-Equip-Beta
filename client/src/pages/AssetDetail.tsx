@@ -457,7 +457,7 @@ export default function AssetDetail() {
                         aria-label="Copy VIN"
                         data-testid="button-copy-asset-vin"
                       >
-                        <Copy className="size-3.5" />
+                        <Copy className="size-3" />
                       </Button>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

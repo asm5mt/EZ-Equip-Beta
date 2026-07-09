@@ -178,7 +178,7 @@ export function CategoryPicker({
           onClick={() => { if (custom.trim()) { onChange(custom.trim()); setCustom(""); } }}
           data-testid="button-category-custom-add"
         >
-          <Plus className="size-3.5 mr-1" /> Add
+          <Plus className="size-4 mr-1.5" /> Add
         </Button>
       </div>
     </div>

@@ -477,7 +477,7 @@ export default function ServiceForm() {
                       <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                         <span>{facilityAddress}</span>
                         <Button type="button" variant="ghost" size="icon" className="size-6" onClick={() => copyAddress(facilityAddress)} data-testid="button-copy-facility-address" aria-label="Copy address">
-                          <Copy className="size-3.5" />
+                          <Copy className="size-3" />
                         </Button>
                         <a href={mapsUrlFor(facilityAddress)} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline shrink-0" data-testid="link-facility-map">
                           View on map
