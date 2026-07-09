@@ -14,8 +14,14 @@ export interface AuditActor {
 export const auditContext = new AsyncLocalStorage<AuditActor>();
 
 // Fields whose actual values must never be written to the audit log, in a
-// diff or a snapshot. Both are secrets that happen to live on rows we audit.
-const REDACTED_FIELDS = new Set(["passwordHash", "oidcClientSecret"]);
+// diff or a snapshot. All are secrets that happen to live on rows we audit.
+const REDACTED_FIELDS = new Set([
+  "passwordHash",
+  "oidcClientSecret",
+  "zipLookupApiKey",
+  "geocodingApiKey",
+  "nhtsaLookupApiKey",
+]);
 
 const REDACTED_MARKER = { changed: true } as const;
 

@@ -5,6 +5,7 @@ import { COUNTRIES, countryName } from "@shared/countries";
 import { getCountryAddressConfig } from "@/lib/address-format";
 import { STATE_PROVINCE_OPTIONS, regionLabel as usCaRegionLabel } from "@/lib/regions";
 import { useToast } from "@/hooks/use-toast";
+import { API_BASE } from "@/lib/queryClient";
 
 export interface AddressFieldsValue {
   country: string;
@@ -20,9 +21,10 @@ export interface AddressFieldsValue {
  * (searchable, from Round 1's SearchableColumnSelect), Address Line 1/2, and
  * City/Region/ZIP fields whose presence, label, and order are driven by the
  * selected country (see lib/address-format.ts). Includes ZIP-autofill via
- * Zippopotam, scoped to the selected country. Shared by every address entry
- * point in the app (fleet address, facility's own address, and each
- * additional facility address) so this logic is never duplicated.
+ * /api/zip-lookup (server-side proxy in front of Zippopotam or an
+ * admin-configured mirror), scoped to the selected country. Shared by every
+ * address entry point in the app (fleet address, facility's own address, and
+ * each additional facility address) so this logic is never duplicated.
  */
 export function AddressFields({ value, onChange, idPrefix, disabled }: {
   value: AddressFieldsValue;
@@ -38,8 +40,10 @@ export function AddressFields({ value, onChange, idPrefix, disabled }: {
     const trimmed = value.zip.trim();
     if (trimmed.length < 3) return;
     try {
-      const res = await fetch(`https://api.zippopotam.us/${value.country.toLowerCase()}/${encodeURIComponent(trimmed)}`);
-      if (!res.ok) return; // country not supported by Zippopotam, or code not found — skip gracefully
+      const res = await fetch(`${API_BASE}/api/zip-lookup?country=${encodeURIComponent(value.country.toLowerCase())}&zip=${encodeURIComponent(trimmed)}`);
+      // Covers: lookups disabled by an admin (403), country/code not supported
+      // by the configured provider, or code not found — skip gracefully either way.
+      if (!res.ok) return;
       const place = (await res.json())?.places?.[0];
       if (!place) return;
       const patch: Partial<AddressFieldsValue> = {};

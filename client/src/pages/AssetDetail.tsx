@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScopeBadge } from "@/pages/Maintenance";
 import { scheduleIntervalSummary, meterIntervalSuffix, formatWithCommas } from "@/lib/format";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { evaluateSchedule, statusClass, statusLabel } from "@/lib/schedule";
 import type { MaintenanceScheduleAssignment } from "@shared/schema";
@@ -122,7 +122,13 @@ export default function AssetDetail() {
     staleTime: 1000 * 60 * 30,
     queryFn: async () => {
       const vin = assetQ.data!.vin!;
-      const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${encodeURIComponent(vin)}?format=json`);
+      const res = await fetch(`${API_BASE}/api/nhtsa/vin-decode?vin=${encodeURIComponent(vin)}`);
+      if (res.status === 403) {
+        const body = await res.json().catch(() => null);
+        // Admin-disabled, not a failure — treat as "nothing decoded" rather
+        // than an error so the drawer doesn't show a misleading retry prompt.
+        if (body?.error === "lookups_disabled") return [];
+      }
       if (!res.ok) throw new Error(`NHTSA vPIC returned ${res.status}`);
       const data = await res.json();
       return Array.isArray(data?.Results) ? data.Results : [];

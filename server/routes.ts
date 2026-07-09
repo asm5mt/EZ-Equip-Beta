@@ -61,7 +61,7 @@ import {
   insertAppSettingSchema,
   insertOidcGroupMappingSchema,
 } from "@shared/schema";
-import type { InsertSystemSettings } from "@shared/schema";
+import type { InsertSystemSettings, SystemSettings } from "@shared/schema";
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { z } from "zod";
@@ -332,6 +332,22 @@ function nhtsaModelCandidates(model: string) {
   return Array.from(new Set(candidates));
 }
 
+// NHTSA lookups span two real upstream hosts under the seeded defaults
+// (api.nhtsa.gov for recalls/complaints, vpic.nhtsa.dot.gov for VIN decode).
+// A single admin-configured custom URL stands in for whichever host a given
+// call would otherwise use — same path shape, different base.
+function nhtsaBaseUrl(defaultBase: string, settings: SystemSettings): string {
+  if (settings.nhtsaLookupProvider === "custom" && settings.nhtsaLookupCustomUrl) {
+    return settings.nhtsaLookupCustomUrl.replace(/\/+$/, "");
+  }
+  return defaultBase;
+}
+function nhtsaHeaders(settings: SystemSettings): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (settings.nhtsaLookupApiKey) headers.Authorization = `Bearer ${settings.nhtsaLookupApiKey}`;
+  return headers;
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerAuthRoutes(app);
   registerOidcRoutes(app);
@@ -344,6 +360,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!make || !model || !modelYear) {
       return res.status(400).json({ error: "missing_vehicle_details" });
     }
+    const settings = await storage.getSystemSettings();
+    if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
+    const base = nhtsaBaseUrl("https://api.nhtsa.gov", settings);
+    const headers = nhtsaHeaders(settings);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
@@ -351,12 +371,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       for (const lookupModel of exactModel ? [model] : nhtsaModelCandidates(model)) {
         const params = new URLSearchParams({ make, model: lookupModel, modelYear });
         const [recallsResponse, complaintsResponse] = await Promise.all([
-          fetch(`https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`, {
-            headers: { Accept: "application/json" },
+          fetch(`${base}/recalls/recallsByVehicle?${params.toString()}`, {
+            headers,
             signal: controller.signal,
           }),
-          fetch(`https://api.nhtsa.gov/complaints/complaintsByVehicle?${params.toString()}`, {
-            headers: { Accept: "application/json" },
+          fetch(`${base}/complaints/complaintsByVehicle?${params.toString()}`, {
+            headers,
             signal: controller.signal,
           }),
         ]);
@@ -411,12 +431,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!make || !model || !modelYear) {
       return res.status(400).json({ error: "missing_vehicle_details" });
     }
+    const settings = await storage.getSystemSettings();
+    if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
+    const base = nhtsaBaseUrl("https://api.nhtsa.gov", settings);
+    const headers = nhtsaHeaders(settings);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const params = new URLSearchParams({ make, model, modelYear });
-      const response = await fetch(`https://api.nhtsa.gov/recalls/recallsByVehicle?${params.toString()}`, {
-        headers: { Accept: "application/json" },
+      const response = await fetch(`${base}/recalls/recallsByVehicle?${params.toString()}`, {
+        headers,
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -427,6 +451,61 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ count: Number.isFinite(count) ? count : 0, make, model, modelYear });
     } catch (err) {
       res.status(504).json({ error: "nhtsa_unavailable", message: String((err as Error)?.message ?? err) });
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
+  app.get("/api/nhtsa/vin-decode", requireAuth, async (req, res) => {
+    const vin = String(req.query.vin ?? "").trim();
+    if (!vin) return res.status(400).json({ error: "missing_vin" });
+    const settings = await storage.getSystemSettings();
+    if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
+    const base = nhtsaBaseUrl("https://vpic.nhtsa.dot.gov", settings);
+    const headers = nhtsaHeaders(settings);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`${base}/api/vehicles/decodevin/${encodeURIComponent(vin)}?format=json`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return res.status(502).json({ error: "nhtsa_error", status: response.status });
+      }
+      res.json(await response.json());
+    } catch (err) {
+      res.status(504).json({ error: "nhtsa_unavailable", message: String((err as Error)?.message ?? err) });
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
+  // ---------- ZIP / postal code lookup (proxies Zippopotam or a configured mirror) ----------
+  app.get("/api/zip-lookup", requireAuth, async (req, res) => {
+    const country = String(req.query.country ?? "").trim();
+    const zip = String(req.query.zip ?? "").trim();
+    if (!country || !zip) return res.status(400).json({ error: "missing_params" });
+    const settings = await storage.getSystemSettings();
+    if (!settings.zipLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
+    const base = settings.zipLookupProvider === "custom" && settings.zipLookupCustomUrl
+      ? settings.zipLookupCustomUrl.replace(/\/+$/, "")
+      : "https://api.zippopotam.us";
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (settings.zipLookupApiKey) headers.Authorization = `Bearer ${settings.zipLookupApiKey}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    try {
+      const response = await fetch(`${base}/${country.toLowerCase()}/${encodeURIComponent(zip)}`, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return res.status(502).json({ error: "zip_lookup_error", status: response.status });
+      }
+      res.json(await response.json());
+    } catch (err) {
+      res.status(504).json({ error: "zip_lookup_unavailable", message: String((err as Error)?.message ?? err) });
     } finally {
       clearTimeout(timeout);
     }
@@ -1030,8 +1109,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ---------- System settings (auth mode + OIDC config) ----------
   app.get("/api/system-settings", requireSystemAdmin, async (_req, res) => {
     const settings = await storage.getSystemSettings();
-    const { oidcClientSecret, ...rest } = settings;
-    res.json({ ...rest, oidcClientSecretSet: !!oidcClientSecret });
+    const { oidcClientSecret, zipLookupApiKey, geocodingApiKey, nhtsaLookupApiKey, ...rest } = settings;
+    res.json({
+      ...rest,
+      oidcClientSecretSet: !!oidcClientSecret,
+      zipLookupApiKeySet: !!zipLookupApiKey,
+      geocodingApiKeySet: !!geocodingApiKey,
+      nhtsaLookupApiKeySet: !!nhtsaLookupApiKey,
+    });
   });
   // Narrow, non-admin-gated read of instance branding — used by the General
   // settings tab and the About dialog, both reachable by any authenticated
@@ -1040,6 +1125,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/org-info", requireAuth, async (_req, res) => {
     const settings = await storage.getSystemSettings();
     res.json({ orgName: settings.orgName, orgLogoUrl: settings.orgLogoUrl });
+  });
+  // Narrow, non-admin-gated read of just the three lookup on/off switches —
+  // any authenticated user needs this to know whether to show ZIP-autofill,
+  // geocoding-driven map hints, or VIN-decode affordances in the UI. Provider/
+  // URL/key details stay admin-only in GET /api/system-settings above.
+  app.get("/api/lookup-settings", requireAuth, async (_req, res) => {
+    const settings = await storage.getSystemSettings();
+    res.json({
+      zipLookupEnabled: settings.zipLookupEnabled,
+      geocodingEnabled: settings.geocodingEnabled,
+      nhtsaLookupEnabled: settings.nhtsaLookupEnabled,
+    });
   });
   const systemSettingsPatchSchema = z.object({
     authMode: z.enum(["local", "oidc", "both"]).optional(),
@@ -1051,16 +1148,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     orgLogoUrl: z.string().url().optional().or(z.literal("")),
     diagnosticsOverlayEnabled: z.boolean().optional(),
     auditLogRetentionDays: z.coerce.number().int().min(1).nullable().optional(),
+    zipLookupEnabled: z.boolean().optional(),
+    zipLookupProvider: z.enum(["seeded", "custom"]).optional(),
+    zipLookupCustomUrl: z.string().url().optional().or(z.literal("")),
+    zipLookupApiKey: z.string().optional(),
+    geocodingEnabled: z.boolean().optional(),
+    geocodingProvider: z.enum(["seeded", "custom"]).optional(),
+    geocodingCustomUrl: z.string().url().optional().or(z.literal("")),
+    geocodingApiKey: z.string().optional(),
+    nhtsaLookupEnabled: z.boolean().optional(),
+    nhtsaLookupProvider: z.enum(["seeded", "custom"]).optional(),
+    nhtsaLookupCustomUrl: z.string().url().optional().or(z.literal("")),
+    nhtsaLookupApiKey: z.string().optional(),
   });
   app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
     try {
-      const { oidcClientSecret, ...body } = systemSettingsPatchSchema.parse(req.body);
+      const { oidcClientSecret, zipLookupApiKey, geocodingApiKey, nhtsaLookupApiKey, ...body } = systemSettingsPatchSchema.parse(req.body);
       const patch: Partial<InsertSystemSettings> = { ...body };
-      // Write-only secret: omit or blank means "leave the stored value alone".
+      // Write-only secrets: omit or blank means "leave the stored value alone".
       if (oidcClientSecret) patch.oidcClientSecret = oidcClientSecret;
+      if (zipLookupApiKey) patch.zipLookupApiKey = zipLookupApiKey;
+      if (geocodingApiKey) patch.geocodingApiKey = geocodingApiKey;
+      if (nhtsaLookupApiKey) patch.nhtsaLookupApiKey = nhtsaLookupApiKey;
       const updated = await storage.updateSystemSettings(patch);
-      const { oidcClientSecret: _secret, ...rest } = updated;
-      res.json({ ...rest, oidcClientSecretSet: !!_secret });
+      const { oidcClientSecret: _secret, zipLookupApiKey: _zipKey, geocodingApiKey: _geoKey, nhtsaLookupApiKey: _nhtsaKey, ...rest } = updated;
+      res.json({
+        ...rest,
+        oidcClientSecretSet: !!_secret,
+        zipLookupApiKeySet: !!_zipKey,
+        geocodingApiKeySet: !!_geoKey,
+        nhtsaLookupApiKeySet: !!_nhtsaKey,
+      });
     } catch (err) { handleError(res, err); }
   });
   app.post("/api/system-settings/test-oidc-connection", requireSystemAdmin, async (req, res) => {

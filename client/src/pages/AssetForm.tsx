@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Switch } from "@/components/ui/switch";
 import { z } from "zod";
 import { insertAssetSchema, type Asset, type FleetEquipmentType, type FleetFuelType } from "@shared/schema";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppContext } from "@/lib/app-context";
 import { PLATE_JURISDICTIONS } from "@/lib/plates";
@@ -785,11 +785,42 @@ function VinSegmentInput({
   );
 }
 
+// /api/nhtsa/vin-decode proxies vPIC's decodevin endpoint, which returns an
+// array of { Variable, Value } pairs rather than DecodeVinValues' flat
+// object — map the handful of variables this form actually uses back onto
+// DecodedVinValues' keys.
+const VIN_DECODE_VARIABLE_MAP: Record<keyof DecodedVinValues, string> = {
+  ModelYear: "Model Year",
+  Make: "Make",
+  Model: "Model",
+  Trim: "Trim",
+  EngineModel: "Engine Model",
+  DisplacementL: "Displacement (L)",
+  EngineCylinders: "Engine Number of Cylinders",
+  EngineConfiguration: "Engine Configuration",
+  DriveType: "Drive Type",
+  TransmissionStyle: "Transmission Style",
+  FuelTypePrimary: "Fuel Type - Primary",
+  GVWR: "Gross Vehicle Weight Rating From",
+  BodyClass: "Body Class",
+};
+
 async function fetchDecodedVin(vin: string): Promise<DecodedVinValues> {
-  const response = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`);
+  const response = await fetch(`${API_BASE}/api/nhtsa/vin-decode?vin=${encodeURIComponent(vin)}`);
+  if (response.status === 403) {
+    const body = await response.json().catch(() => null);
+    // Admin-disabled, not a failure — nothing to decode, no error to surface.
+    if (body?.error === "lookups_disabled") return {};
+  }
   if (!response.ok) throw new Error(`NHTSA vPIC returned ${response.status}`);
   const data = await response.json();
-  return Array.isArray(data?.Results) ? data.Results[0] ?? {} : {};
+  const results: Array<{ Variable?: string; Value?: string | null }> = Array.isArray(data?.Results) ? data.Results : [];
+  const byVariable = new Map(results.map(r => [r.Variable, r.Value]));
+  const decoded: DecodedVinValues = {};
+  for (const [key, variable] of Object.entries(VIN_DECODE_VARIABLE_MAP) as [keyof DecodedVinValues, string][]) {
+    decoded[key] = byVariable.get(variable) ?? null;
+  }
+  return decoded;
 }
 
 function cleanVin(value: string) {

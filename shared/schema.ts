@@ -124,6 +124,26 @@ export const systemSettings = pgTable("system_settings", {
   diagnosticsOverlayEnabled: boolean("diagnostics_overlay_enabled").notNull().default(false),
   // null = keep audit log rows forever.
   auditLogRetentionDays: integer("audit_log_retention_days"),
+
+  // ----- Privacy & Lookups: ZIP/postal, geocoding, NHTSA vehicle lookups -----
+  // Each category shares the same four-column shape: an on/off switch, which
+  // provider to use ('seeded' = the built-in default, 'custom' = self-hosted
+  // mirror), the custom base URL (only read when provider is 'custom'), and
+  // a write-only API key sent as `Authorization: Bearer <key>` when set.
+  zipLookupEnabled: boolean("zip_lookup_enabled").notNull().default(true),
+  zipLookupProvider: text("zip_lookup_provider").notNull().default("seeded"), // 'seeded' | 'custom'
+  zipLookupCustomUrl: text("zip_lookup_custom_url"),
+  zipLookupApiKey: text("zip_lookup_api_key"),
+
+  geocodingEnabled: boolean("geocoding_enabled").notNull().default(true),
+  geocodingProvider: text("geocoding_provider").notNull().default("seeded"), // 'seeded' | 'custom'
+  geocodingCustomUrl: text("geocoding_custom_url"),
+  geocodingApiKey: text("geocoding_api_key"),
+
+  nhtsaLookupEnabled: boolean("nhtsa_lookup_enabled").notNull().default(true),
+  nhtsaLookupProvider: text("nhtsa_lookup_provider").notNull().default("seeded"), // 'seeded' | 'custom'
+  nhtsaLookupCustomUrl: text("nhtsa_lookup_custom_url"),
+  nhtsaLookupApiKey: text("nhtsa_lookup_api_key"),
 });
 
 // ----- Audit log -------------------------------------------------------------

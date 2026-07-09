@@ -1,3 +1,5 @@
+import { storage } from "./storage";
+
 // Nominatim requires a descriptive User-Agent identifying the application
 // (see https://operations.osmfoundation.org/policies/nominatim/) — requests
 // without one are liable to be blocked.
@@ -7,12 +9,21 @@ export async function geocodeAddress(query: string): Promise<{ latitude: number 
   const trimmed = query.trim();
   if (!trimmed) return { latitude: null, longitude: null };
 
+  const settings = await storage.getSystemSettings();
+  if (!settings.geocodingEnabled) return { latitude: null, longitude: null };
+
+  const baseUrl = settings.geocodingProvider === "custom" && settings.geocodingCustomUrl
+    ? settings.geocodingCustomUrl.replace(/\/+$/, "")
+    : "https://nominatim.openstreetmap.org";
+  const headers: Record<string, string> = { "User-Agent": NOMINATIM_USER_AGENT, Accept: "application/json" };
+  if (settings.geocodingApiKey) headers.Authorization = `Bearer ${settings.geocodingApiKey}`;
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 6000);
   try {
     const params = new URLSearchParams({ format: "json", limit: "1", q: trimmed });
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
-      headers: { "User-Agent": NOMINATIM_USER_AGENT, Accept: "application/json" },
+    const response = await fetch(`${baseUrl}/search?${params.toString()}`, {
+      headers,
       signal: controller.signal,
     });
     if (!response.ok) return { latitude: null, longitude: null };
