@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import argon2 from "argon2";
+import { sql, getTableColumns, getTableName } from "drizzle-orm";
 import { db } from "./storage";
 import {
   fleetEquipmentTypes,
@@ -28,6 +29,7 @@ import {
   inventoryItems,
   inventoryMovements,
   attachments,
+  fleetMemberships,
 } from "@shared/schema";
 
 // ---------------------------------------------------------------------------
@@ -237,4 +239,116 @@ export async function readFullTierTables(): Promise<Record<string, Record<string
     result[name] = await db.select().from(table as any);
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Restore execute
+// ---------------------------------------------------------------------------
+
+// Parent-first order for INSERT (DELETE runs in the reverse of this, so
+// children go before parents). Derived directly from every .references()
+// call across shared/schema.ts for both tiers -- not guessed by hand.
+const RESTORE_TABLE_ORDER = [
+  "fleets", "lookupProviders", "serviceFacilityTypes", "appSettings", "serviceFacilities",
+  "sites", "fleetEquipmentTypes", "fleetRoles", "inventoryCategories", "fleetFuelTypes", "inventoryItems",
+  "systemSettings", "serviceFacilityAddresses", "fleetRolePermissions", "oidcGroupMappings", "inventoryCategoryFields",
+  "assets", "meterReadings", "maintenanceSchedules", "maintenanceScheduleAssignments",
+  "serviceEvents", "serviceLineItems", "inventoryMovements", "attachments",
+] as const;
+
+const ALL_RESTORE_TABLES: Record<string, any> = { ...CONFIG_TIER_TABLES, ...FULL_TIER_TABLES };
+
+// The one FK from a table we never touch (audit_log) into a table this
+// restore deletes-and-reinserts (fleets). It's ON DELETE NO ACTION and
+// checked immediately by default, which would block DELETE FROM fleets even
+// though the exact same fleet ids come right back a few statements later in
+// the same transaction. Made deferrable for just this transaction, then
+// flipped back to NOT DEFERRABLE (which forces an immediate re-check) before
+// the grant step -- so the constraint is actually validated before anything
+// commits, and its deferrability never changes outside this transaction.
+const AUDIT_LOG_FLEET_FK = "audit_log_fleet_id_fleets_id_fk";
+
+// JSON round-trips timestamp("date" mode) columns as ISO strings; drizzle's
+// pg driver expects real Date instances for those columns on insert. Detects
+// them generically via each column's dataType rather than hardcoding which
+// columns are dates per table.
+function coerceRowDates(table: any, rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const columns = getTableColumns(table);
+  const dateColumns = Object.entries(columns)
+    .filter(([, col]) => (col as { dataType?: string }).dataType === "date")
+    .map(([name]) => name);
+  if (dateColumns.length === 0) return rows;
+  return rows.map(row => {
+    const copy = { ...row };
+    for (const col of dateColumns) {
+      const value = copy[col];
+      if (typeof value === "string") copy[col] = new Date(value);
+    }
+    return copy;
+  });
+}
+
+// Replaces every config- and full-tier table's contents with the backup's,
+// preserving original row ids exactly (a restored asset's fleetId is only
+// meaningful if the fleet comes back with the same id), inside a single
+// transaction -- any failure anywhere rolls back the entire operation,
+// leaving the database exactly as it was. Never touches users or auditLog;
+// fleetMemberships is only ever deleted wholesale up front (its rows become
+// meaningless the moment the fleets/roles they point at are replaced) and
+// re-granted at the end for restoringUserId, never restored from the
+// backup's own data.
+export async function applyRestore(
+  payload: { tables: Record<string, Record<string, unknown>[]> },
+  restoringUserId: number,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`ALTER TABLE audit_log ALTER CONSTRAINT ${sql.identifier(AUDIT_LOG_FLEET_FK)} DEFERRABLE INITIALLY DEFERRED`);
+    await tx.execute(sql`SET CONSTRAINTS ${sql.identifier(AUDIT_LOG_FLEET_FK)} DEFERRED`);
+
+    await tx.delete(fleetMemberships);
+    for (const name of [...RESTORE_TABLE_ORDER].reverse()) {
+      await tx.delete(ALL_RESTORE_TABLES[name]);
+    }
+
+    for (const name of RESTORE_TABLE_ORDER) {
+      const table = ALL_RESTORE_TABLES[name];
+      const rows = coerceRowDates(table, payload.tables[name] ?? []);
+      if (rows.length === 0) continue;
+      await tx.insert(table).values(rows);
+      // appSettings is the one table in either tier whose primary key isn't
+      // a serial id (it's a text "key") -- no sequence to reset there.
+      const columns = getTableColumns(table);
+      const idColumn = columns.id as { columnType?: string } | undefined;
+      if (idColumn?.columnType !== "PgSerial") continue;
+      const sqlTableName = getTableName(table);
+      await tx.execute(sql`
+        SELECT setval(
+          pg_get_serial_sequence(${sqlTableName}, 'id'),
+          COALESCE((SELECT MAX(id) FROM ${sql.identifier(sqlTableName)}), 0) + 1,
+          false
+        )
+      `);
+    }
+
+    // Grant the restoring admin access to every restored fleet, using that
+    // fleet's own "admin" role -- builtIn, always seeded on fleet creation,
+    // restored here as part of fleetRoles with its original id intact.
+    const restoredFleets = payload.tables.fleets ?? [];
+    const restoredRoles = payload.tables.fleetRoles ?? [];
+    for (const fleet of restoredFleets) {
+      const fleetId = fleet.id as number;
+      const adminRole = restoredRoles.find(r => r.fleetId === fleetId && r.name === "admin");
+      if (!adminRole) {
+        throw new Error(`Restored fleet ${fleetId} has no "admin" role in the backup -- cannot grant the restoring user access`);
+      }
+      await tx.insert(fleetMemberships).values({
+        fleetId,
+        userId: restoringUserId,
+        roleId: adminRole.id as number,
+        grantedBy: "manual",
+      });
+    }
+
+    await tx.execute(sql`ALTER TABLE audit_log ALTER CONSTRAINT ${sql.identifier(AUDIT_LOG_FLEET_FK)} NOT DEFERRABLE`);
+  });
 }

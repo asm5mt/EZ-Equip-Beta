@@ -67,7 +67,8 @@ import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from 
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
-import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup, decryptBackup } from "./backup";
+import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup, decryptBackup, applyRestore } from "./backup";
+import { recordAudit } from "./audit";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -1354,6 +1355,77 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           currentSchemaVersion,
           counts,
         });
+      } catch (err) { handleError(res, err); }
+    },
+  );
+
+  // Destructive: replaces the config- and full-tier tables' contents with
+  // the uploaded backup's, inside a single transaction (see
+  // applyRestore). Requires the password twice -- X-Backup-Password to
+  // decrypt, X-Backup-Password-Confirm as a deliberate re-type the server
+  // itself verifies, not just a UI-level check -- and hard-blocks on a
+  // schema-version mismatch (unlike preview, which only reports it).
+  app.post(
+    "/api/backup/restore-execute",
+    requireSystemAdmin,
+    express.raw({ type: "application/octet-stream", limit: "500mb" }),
+    async (req, res) => {
+      try {
+        const password = req.get("X-Backup-Password");
+        const confirmPassword = req.get("X-Backup-Password-Confirm");
+        if (!password || !confirmPassword) {
+          return res.status(400).json({
+            error: "missing_password",
+            message: "Both X-Backup-Password and X-Backup-Password-Confirm headers are required",
+          });
+        }
+        if (password !== confirmPassword) {
+          return res.status(400).json({
+            error: "password_confirmation_mismatch",
+            message: "X-Backup-Password and X-Backup-Password-Confirm must match",
+          });
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+          return res.status(400).json({ error: "missing_file", message: "No backup file was uploaded" });
+        }
+
+        let payload: any;
+        try {
+          payload = await decryptBackup(req.body, password);
+        } catch (err: any) {
+          return res.status(400).json({ error: "decrypt_failed", message: String(err?.message ?? err) });
+        }
+
+        if (!payload || typeof payload !== "object" || !payload.tables || typeof payload.tables !== "object") {
+          return res.status(400).json({ error: "invalid_backup", message: "Decrypted data is not a valid backup payload" });
+        }
+
+        const currentSchemaVersion = getSchemaVersion();
+        if (payload.schemaVersion !== currentSchemaVersion) {
+          return res.status(409).json({
+            error: "schema_version_mismatch",
+            message: `This backup was created with schema version "${payload.schemaVersion}", but this instance is running "${currentSchemaVersion}". Restore requires a matching app version.`,
+            schemaVersion: payload.schemaVersion,
+            currentSchemaVersion,
+          });
+        }
+
+        await applyRestore(payload, req.user!.id);
+
+        const counts: Record<string, number> = {};
+        for (const [tableName, rows] of Object.entries(payload.tables as Record<string, unknown>)) {
+          counts[tableName] = Array.isArray(rows) ? rows.length : 0;
+        }
+        await recordAudit({
+          action: "update",
+          entityType: "system_restore",
+          entityId: 0,
+          entityLabel: `Restored from backup (schema ${payload.schemaVersion}, exported ${payload.exportedAt})`,
+          fleetId: null,
+          changes: { schemaVersion: payload.schemaVersion, exportedAt: payload.exportedAt, tier: payload.tier, counts },
+        });
+
+        res.json({ ok: true, schemaVersion: payload.schemaVersion, exportedAt: payload.exportedAt, tier: payload.tier, counts });
       } catch (err) { handleError(res, err); }
     },
   );
