@@ -1,3 +1,4 @@
+import express from "express";
 import type { Express, Request } from "express";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
@@ -66,7 +67,7 @@ import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from 
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
-import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup } from "./backup";
+import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup, decryptBackup } from "./backup";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -1304,6 +1305,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.send(encrypted);
     } catch (err) { handleError(res, err); }
   });
+
+  // Read-only preview: decrypts an uploaded backup and reports what it
+  // contains (row counts per table, schema-version compatibility) without
+  // writing anything to the database. Restore's actual write path is a
+  // later step. The uploaded file is the raw request body (not JSON), so
+  // this route alone gets a much larger body-size limit than the global
+  // express.json() default -- scoped here rather than raised globally,
+  // since attachments.dataUrl stores full base64 file content and a real
+  // backup can legitimately be far larger than any other request this app
+  // handles.
+  app.post(
+    "/api/backup/restore-preview",
+    requireSystemAdmin,
+    express.raw({ type: "application/octet-stream", limit: "500mb" }),
+    async (req, res) => {
+      try {
+        const password = req.get("X-Backup-Password");
+        if (!password) {
+          return res.status(400).json({ error: "missing_password", message: "X-Backup-Password header is required" });
+        }
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+          return res.status(400).json({ error: "missing_file", message: "No backup file was uploaded" });
+        }
+
+        let payload: any;
+        try {
+          payload = await decryptBackup(req.body, password);
+        } catch (err: any) {
+          return res.status(400).json({ error: "decrypt_failed", message: String(err?.message ?? err) });
+        }
+
+        if (!payload || typeof payload !== "object" || !payload.tables || typeof payload.tables !== "object") {
+          return res.status(400).json({ error: "invalid_backup", message: "Decrypted data is not a valid backup payload" });
+        }
+
+        const currentSchemaVersion = getSchemaVersion();
+        const counts: Record<string, number> = {};
+        for (const [tableName, rows] of Object.entries(payload.tables as Record<string, unknown>)) {
+          counts[tableName] = Array.isArray(rows) ? rows.length : 0;
+        }
+
+        res.json({
+          schemaVersion: payload.schemaVersion,
+          exportedAt: payload.exportedAt,
+          tier: payload.tier,
+          versionMismatch: payload.schemaVersion !== currentSchemaVersion,
+          currentSchemaVersion,
+          counts,
+        });
+      } catch (err) { handleError(res, err); }
+    },
+  );
 
   // ---------- Per-user auth provider management ----------
   app.post("/api/users/:id/convert-to-oidc", requireSystemAdmin, async (req, res) => {
