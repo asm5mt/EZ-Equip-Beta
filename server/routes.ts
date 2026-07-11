@@ -66,7 +66,7 @@ import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from 
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
-import { getSchemaVersion, readConfigTierTables } from "./backup";
+import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup } from "./backup";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -1277,6 +1277,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const date = new Date().toISOString().slice(0, 10);
       res.attachment(`ez-equip-config-backup-${date}.json`);
       res.json(payload);
+    } catch (err) { handleError(res, err); }
+  });
+
+  // Full tier: config tier plus every operational/business table, encrypted
+  // with the caller-supplied password. Live API keys/OIDC secrets are still
+  // never included, even encrypted -- those are current-instance
+  // credentials, not portable data.
+  const exportFullSchema = z.object({ password: z.string().min(8) });
+  app.post("/api/backup/export-full", requireSystemAdmin, async (req, res) => {
+    try {
+      const { password } = exportFullSchema.parse(req.body);
+      const payload = {
+        schemaVersion: getSchemaVersion(),
+        exportedAt: new Date().toISOString(),
+        tier: "full",
+        tables: {
+          ...await readConfigTierTables(),
+          ...await readFullTierTables(),
+        },
+      };
+      const encrypted = await encryptBackup(payload, password);
+      const date = new Date().toISOString().slice(0, 10);
+      res.set("Content-Type", "application/octet-stream");
+      res.attachment(`ez-equip-full-backup-${date}.ezbk`);
+      res.send(encrypted);
     } catch (err) { handleError(res, err); }
   });
 

@@ -15,6 +15,19 @@ import {
   systemSettings,
   lookupProviders,
   appSettings,
+  fleets,
+  sites,
+  assets,
+  meterReadings,
+  maintenanceSchedules,
+  maintenanceScheduleAssignments,
+  serviceFacilities,
+  serviceFacilityAddresses,
+  serviceEvents,
+  serviceLineItems,
+  inventoryItems,
+  inventoryMovements,
+  attachments,
 } from "@shared/schema";
 
 // ---------------------------------------------------------------------------
@@ -192,6 +205,36 @@ export async function readConfigTierTables(): Promise<Record<string, Record<stri
     const rows = await db.select().from(table as any);
     const secretFields = SECRET_FIELDS_BY_TABLE[name as ConfigTierTableName];
     result[name] = (rows as Record<string, unknown>[]).map(row => stripSecrets(row, secretFields));
+  }
+  return result;
+}
+
+// "Full" tier = operational/business data on top of the config tier --
+// fleets and everything scoped to them. None of these tables carry secret
+// fields, so nothing here needs stripping; the config-tier's own secret
+// stripping still applies to the config-tier portion of a full export.
+export const FULL_TIER_TABLES = {
+  fleets,
+  sites,
+  assets,
+  meterReadings,
+  maintenanceSchedules,
+  maintenanceScheduleAssignments,
+  serviceFacilities,
+  serviceFacilityAddresses,
+  serviceEvents,
+  serviceLineItems,
+  inventoryItems,
+  inventoryMovements,
+  attachments,
+} as const;
+
+// Reads every full-tier table, unmodified -- used by the full (encrypted)
+// backup export alongside readConfigTierTables().
+export async function readFullTierTables(): Promise<Record<string, Record<string, unknown>[]>> {
+  const result: Record<string, Record<string, unknown>[]> = {};
+  for (const [name, table] of Object.entries(FULL_TIER_TABLES)) {
+    result[name] = await db.select().from(table as any);
   }
   return result;
 }
