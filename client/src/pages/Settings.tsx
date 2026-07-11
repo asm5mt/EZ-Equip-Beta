@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
+import { ProviderSelect } from "@/components/ProviderSelect";
 import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
@@ -493,9 +494,6 @@ const BUILT_IN_VENDOR_LABEL: Record<LookupCategory, string> = {
   nhtsa: "Built-in (NHTSA)",
 };
 
-const SELECT_BUILT_IN = "__builtin__";
-const SELECT_ADD_NEW = "__add_new__";
-
 // One card per Privacy & Lookups category (ZIP Lookup / Geocoding / NHTSA):
 // the on/off switch, the "currently active provider" selector (Built-in or
 // one of this category's saved custom providers), and inline edit/delete
@@ -535,15 +533,6 @@ function LookupProviderCard({
     onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
   });
 
-  const selectValue = selectedProviderId != null && providers.some(p => p.id === selectedProviderId)
-    ? String(selectedProviderId)
-    : SELECT_BUILT_IN;
-
-  const handleSelectChange = (v: string) => {
-    if (v === SELECT_ADD_NEW) { setAddOpen(true); return; }
-    onSelectedProviderIdChange(v === SELECT_BUILT_IN ? null : Number(v));
-  };
-
   return (
     <Card className="p-5 space-y-4" data-testid={`card-${testIdPrefix}`}>
       <div className="flex items-start gap-3">
@@ -560,43 +549,16 @@ function LookupProviderCard({
 
       <div className="space-y-2">
         <Label>Active provider</Label>
-        <Select value={selectValue} onValueChange={handleSelectChange}>
-          <SelectTrigger data-testid={`select-${testIdPrefix}-provider`}><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={SELECT_BUILT_IN}>{BUILT_IN_VENDOR_LABEL[category]}</SelectItem>
-            {providers.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
-            <SelectItem value={SELECT_ADD_NEW}>+ Add new provider…</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {providers.length > 0 && (
-          <div className="space-y-1.5 pt-1">
-            {providers.map(p => (
-              <div
-                key={p.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
-                data-testid={`row-provider-${p.id}`}
-              >
-                <span className="text-sm truncate">{p.name}</span>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => setEditProvider(p)} aria-label={`Edit ${p.name}`} data-testid={`button-edit-provider-${p.id}`}>
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setDeleteProvider(p)}
-                    aria-label={`Delete ${p.name}`}
-                    data-testid={`button-delete-provider-${p.id}`}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <ProviderSelect
+          builtInLabel={BUILT_IN_VENDOR_LABEL[category]}
+          providers={providers}
+          value={selectedProviderId != null && providers.some(p => p.id === selectedProviderId) ? selectedProviderId : null}
+          onValueChange={onSelectedProviderIdChange}
+          onAddNew={() => setAddOpen(true)}
+          onEdit={setEditProvider}
+          onDelete={setDeleteProvider}
+          data-testid={`select-${testIdPrefix}-provider`}
+        />
       </div>
 
       <ProviderFormDialog
