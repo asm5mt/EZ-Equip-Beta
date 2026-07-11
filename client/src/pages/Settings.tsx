@@ -38,6 +38,7 @@ import {
   Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
   Palette, Bug, History, ChevronDown, ChevronRight, ChevronLeft, MapPin, Map as MapIcon, Car,
+  Download, Upload, AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
@@ -50,11 +51,11 @@ export default function Settings() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const rawTab = new URLSearchParams(search).get("tab") ?? "general";
-  // The Audit Log and Privacy tabs reveal system-wide activity/config — if a
-  // non-admin somehow lands on ?tab=audit or ?tab=privacy (stale link,
-  // manual URL edit), fall back to General rather than rendering a
-  // trigger/content that doesn't exist.
-  const activeTab = (rawTab === "audit" || rawTab === "privacy") && !systemAdmin ? "general" : rawTab;
+  // The Audit Log, Privacy, and Backup tabs reveal system-wide
+  // activity/config/data — if a non-admin somehow lands on one of these
+  // (stale link, manual URL edit), fall back to General rather than
+  // rendering a trigger/content that doesn't exist.
+  const activeTab = (rawTab === "audit" || rawTab === "privacy" || rawTab === "backup") && !systemAdmin ? "general" : rawTab;
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
   const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
   // Shares a queryKey with AuthenticationSection's own system-settings query
@@ -235,13 +236,14 @@ export default function Settings() {
         />
 
         <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
-          <TabsList className={`grid w-full grid-cols-2 ${systemAdmin ? "sm:grid-cols-6" : "sm:grid-cols-4"} h-auto`} data-testid="tabs-settings">
+          <TabsList className={`grid w-full grid-cols-2 ${systemAdmin ? "sm:grid-cols-7" : "sm:grid-cols-4"} h-auto`} data-testid="tabs-settings">
             <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
             <TabsTrigger value="roles" data-testid="tab-roles">Roles & Permissions</TabsTrigger>
             <TabsTrigger value="auth" data-testid="tab-auth">Authentication</TabsTrigger>
             {systemAdmin && <TabsTrigger value="audit" data-testid="tab-audit">Audit Log</TabsTrigger>}
             {systemAdmin && <TabsTrigger value="privacy" data-testid="tab-privacy">Privacy</TabsTrigger>}
+            {systemAdmin && <TabsTrigger value="backup" data-testid="tab-backup">Backup</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="mt-5 space-y-5">
@@ -470,6 +472,12 @@ export default function Settings() {
                 selectedProviderId={geocodingSelectedProviderId}
                 onSelectedProviderIdChange={setGeocodingSelectedProviderId}
               />
+            </TabsContent>
+          )}
+
+          {systemAdmin && (
+            <TabsContent value="backup" className="mt-5">
+              <BackupRestoreSection />
             </TabsContent>
           )}
         </Tabs>
@@ -2157,6 +2165,374 @@ function AuditLogDetail({ row }: { row: AuditLog }) {
       ) : (
         <div className="text-xs text-muted-foreground">No changes recorded.</div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Backup & Restore
+// ---------------------------------------------------------------------------
+
+interface RestorePreviewResult {
+  schemaVersion: string;
+  exportedAt: string;
+  tier: string;
+  versionMismatch: boolean;
+  currentSchemaVersion: string;
+  counts: Record<string, number>;
+}
+
+function downloadBlobFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+}
+
+// Reads a JSON error body ({ error, message }) off a failed fetch Response,
+// falling back to a generic message if the body isn't the shape we expect --
+// callers need the server's own specific message (e.g. "incorrect password
+// or corrupted data" vs "not a valid EZ-Equip backup file"), not a generic
+// "something went wrong".
+async function readApiErrorMessage(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null);
+  return body?.message ?? `Request failed (${res.status})`;
+}
+
+function BackupRestoreSection() {
+  const { toast } = useToast();
+
+  // ---- Config-only export (no password, plain JSON) ----
+  const exportConfigMut = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/backup/export-config");
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      return res.blob();
+    },
+    onSuccess: (blob) => {
+      downloadBlobFile(blob, `ez-equip-config-backup-${new Date().toISOString().slice(0, 10)}.json`);
+      toast({ title: "Config-only backup downloaded" });
+    },
+    onError: (e: any) => toast({ title: "Export failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  // ---- Full export (password-encrypted) ----
+  const [fullPassword, setFullPassword] = useState("");
+  const [fullPasswordConfirm, setFullPasswordConfirm] = useState("");
+  const fullPasswordTooShort = fullPassword.length > 0 && fullPassword.length < 8;
+  const fullPasswordMismatch = fullPasswordConfirm.length > 0 && fullPassword !== fullPasswordConfirm;
+  const fullPasswordValid = fullPassword.length >= 8 && fullPassword === fullPasswordConfirm;
+
+  const exportFullMut = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/backup/export-full", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: fullPassword }),
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      return res.blob();
+    },
+    onSuccess: (blob) => {
+      downloadBlobFile(blob, `ez-equip-full-backup-${new Date().toISOString().slice(0, 10)}.ezbk`);
+      setFullPassword("");
+      setFullPasswordConfirm("");
+      toast({ title: "Full backup downloaded" });
+    },
+    onError: (e: any) => toast({ title: "Export failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  // ---- Restore: preview ----
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restorePassword, setRestorePassword] = useState("");
+  const [preview, setPreview] = useState<RestorePreviewResult | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [restoreResult, setRestoreResult] = useState<{ schemaVersion: string; exportedAt: string; counts: Record<string, number> } | null>(null);
+
+  const previewMut = useMutation({
+    mutationFn: async () => {
+      if (!restoreFile) throw new Error("Choose a backup file first");
+      // Raw File as the fetch body -- streams straight through, no
+      // FileReader/base64 detour, matching the raw-Buffer body the server
+      // expects (and avoiding unnecessary overhead for a large backup).
+      const res = await fetch("/api/backup/restore-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Backup-Password": restorePassword },
+        body: restoreFile,
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      return (await res.json()) as RestorePreviewResult;
+    },
+    onSuccess: (data) => { setPreview(data); setPreviewError(null); setRestoreResult(null); },
+    onError: (e: any) => { setPreview(null); setPreviewError(String(e?.message ?? e)); },
+  });
+
+  // ---- Restore: confirm + execute ----
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const confirmPasswordValid = confirmPassword.length > 0 && confirmPassword === restorePassword;
+
+  const executeMut = useMutation({
+    mutationFn: async () => {
+      if (!restoreFile) throw new Error("Choose a backup file first");
+      const res = await fetch("/api/backup/restore-execute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Backup-Password": restorePassword,
+          "X-Backup-Password-Confirm": confirmPassword,
+        },
+        body: restoreFile,
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setPreview(null);
+      setRestoreResult(data);
+      setRestoreFile(null);
+      setRestorePassword("");
+      setConfirmPassword("");
+      // Restore replaces fleets/memberships wholesale -- refresh everything
+      // the fleet switcher and user list depend on so it's visible right
+      // away, no page reload needed.
+      queryClient.invalidateQueries({ queryKey: ["/api/fleets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/fleet-memberships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      toast({ title: "Restore complete" });
+    },
+    onError: (e: any) => toast({ title: "Restore failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const tableRows = preview ? Object.entries(preview.counts).sort(([a], [b]) => a.localeCompare(b)) : [];
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Download className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+          <div>
+            <h3 className="font-semibold">Config-only export</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Instance and fleet configuration only — roles, equipment/fuel/facility types, lookup providers, app
+              settings. No business data, no secrets (API keys and OIDC client secrets are always omitted). Safe to
+              share outside this instance.
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => exportConfigMut.mutate()}
+          disabled={exportConfigMut.isPending}
+          data-testid="button-export-config"
+        >
+          <Download className="size-4 mr-1.5" /> {exportConfigMut.isPending ? "Exporting…" : "Download config-only export"}
+        </Button>
+      </Card>
+
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Download className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+          <div>
+            <h3 className="font-semibold">Full backup</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Every fleet, asset, and service record on this instance, encrypted with the password below. Anyone
+              with the file also needs this password to read it — choose one you can store safely.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md">
+          <div>
+            <Label>Password</Label>
+            <Input
+              type="password"
+              value={fullPassword}
+              onChange={e => setFullPassword(e.target.value)}
+              data-testid="input-full-export-password"
+            />
+          </div>
+          <div>
+            <Label>Confirm password</Label>
+            <Input
+              type="password"
+              value={fullPasswordConfirm}
+              onChange={e => setFullPasswordConfirm(e.target.value)}
+              data-testid="input-full-export-password-confirm"
+            />
+          </div>
+        </div>
+        {fullPasswordTooShort && <p className="text-xs text-destructive">Password must be at least 8 characters.</p>}
+        {fullPasswordMismatch && <p className="text-xs text-destructive">Passwords do not match.</p>}
+        <Button
+          type="button"
+          onClick={() => exportFullMut.mutate()}
+          disabled={!fullPasswordValid || exportFullMut.isPending}
+          data-testid="button-export-full"
+        >
+          <Download className="size-4 mr-1.5" /> {exportFullMut.isPending ? "Exporting…" : "Download full backup"}
+        </Button>
+      </Card>
+
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Upload className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+          <div>
+            <h3 className="font-semibold">Restore</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Upload a full backup (.ezbk) to preview what it contains before deciding whether to restore. Restoring
+              replaces all current fleet, asset, and service data on this instance.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md">
+          <div>
+            <Label>Backup file</Label>
+            <Input
+              type="file"
+              accept=".ezbk"
+              onChange={e => {
+                setRestoreFile(e.target.files?.[0] ?? null);
+                setPreview(null);
+                setPreviewError(null);
+                setRestoreResult(null);
+              }}
+              data-testid="input-restore-file"
+            />
+          </div>
+          <div>
+            <Label>Password</Label>
+            <Input
+              type="password"
+              value={restorePassword}
+              onChange={e => { setRestorePassword(e.target.value); setPreview(null); setPreviewError(null); }}
+              data-testid="input-restore-password"
+            />
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => previewMut.mutate()}
+          disabled={!restoreFile || !restorePassword || previewMut.isPending}
+          data-testid="button-preview-restore"
+        >
+          {previewMut.isPending ? "Decrypting…" : "Preview backup"}
+        </Button>
+
+        {previewError && (
+          <p className="text-sm text-destructive" data-testid="text-preview-error">{previewError}</p>
+        )}
+
+        {preview && (
+          <div className="space-y-3 rounded-md border border-border p-4">
+            <div className="text-sm">
+              <span className="text-muted-foreground">Exported:</span> {new Date(preview.exportedAt).toLocaleString()}
+              {" · "}schema {preview.schemaVersion}
+            </div>
+
+            {preview.versionMismatch && (
+              <div className="rounded-md border p-3 status-warn text-sm" data-testid="banner-version-mismatch">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="size-4" /> Schema version mismatch
+                </div>
+                <p className="mt-1">
+                  This backup was created with schema "{preview.schemaVersion}", but this instance is running "
+                  {preview.currentSchemaVersion}". Restoring across a version mismatch isn't supported — restore
+                  requires a matching app version.
+                </p>
+              </div>
+            )}
+
+            <div className="max-h-64 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead>Table</TableHead><TableHead className="text-right">Rows</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tableRows.map(([name, count]) => (
+                    <TableRow key={name}>
+                      <TableCell className="text-sm">{name}</TableCell>
+                      <TableCell className="text-sm text-right">{count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={preview.versionMismatch}
+              onClick={() => setConfirmOpen(true)}
+              data-testid="button-open-restore-confirm"
+            >
+              Restore from this backup…
+            </Button>
+          </div>
+        )}
+
+        {restoreResult && (
+          <div className="rounded-md border p-3 status-ok text-sm" data-testid="text-restore-success">
+            <div className="font-semibold">Restore complete</div>
+            <p className="mt-1">
+              Restored {Object.values(restoreResult.counts).reduce((a, b) => a + b, 0)} rows across{" "}
+              {Object.keys(restoreResult.counts).length} tables from the backup exported{" "}
+              {new Date(restoreResult.exportedAt).toLocaleString()} (schema {restoreResult.schemaVersion}). You now
+              have access to every restored fleet.
+            </p>
+          </div>
+        )}
+      </Card>
+
+      <AlertDialog open={confirmOpen} onOpenChange={(open) => { setConfirmOpen(open); if (!open) setConfirmPassword(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mb-1 inline-flex size-10 items-center justify-center rounded-full status-warn">
+              <AlertTriangle className="size-5" />
+            </div>
+            <AlertDialogTitle>Replace all current data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This replaces all current fleet, asset, and service data on this instance with the backup's contents
+              from {preview ? new Date(preview.exportedAt).toLocaleString() : ""}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {preview && (
+            <div className="max-h-48 overflow-y-auto rounded-md border border-border p-3 text-sm space-y-0.5">
+              {tableRows.map(([name, count]) => (
+                <div key={name} className="flex justify-between">
+                  <span className="text-muted-foreground">{name}</span>
+                  <span>{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div>
+            <Label>Re-enter your password to confirm</Label>
+            <Input
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              data-testid="input-restore-confirm-password"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-restore">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!confirmPasswordValid}
+              onClick={() => executeMut.mutate()}
+              data-testid="button-confirm-restore"
+            >
+              Restore
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

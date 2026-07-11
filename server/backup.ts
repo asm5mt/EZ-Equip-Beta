@@ -298,9 +298,22 @@ function coerceRowDates(table: any, rows: Record<string, unknown>[]): Record<str
 // re-granted at the end for restoringUserId, never restored from the
 // backup's own data.
 export async function applyRestore(
-  payload: { tables: Record<string, Record<string, unknown>[]> },
+  payload: { tier?: string; tables: Record<string, Record<string, unknown>[]> },
   restoringUserId: number,
 ): Promise<void> {
+  // Defensive checks up front, before any deletion happens (and before the
+  // transaction even opens) -- these mirror equivalent checks in the
+  // restore-execute route, but applyRestore stays safe on its own regardless
+  // of caller.
+  if (payload.tier !== "full") {
+    throw new Error(`Restore requires a "full" tier backup, got "${payload.tier ?? "unknown"}"`);
+  }
+  const expectedTables = Object.keys(ALL_RESTORE_TABLES);
+  const missingTables = expectedTables.filter(name => !(name in payload.tables));
+  if (missingTables.length > 0) {
+    throw new Error(`Backup is missing required table(s): ${missingTables.join(", ")}`);
+  }
+
   await db.transaction(async (tx) => {
     await tx.execute(sql`ALTER TABLE audit_log ALTER CONSTRAINT ${sql.identifier(AUDIT_LOG_FLEET_FK)} DEFERRABLE INITIALLY DEFERRED`);
     await tx.execute(sql`SET CONSTRAINTS ${sql.identifier(AUDIT_LOG_FLEET_FK)} DEFERRED`);
@@ -313,10 +326,14 @@ export async function applyRestore(
     for (const name of RESTORE_TABLE_ORDER) {
       const table = ALL_RESTORE_TABLES[name];
       const rows = coerceRowDates(table, payload.tables[name] ?? []);
-      if (rows.length === 0) continue;
-      await tx.insert(table).values(rows);
+      if (rows.length > 0) {
+        await tx.insert(table).values(rows);
+      }
       // appSettings is the one table in either tier whose primary key isn't
-      // a serial id (it's a text "key") -- no sequence to reset there.
+      // a serial id (it's a text "key") -- no sequence to reset there. Every
+      // other table's sequence is reset here regardless of whether it ended
+      // up with any rows -- an empty table correctly resets to 1, since
+      // MAX(id) over zero rows is NULL and COALESCE(..., 0) + 1 is 1.
       const columns = getTableColumns(table);
       const idColumn = columns.id as { columnType?: string } | undefined;
       if (idColumn?.columnType !== "PgSerial") continue;

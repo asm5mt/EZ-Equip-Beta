@@ -67,7 +67,7 @@ import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from 
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
-import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup, decryptBackup, applyRestore } from "./backup";
+import { getSchemaVersion, readConfigTierTables, readFullTierTables, encryptBackup, decryptBackup, applyRestore, CONFIG_TIER_TABLES, FULL_TIER_TABLES } from "./backup";
 import { recordAudit } from "./audit";
 import { z } from "zod";
 
@@ -1398,6 +1398,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         if (!payload || typeof payload !== "object" || !payload.tables || typeof payload.tables !== "object") {
           return res.status(400).json({ error: "invalid_backup", message: "Decrypted data is not a valid backup payload" });
+        }
+
+        // Restore only ever operates on full backups -- config-only exports
+        // are for sharing/reference, never for restore.
+        if (payload.tier !== "full") {
+          return res.status(400).json({
+            error: "invalid_tier",
+            message: `Restore requires a "full" tier backup, but this file is tier "${payload.tier ?? "unknown"}".`,
+          });
+        }
+
+        const expectedTables = [...Object.keys(CONFIG_TIER_TABLES), ...Object.keys(FULL_TIER_TABLES)];
+        const missingTables = expectedTables.filter(name => !(name in payload.tables));
+        if (missingTables.length > 0) {
+          return res.status(400).json({
+            error: "incomplete_backup",
+            message: `This backup is missing required table(s): ${missingTables.join(", ")}`,
+            missingTables,
+          });
         }
 
         const currentSchemaVersion = getSchemaVersion();
