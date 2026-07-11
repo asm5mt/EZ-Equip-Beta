@@ -141,6 +141,13 @@
       "when": 1783745099083,
       "tag": "0019_useful_fantastic_four",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783746283098,
+      "tag": "0020_light_sinister_six",
+      "breakpoints": true
     }
   ]
 }

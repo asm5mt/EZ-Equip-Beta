@@ -64,20 +64,19 @@ export async function getOAuthToken(provider: LookupProvider): Promise<string> {
 // is appended to baseUrl before the query string — used by NHTSA's
 // path-shaped endpoints (e.g. /recalls/recallsByVehicle), left empty for
 // ZIP/geocoding providers whose entire request is base URL + query string.
+// `placeholders` are only consulted when provider.requestUrlTemplate is set:
+// each `{token}` occurrence in the template is replaced with the
+// URL-encoded value of the matching key (used for {query} on geocoding
+// providers, {country}/{zip} on ZIP providers — never set for 'nhtsa').
 export async function buildProviderRequest(
   provider: LookupProvider,
   extraParams: Record<string, string> = {},
   pathSuffix: string = "",
+  placeholders: Record<string, string> = {},
 ): Promise<{ url: string; headers: Record<string, string> }> {
   const headers: Record<string, string> = { Accept: "application/json" };
-  const params = new URLSearchParams(extraParams);
 
   switch (provider.authMethod) {
-    case "query":
-      if (provider.authParamName && provider.authValue) {
-        params.set(provider.authParamName, provider.authValue);
-      }
-      break;
     case "header":
       if (provider.authParamName && provider.authValue) {
         headers[provider.authParamName] = provider.bearerPrefix ? `Bearer ${provider.authValue}` : provider.authValue;
@@ -88,9 +87,25 @@ export async function buildProviderRequest(
       headers.Authorization = `Bearer ${token}`;
       break;
     }
-    case "none":
     default:
       break;
+  }
+
+  if (provider.requestUrlTemplate) {
+    let url = provider.requestUrlTemplate;
+    for (const [key, value] of Object.entries(placeholders)) {
+      url = url.split(`{${key}}`).join(encodeURIComponent(value));
+    }
+    if (provider.authMethod === "query" && provider.authParamName && provider.authValue) {
+      const separator = url.includes("?") ? "&" : "?";
+      url += `${separator}${encodeURIComponent(provider.authParamName)}=${encodeURIComponent(provider.authValue)}`;
+    }
+    return { url, headers };
+  }
+
+  const params = new URLSearchParams(extraParams);
+  if (provider.authMethod === "query" && provider.authParamName && provider.authValue) {
+    params.set(provider.authParamName, provider.authValue);
   }
 
   const base = provider.baseUrl.replace(/\/+$/, "") + pathSuffix;

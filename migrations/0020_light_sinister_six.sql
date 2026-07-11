@@ -1,0 +1,1 @@
+ALTER TABLE "lookup_providers" ADD COLUMN "request_url_template" text;

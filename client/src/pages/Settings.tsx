@@ -21,6 +21,8 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { EditablePageActions, DialogHeaderActions, useUnsavedChangeGuard } from "@/components/EditablePageActions";
@@ -28,7 +30,7 @@ import { DiagnosticsRegistration } from "@/lib/diagnostics-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAppContext } from "@/lib/app-context";
 import type { FleetRoleWithPermissions } from "@/lib/app-context";
-import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping, AuditLog } from "@shared/schema";
+import type { AppSetting, Fleet, User, SystemSettings, OidcGroupMapping, AuditLog, LookupProvider } from "@shared/schema";
 import { formatRelativeTime } from "@/lib/format";
 import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
@@ -62,6 +64,9 @@ export default function Settings() {
     zipLookupEnabled: boolean;
     geocodingEnabled: boolean;
     nhtsaLookupEnabled: boolean;
+    zipLookupSelectedProviderId: number | null;
+    geocodingSelectedProviderId: number | null;
+    nhtsaLookupSelectedProviderId: number | null;
   }>({
     queryKey: ["/api/system-settings"],
     enabled: systemAdmin,
@@ -83,6 +88,9 @@ export default function Settings() {
       zipLookupEnabled: diagSettingsQ.data?.zipLookupEnabled ?? true,
       geocodingEnabled: diagSettingsQ.data?.geocodingEnabled ?? true,
       nhtsaLookupEnabled: diagSettingsQ.data?.nhtsaLookupEnabled ?? true,
+      zipLookupSelectedProviderId: diagSettingsQ.data?.zipLookupSelectedProviderId ?? null,
+      geocodingSelectedProviderId: diagSettingsQ.data?.geocodingSelectedProviderId ?? null,
+      nhtsaLookupSelectedProviderId: diagSettingsQ.data?.nhtsaLookupSelectedProviderId ?? null,
     };
   }, [settingsQ.data, orgInfoQ.data, diagSettingsQ.data]);
 
@@ -101,6 +109,9 @@ export default function Settings() {
   const [zipLookupEnabled, setZipLookupEnabled] = useState(true);
   const [geocodingEnabled, setGeocodingEnabled] = useState(true);
   const [nhtsaLookupEnabled, setNhtsaLookupEnabled] = useState(true);
+  const [zipLookupSelectedProviderId, setZipLookupSelectedProviderId] = useState<number | null>(null);
+  const [geocodingSelectedProviderId, setGeocodingSelectedProviderId] = useState<number | null>(null);
+  const [nhtsaLookupSelectedProviderId, setNhtsaLookupSelectedProviderId] = useState<number | null>(null);
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -121,6 +132,9 @@ export default function Settings() {
     setZipLookupEnabled(persisted.zipLookupEnabled);
     setGeocodingEnabled(persisted.geocodingEnabled);
     setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
+    setZipLookupSelectedProviderId(persisted.zipLookupSelectedProviderId);
+    setGeocodingSelectedProviderId(persisted.geocodingSelectedProviderId);
+    setNhtsaLookupSelectedProviderId(persisted.nhtsaLookupSelectedProviderId);
   }, [persisted]);
 
   const auditLogRetentionDays = auditLogRetentionDaysInput.trim() === "" ? null : Number(auditLogRetentionDaysInput);
@@ -129,6 +143,7 @@ export default function Settings() {
     themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl,
     diagnosticsOverlayEnabled, auditLogRetentionDays,
     zipLookupEnabled, geocodingEnabled, nhtsaLookupEnabled,
+    zipLookupSelectedProviderId, geocodingSelectedProviderId, nhtsaLookupSelectedProviderId,
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
@@ -148,7 +163,10 @@ export default function Settings() {
       await apiRequest("PATCH", "/api/system-settings", {
         orgName: orgName.trim(),
         orgLogoUrl: orgLogoUrl.trim(),
-        ...(systemAdmin ? { diagnosticsOverlayEnabled, auditLogRetentionDays, zipLookupEnabled, geocodingEnabled, nhtsaLookupEnabled } : {}),
+        ...(systemAdmin ? {
+          diagnosticsOverlayEnabled, auditLogRetentionDays, zipLookupEnabled, geocodingEnabled, nhtsaLookupEnabled,
+          zipLookupSelectedProviderId, geocodingSelectedProviderId, nhtsaLookupSelectedProviderId,
+        } : {}),
       });
     },
     onSuccess: () => {
@@ -175,6 +193,9 @@ export default function Settings() {
     setZipLookupEnabled(persisted.zipLookupEnabled);
     setGeocodingEnabled(persisted.geocodingEnabled);
     setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
+    setZipLookupSelectedProviderId(persisted.zipLookupSelectedProviderId);
+    setGeocodingSelectedProviderId(persisted.geocodingSelectedProviderId);
+    setNhtsaLookupSelectedProviderId(persisted.nhtsaLookupSelectedProviderId);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
     window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
@@ -416,32 +437,38 @@ export default function Settings() {
           {systemAdmin && (
             <TabsContent value="privacy" className="mt-5 space-y-5">
               <LookupProviderCard
+                icon={Car}
+                title="NHTSA Vehicle Lookups"
+                description="Used to decode VINs and check for safety recalls."
+                testIdPrefix="nhtsa-lookup"
+                category="nhtsa"
+                enabled={nhtsaLookupEnabled}
+                onEnabledChange={setNhtsaLookupEnabled}
+                selectedProviderId={nhtsaLookupSelectedProviderId}
+                onSelectedProviderIdChange={setNhtsaLookupSelectedProviderId}
+              />
+              <LookupProviderCard
                 icon={MapPin}
                 title="ZIP Lookup"
                 description="Used to auto-fill city/state when entering a postal code on address fields."
                 testIdPrefix="zip-lookup"
+                category="zip"
                 enabled={zipLookupEnabled}
                 onEnabledChange={setZipLookupEnabled}
+                selectedProviderId={zipLookupSelectedProviderId}
+                onSelectedProviderIdChange={setZipLookupSelectedProviderId}
               />
               <LookupProviderCard
                 icon={MapIcon}
                 title="Geocoding"
                 description="Used to convert fleet and service facility addresses into map coordinates."
                 testIdPrefix="geocoding"
+                category="geocoding"
                 enabled={geocodingEnabled}
                 onEnabledChange={setGeocodingEnabled}
+                selectedProviderId={geocodingSelectedProviderId}
+                onSelectedProviderIdChange={setGeocodingSelectedProviderId}
               />
-              <LookupProviderCard
-                icon={Car}
-                title="NHTSA Vehicle Lookups"
-                description="Used to decode VINs and check for safety recalls."
-                testIdPrefix="nhtsa-lookup"
-                enabled={nhtsaLookupEnabled}
-                onEnabledChange={setNhtsaLookupEnabled}
-              />
-              <p className="text-sm text-muted-foreground">
-                Custom provider management (per-provider auth, API keys, and response-shape mapping) is being redesigned and will land in a follow-up update.
-              </p>
             </TabsContent>
           )}
         </Tabs>
@@ -450,22 +477,73 @@ export default function Settings() {
   );
 }
 
-// One card per Privacy & Lookups category (ZIP Lookup / Geocoding / NHTSA).
-// Just the on/off switch for now — per-category custom provider selection
-// (auth, API keys, response-shape mapping) now lives in the lookupProviders
-// table and gets its own management UI in a follow-up; this card doesn't
-// try to render that yet.
+// ---------------------------------------------------------------------------
+// Privacy & Lookups: per-category provider selection + custom provider CRUD
+// ---------------------------------------------------------------------------
+
+type LookupCategory = "zip" | "geocoding" | "nhtsa";
+type LookupProviderResponse = Omit<LookupProvider, "authValue" | "oauthClientSecret"> & {
+  authValueSet: boolean;
+  oauthClientSecretSet: boolean;
+};
+
+const BUILT_IN_VENDOR_LABEL: Record<LookupCategory, string> = {
+  zip: "Built-in (Zippopotam.us)",
+  geocoding: "Built-in (OpenStreetMap Nominatim)",
+  nhtsa: "Built-in (NHTSA)",
+};
+
+const SELECT_BUILT_IN = "__builtin__";
+const SELECT_ADD_NEW = "__add_new__";
+
+// One card per Privacy & Lookups category (ZIP Lookup / Geocoding / NHTSA):
+// the on/off switch, the "currently active provider" selector (Built-in or
+// one of this category's saved custom providers), and inline edit/delete
+// for each saved provider.
 function LookupProviderCard({
-  icon: Icon, title, description, testIdPrefix,
-  enabled, onEnabledChange,
+  icon: Icon, title, description, testIdPrefix, category,
+  enabled, onEnabledChange, selectedProviderId, onSelectedProviderIdChange,
 }: {
   icon: LucideIcon;
   title: string;
   description: string;
   testIdPrefix: string;
+  category: LookupCategory;
   enabled: boolean;
   onEnabledChange: (v: boolean) => void;
+  selectedProviderId: number | null;
+  onSelectedProviderIdChange: (id: number | null) => void;
 }) {
+  const { toast } = useToast();
+  const providersQ = useQuery<LookupProviderResponse[]>({
+    queryKey: ["/api/lookup-providers", { category }],
+  });
+  const providers = providersQ.data ?? [];
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [editProvider, setEditProvider] = useState<LookupProviderResponse | null>(null);
+  const [deleteProvider, setDeleteProvider] = useState<LookupProviderResponse | null>(null);
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/lookup-providers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lookup-providers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/system-settings"] });
+      setDeleteProvider(null);
+      toast({ title: "Provider deleted" });
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const selectValue = selectedProviderId != null && providers.some(p => p.id === selectedProviderId)
+    ? String(selectedProviderId)
+    : SELECT_BUILT_IN;
+
+  const handleSelectChange = (v: string) => {
+    if (v === SELECT_ADD_NEW) { setAddOpen(true); return; }
+    onSelectedProviderIdChange(v === SELECT_BUILT_IN ? null : Number(v));
+  };
+
   return (
     <Card className="p-5 space-y-4" data-testid={`card-${testIdPrefix}`}>
       <div className="flex items-start gap-3">
@@ -479,7 +557,405 @@ function LookupProviderCard({
         <Switch checked={enabled} onCheckedChange={onEnabledChange} data-testid={`switch-${testIdPrefix}-enabled`} />
         <span className="text-sm">{enabled ? "Enabled" : "Disabled"}</span>
       </label>
+
+      <div className="space-y-2">
+        <Label>Active provider</Label>
+        <Select value={selectValue} onValueChange={handleSelectChange}>
+          <SelectTrigger data-testid={`select-${testIdPrefix}-provider`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SELECT_BUILT_IN}>{BUILT_IN_VENDOR_LABEL[category]}</SelectItem>
+            {providers.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+            <SelectItem value={SELECT_ADD_NEW}>+ Add new provider…</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {providers.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            {providers.map(p => (
+              <div
+                key={p.id}
+                className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+                data-testid={`row-provider-${p.id}`}
+              >
+                <span className="text-sm truncate">{p.name}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => setEditProvider(p)} aria-label={`Edit ${p.name}`} data-testid={`button-edit-provider-${p.id}`}>
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteProvider(p)}
+                    aria-label={`Delete ${p.name}`}
+                    data-testid={`button-delete-provider-${p.id}`}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ProviderFormDialog
+        open={addOpen || !!editProvider}
+        onOpenChange={(next) => { if (!next) { setAddOpen(false); setEditProvider(null); } }}
+        category={category}
+        provider={editProvider}
+      />
+
+      <AlertDialog open={!!deleteProvider} onOpenChange={(open) => { if (!open) setDeleteProvider(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete provider?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteProvider?.name ? `"${deleteProvider.name}"` : "This provider"} will be removed. If it's currently the active provider for this category, it falls back to {BUILT_IN_VENDOR_LABEL[category]}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-provider">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteProvider && deleteMut.mutate(deleteProvider.id)}
+              data-testid="button-confirm-delete-provider"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
+  );
+}
+
+type ProviderPresetKey = "nominatim" | "google" | "here" | "usps_v3" | "custom";
+
+interface ProviderPresetDefaults {
+  requestUrlTemplate?: string;
+  latPath?: string;
+  lonPath?: string;
+  cityPath?: string;
+  statePath?: string;
+  authMethod?: "none" | "query" | "header" | "oauth2_client_credentials";
+}
+
+// Client-side convenience only — pre-fills sensible starting values for a
+// vendor's response shape when the admin picks a preset. Not stored as
+// schema defaults; the admin can edit any field afterward.
+function presetDefaults(category: "zip" | "geocoding", preset: ProviderPresetKey, baseUrl: string): ProviderPresetDefaults {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (category === "geocoding") {
+    switch (preset) {
+      case "nominatim":
+        return { requestUrlTemplate: `${base}/search?format=json&limit=1&q={query}`, latPath: "[0].lat", lonPath: "[0].lon" };
+      case "google":
+        return { requestUrlTemplate: `${base}/geocode/json?address={query}`, latPath: "results[0].geometry.location.lat", lonPath: "results[0].geometry.location.lng" };
+      case "here":
+        return { latPath: "items[0].position.lat", lonPath: "items[0].position.lng" };
+      default:
+        return {};
+    }
+  }
+  switch (preset) {
+    case "nominatim":
+      return { cityPath: "places[0].place name", statePath: "places[0].state abbreviation" };
+    case "usps_v3":
+      return { requestUrlTemplate: `${base}/addresses/v3/city-state?ZIPCode={zip}`, cityPath: "city", statePath: "state", authMethod: "oauth2_client_credentials" };
+    default:
+      return {};
+  }
+}
+
+// Shared Add/Edit modal for a category's custom lookup providers. `provider`
+// null means Add mode; non-null means Edit mode, prefilled from that row
+// (secrets show as masked "configured" placeholders — blank means unchanged).
+function ProviderFormDialog({ open, onOpenChange, category, provider }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  category: LookupCategory;
+  provider: LookupProviderResponse | null;
+}) {
+  const { toast } = useToast();
+  const isEdit = !!provider;
+
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [preset, setPreset] = useState<ProviderPresetKey>("custom");
+  const [requestUrlTemplate, setRequestUrlTemplate] = useState("");
+  const [coordMode, setCoordMode] = useState<"latlon" | "array">("latlon");
+  const [latPath, setLatPath] = useState("");
+  const [lonPath, setLonPath] = useState("");
+  const [coordinatesArrayPath, setCoordinatesArrayPath] = useState("");
+  const [coordinatesReversed, setCoordinatesReversed] = useState(false);
+  const [cityPath, setCityPath] = useState("");
+  const [statePath, setStatePath] = useState("");
+  const [authMethod, setAuthMethod] = useState<"none" | "query" | "header" | "oauth2_client_credentials">("none");
+  const [authParamName, setAuthParamName] = useState("");
+  const [authValue, setAuthValue] = useState("");
+  const [bearerPrefix, setBearerPrefix] = useState(false);
+  const [oauthTokenUrl, setOauthTokenUrl] = useState("");
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [oauthScope, setOauthScope] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(provider?.name ?? "");
+    setBaseUrl(provider?.baseUrl ?? "");
+    setPreset((provider?.responseShapePreset as ProviderPresetKey) ?? "custom");
+    setRequestUrlTemplate(provider?.requestUrlTemplate ?? "");
+    setCoordMode(provider?.coordinatesArrayPath ? "array" : "latlon");
+    setLatPath(provider?.latPath ?? "");
+    setLonPath(provider?.lonPath ?? "");
+    setCoordinatesArrayPath(provider?.coordinatesArrayPath ?? "");
+    setCoordinatesReversed(provider?.coordinatesReversed ?? false);
+    setCityPath(provider?.cityPath ?? "");
+    setStatePath(provider?.statePath ?? "");
+    setAuthMethod((provider?.authMethod as any) ?? "none");
+    setAuthParamName(provider?.authParamName ?? "");
+    setAuthValue("");
+    setBearerPrefix(provider?.bearerPrefix ?? false);
+    setOauthTokenUrl(provider?.oauthTokenUrl ?? "");
+    setOauthClientId(provider?.oauthClientId ?? "");
+    setOauthClientSecret("");
+    setOauthScope(provider?.oauthScope ?? "");
+  }, [open, provider]);
+
+  const initial = useMemo(() => ({
+    name: provider?.name ?? "",
+    baseUrl: provider?.baseUrl ?? "",
+    preset: (provider?.responseShapePreset as ProviderPresetKey) ?? "custom",
+    requestUrlTemplate: provider?.requestUrlTemplate ?? "",
+    coordMode: (provider?.coordinatesArrayPath ? "array" : "latlon") as "latlon" | "array",
+    latPath: provider?.latPath ?? "",
+    lonPath: provider?.lonPath ?? "",
+    coordinatesArrayPath: provider?.coordinatesArrayPath ?? "",
+    coordinatesReversed: provider?.coordinatesReversed ?? false,
+    cityPath: provider?.cityPath ?? "",
+    statePath: provider?.statePath ?? "",
+    authMethod: provider?.authMethod ?? "none",
+    authParamName: provider?.authParamName ?? "",
+    bearerPrefix: provider?.bearerPrefix ?? false,
+    oauthTokenUrl: provider?.oauthTokenUrl ?? "",
+    oauthClientId: provider?.oauthClientId ?? "",
+    oauthScope: provider?.oauthScope ?? "",
+  }), [provider]);
+
+  const hasChanges = isEdit
+    ? name !== initial.name || baseUrl !== initial.baseUrl || preset !== initial.preset
+      || requestUrlTemplate !== initial.requestUrlTemplate || coordMode !== initial.coordMode
+      || latPath !== initial.latPath || lonPath !== initial.lonPath
+      || coordinatesArrayPath !== initial.coordinatesArrayPath || coordinatesReversed !== initial.coordinatesReversed
+      || cityPath !== initial.cityPath || statePath !== initial.statePath
+      || authMethod !== initial.authMethod || authParamName !== initial.authParamName
+      || bearerPrefix !== initial.bearerPrefix || oauthTokenUrl !== initial.oauthTokenUrl
+      || oauthClientId !== initial.oauthClientId || oauthScope !== initial.oauthScope
+      || authValue.length > 0 || oauthClientSecret.length > 0
+    : Boolean(name.trim() || baseUrl.trim());
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        category,
+        name: name.trim(),
+        baseUrl: baseUrl.trim(),
+        requestUrlTemplate: category !== "nhtsa" && requestUrlTemplate.trim() ? requestUrlTemplate.trim() : null,
+        responseShapePreset: category !== "nhtsa" ? preset : null,
+        authMethod,
+        authParamName: authMethod === "query" || authMethod === "header" ? authParamName.trim() || null : null,
+        bearerPrefix: authMethod === "header" ? bearerPrefix : false,
+        oauthTokenUrl: authMethod === "oauth2_client_credentials" ? oauthTokenUrl.trim() || null : null,
+        oauthClientId: authMethod === "oauth2_client_credentials" ? oauthClientId.trim() || null : null,
+        oauthScope: authMethod === "oauth2_client_credentials" ? oauthScope.trim() || null : null,
+        latPath: category === "geocoding" && coordMode === "latlon" ? latPath.trim() || null : null,
+        lonPath: category === "geocoding" && coordMode === "latlon" ? lonPath.trim() || null : null,
+        coordinatesArrayPath: category === "geocoding" && coordMode === "array" ? coordinatesArrayPath.trim() || null : null,
+        coordinatesReversed: category === "geocoding" && coordMode === "array" ? coordinatesReversed : false,
+        cityPath: category === "zip" ? cityPath.trim() || null : null,
+        statePath: category === "zip" ? statePath.trim() || null : null,
+        ...(authValue ? { authValue } : {}),
+        ...(oauthClientSecret ? { oauthClientSecret } : {}),
+      };
+      if (isEdit) await apiRequest("PATCH", `/api/lookup-providers/${provider!.id}`, payload);
+      else await apiRequest("POST", "/api/lookup-providers", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lookup-providers"] });
+      toast({ title: isEdit ? "Provider updated" : "Provider added" });
+      onOpenChange(false);
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
+  });
+
+  const { confirmOrRun, dialog: unsavedDialog } = useUnsavedChangeGuard({ hasChanges, onSave: () => saveMut.mutate() });
+  const handleOpenChange = (next: boolean) => {
+    if (!next) confirmOrRun(() => onOpenChange(false));
+    else onOpenChange(next);
+  };
+
+  const handlePresetChange = (value: ProviderPresetKey) => {
+    setPreset(value);
+    if (value === "custom") return;
+    const defaults = presetDefaults(category as "zip" | "geocoding", value, baseUrl);
+    if (defaults.requestUrlTemplate !== undefined) setRequestUrlTemplate(defaults.requestUrlTemplate);
+    if (defaults.latPath !== undefined) { setLatPath(defaults.latPath); setCoordMode("latlon"); }
+    if (defaults.lonPath !== undefined) setLonPath(defaults.lonPath);
+    if (defaults.cityPath !== undefined) setCityPath(defaults.cityPath);
+    if (defaults.statePath !== undefined) setStatePath(defaults.statePath);
+    if (defaults.authMethod !== undefined) setAuthMethod(defaults.authMethod);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent hideCloseButton className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader className="flex-row items-center justify-between space-y-0">
+          <DialogTitle>{isEdit ? `Edit ${provider?.name}` : "Add Provider"}</DialogTitle>
+          <DialogHeaderActions
+            onCancel={() => handleOpenChange(false)}
+            onSave={() => saveMut.mutate()}
+            canSave={!!name.trim() && !!baseUrl.trim() && !saveMut.isPending}
+            isSaving={saveMut.isPending}
+            hasChanges={hasChanges}
+          />
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div><Label>Name</Label><Input value={name} onChange={e => setName(e.target.value)} data-testid="input-provider-name" /></div>
+            <div><Label>Base URL</Label><Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com" data-testid="input-provider-base-url" /></div>
+          </div>
+
+          {category !== "nhtsa" && (
+            <div>
+              <Label>Response shape preset</Label>
+              <Select value={preset} onValueChange={(v) => handlePresetChange(v as ProviderPresetKey)}>
+                <SelectTrigger data-testid="select-provider-preset"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nominatim">Nominatim / LocationIQ-style</SelectItem>
+                  <SelectItem value="google">Google-style</SelectItem>
+                  <SelectItem value="here">HERE-style</SelectItem>
+                  {category === "zip" && <SelectItem value="usps_v3">USPS v3-style</SelectItem>}
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {category !== "nhtsa" && (
+            <div>
+              <Label>Request URL template</Label>
+              <Input
+                value={requestUrlTemplate}
+                onChange={e => setRequestUrlTemplate(e.target.value)}
+                placeholder="https://api.example.com/search?q={query}"
+                data-testid="input-provider-url-template"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {category === "geocoding" ? "Use {query} as a placeholder for the search text." : "Use {country} and {zip} as placeholders."}
+              </p>
+            </div>
+          )}
+
+          {category === "geocoding" && (
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <Label>Coordinates</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" size="sm" variant={coordMode === "latlon" ? "default" : "outline"} onClick={() => setCoordMode("latlon")} data-testid="button-coord-mode-latlon">
+                  Separate lat/lon
+                </Button>
+                <Button type="button" size="sm" variant={coordMode === "array" ? "default" : "outline"} onClick={() => setCoordMode("array")} data-testid="button-coord-mode-array">
+                  Combined array
+                </Button>
+              </div>
+              {coordMode === "latlon" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label>Latitude path</Label><Input value={latPath} onChange={e => setLatPath(e.target.value)} data-testid="input-provider-lat-path" /></div>
+                  <div><Label>Longitude path</Label><Input value={lonPath} onChange={e => setLonPath(e.target.value)} data-testid="input-provider-lon-path" /></div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div><Label>Coordinate array path</Label><Input value={coordinatesArrayPath} onChange={e => setCoordinatesArrayPath(e.target.value)} data-testid="input-provider-coords-path" /></div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={coordinatesReversed} onCheckedChange={(v) => setCoordinatesReversed(!!v)} data-testid="checkbox-coords-reversed" />
+                    Coordinates are [lat, lon], not [lon, lat]
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
+          {category === "zip" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>City path</Label><Input value={cityPath} onChange={e => setCityPath(e.target.value)} data-testid="input-provider-city-path" /></div>
+              <div><Label>State path</Label><Input value={statePath} onChange={e => setStatePath(e.target.value)} data-testid="input-provider-state-path" /></div>
+            </div>
+          )}
+
+          <div>
+            <Label>Auth method</Label>
+            <Select value={authMethod} onValueChange={(v: any) => setAuthMethod(v)}>
+              <SelectTrigger data-testid="select-provider-auth-method"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="query">API key in query parameter</SelectItem>
+                <SelectItem value="header">API key in header</SelectItem>
+                <SelectItem value="oauth2_client_credentials">OAuth 2.0 Client Credentials</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(authMethod === "query" || authMethod === "header") && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>{authMethod === "query" ? "Query parameter name" : "Header name"}</Label>
+                <Input
+                  value={authParamName}
+                  onChange={e => setAuthParamName(e.target.value)}
+                  placeholder={authMethod === "query" ? "api_key" : "X-Api-Key"}
+                  data-testid="input-provider-auth-param-name"
+                />
+              </div>
+              <div>
+                <Label>{authMethod === "query" ? "API key" : "Key value"}</Label>
+                <Input
+                  type="password"
+                  value={authValue}
+                  onChange={e => setAuthValue(e.target.value)}
+                  placeholder={provider?.authValueSet ? "•••• configured" : "Not set"}
+                  data-testid="input-provider-auth-value"
+                />
+              </div>
+              {authMethod === "header" && (
+                <label className="flex items-center gap-2 text-sm col-span-2">
+                  <Checkbox checked={bearerPrefix} onCheckedChange={(v) => setBearerPrefix(!!v)} data-testid="checkbox-provider-bearer-prefix" />
+                  Prefix with "Bearer "
+                </label>
+              )}
+            </div>
+          )}
+
+          {authMethod === "oauth2_client_credentials" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2"><Label>Token URL</Label><Input value={oauthTokenUrl} onChange={e => setOauthTokenUrl(e.target.value)} data-testid="input-provider-oauth-token-url" /></div>
+              <div><Label>Client ID</Label><Input value={oauthClientId} onChange={e => setOauthClientId(e.target.value)} data-testid="input-provider-oauth-client-id" /></div>
+              <div>
+                <Label>Client secret</Label>
+                <Input
+                  type="password"
+                  value={oauthClientSecret}
+                  onChange={e => setOauthClientSecret(e.target.value)}
+                  placeholder={provider?.oauthClientSecretSet ? "•••• configured" : "Not set"}
+                  data-testid="input-provider-oauth-client-secret"
+                />
+              </div>
+              <div className="col-span-2"><Label>Scope (optional)</Label><Input value={oauthScope} onChange={e => setOauthScope(e.target.value)} data-testid="input-provider-oauth-scope" /></div>
+            </div>
+          )}
+        </div>
+        {unsavedDialog}
+      </DialogContent>
+    </Dialog>
   );
 }
 

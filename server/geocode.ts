@@ -19,7 +19,7 @@ export async function geocodeAddress(query: string): Promise<{ latitude: number 
     if (settings.geocodingSelectedProviderId != null) {
       const provider = await storage.getLookupProvider(settings.geocodingSelectedProviderId);
       if (provider) {
-        const { url, headers } = await buildProviderRequest(provider, { q: trimmed });
+        const { url, headers } = await buildProviderRequest(provider, { q: trimmed }, "", { query: trimmed });
         const response = await fetch(url, { headers, signal: controller.signal });
         if (!response.ok) return { latitude: null, longitude: null };
         const json = await response.json();

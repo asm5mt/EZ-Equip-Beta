@@ -150,6 +150,13 @@ export const lookupProviders = pgTable("lookup_providers", {
   baseUrl: text("base_url").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 
+  // Full URL pattern with {token} placeholders (e.g. {query} for geocoding,
+  // {country}/{zip} for zip lookup), URL-encoded and substituted before the
+  // request is sent. Not used for 'nhtsa' (no alternate-shape vendor — custom
+  // NHTSA providers just swap baseUrl/auth against the Built-in endpoint
+  // shape). When unset, baseUrl + extraParams-as-querystring is used instead.
+  requestUrlTemplate: text("request_url_template"),
+
   // Auth — applies to all three categories.
   authMethod: text("auth_method").notNull().default("none"), // 'none'|'query'|'header'|'oauth2_client_credentials'
   authParamName: text("auth_param_name"), // query param name or header name

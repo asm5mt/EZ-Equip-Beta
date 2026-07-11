@@ -492,7 +492,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (settings.zipLookupSelectedProviderId != null) {
         const provider = await storage.getLookupProvider(settings.zipLookupSelectedProviderId);
         if (provider) {
-          const { url, headers } = await buildProviderRequest(provider, { country: country.toLowerCase(), zip });
+          const { url, headers } = await buildProviderRequest(provider, { country: country.toLowerCase(), zip }, "", { country: country.toLowerCase(), zip });
           const response = await fetch(url, { headers, signal: controller.signal });
           if (!response.ok) {
             return res.status(502).json({ error: "zip_lookup_error", status: response.status });
