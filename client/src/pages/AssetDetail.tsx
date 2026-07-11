@@ -102,6 +102,13 @@ export default function AssetDetail() {
   const fuelTypesQ = useQuery<FleetFuelType[]>({ queryKey: ["/api/fleet-fuel-types", { fleetId: assetTypeFleetId }], enabled: !!assetTypeFleetId });
   const configuredTypeForQueries = assetQ.data ? (typesQ.data ?? []).find(t => t.name === assetQ.data?.assetType) : undefined;
   const vinFeaturesEnabled = Boolean(configuredTypeForQueries?.enableVinFeatures);
+  // Instance-wide switch (Settings → Privacy) — defaults to true while loading
+  // so the affordance doesn't flash-hide on first paint (the DB default is
+  // also true, so "unknown" and "on" should render identically).
+  const lookupSettingsQ = useQuery<{ zipLookupEnabled: boolean; geocodingEnabled: boolean; nhtsaLookupEnabled: boolean }>({
+    queryKey: ["/api/lookup-settings"],
+  });
+  const nhtsaLookupEnabled = lookupSettingsQ.data?.nhtsaLookupEnabled ?? true;
   const schedulesQ = useQuery<MaintenanceSchedule[]>({
     queryKey: ["/api/schedules", { assetId }],
     enabled: !!assetId,
@@ -117,7 +124,7 @@ export default function AssetDetail() {
   const lineItemsQ = useQuery<ServiceLineItem[]>({ queryKey: ["/api/service-line-items", { assetId }], enabled: !!assetId });
   const vinDecodeQ = useQuery<VinDecodeField[]>({
     queryKey: ["nhtsa-vpic-decode", assetQ.data?.vin],
-    enabled: !!assetQ.data?.vin && vinFeaturesEnabled,
+    enabled: !!assetQ.data?.vin && vinFeaturesEnabled && nhtsaLookupEnabled,
     retry: false,
     staleTime: 1000 * 60 * 30,
     queryFn: async () => {
@@ -298,6 +305,7 @@ export default function AssetDetail() {
     }
   };
   const decodeVin = (vin: string) => {
+    if (!nhtsaLookupEnabled) return;
     setVinDrawerOpen(true);
     if (vinDecodeQ.data) {
       setVinDecode({ loading: false, error: null, fields: vinDecodeQ.data });
@@ -467,15 +475,17 @@ export default function AssetDetail() {
                       </Button>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                        onClick={() => decodeVin(asset.vin!)}
-                        data-testid="button-decode-vin"
-                      >
-                        <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
-                      </Button>
+                      {nhtsaLookupEnabled && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                          onClick={() => decodeVin(asset.vin!)}
+                          data-testid="button-decode-vin"
+                        >
+                          <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
+                        </Button>
+                      )}
                       <RecallsComplaintsButton
                         entry={safetyEntry}
                         onClick={() => { setActiveTab("safety"); loadSafetyDetail(); }}

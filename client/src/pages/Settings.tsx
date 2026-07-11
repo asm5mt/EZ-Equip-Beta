@@ -34,8 +34,9 @@ import type { PermissionCatalogEntry } from "@shared/permissions";
 import {
   Moon, Ruler, Settings as SettingsIcon, Sun, Monitor, ShieldCheck, KeyRound,
   Save, Plus, Trash2, Lock, Globe, Link2, CheckCircle2, XCircle, Network, Pencil, Building2,
-  Palette, Bug, History, ChevronDown, ChevronRight, ChevronLeft,
+  Palette, Bug, History, ChevronDown, ChevronRight, ChevronLeft, MapPin, Map as MapIcon, Car,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { THEME_PACKS, findThemePack } from "@/lib/theme-packs";
 
 type ThemeMode = "auto" | "dark" | "light";
@@ -46,15 +47,22 @@ export default function Settings() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const rawTab = new URLSearchParams(search).get("tab") ?? "general";
-  // The Audit Log tab reveals a system-wide activity feed — if a non-admin
-  // somehow lands on ?tab=audit (stale link, manual URL edit), fall back to
-  // General rather than rendering a trigger/content that doesn't exist.
-  const activeTab = rawTab === "audit" && !systemAdmin ? "general" : rawTab;
+  // The Audit Log and Privacy tabs reveal system-wide activity/config — if a
+  // non-admin somehow lands on ?tab=audit or ?tab=privacy (stale link,
+  // manual URL edit), fall back to General rather than rendering a
+  // trigger/content that doesn't exist.
+  const activeTab = (rawTab === "audit" || rawTab === "privacy") && !systemAdmin ? "general" : rawTab;
   const settingsQ = useQuery<AppSetting[]>({ queryKey: ["/api/app-settings"] });
   const orgInfoQ = useQuery<{ orgName: string | null; orgLogoUrl: string | null }>({ queryKey: ["/api/org-info"] });
   // Shares a queryKey with AuthenticationSection's own system-settings query
   // (same admin-only endpoint), so react-query dedupes the fetch/cache.
-  const diagSettingsQ = useQuery<{ diagnosticsOverlayEnabled: boolean; auditLogRetentionDays: number | null }>({
+  const diagSettingsQ = useQuery<{
+    diagnosticsOverlayEnabled: boolean;
+    auditLogRetentionDays: number | null;
+    zipLookupEnabled: boolean; zipLookupProvider: string; zipLookupCustomUrl: string | null; zipLookupApiKeySet: boolean;
+    geocodingEnabled: boolean; geocodingProvider: string; geocodingCustomUrl: string | null; geocodingApiKeySet: boolean;
+    nhtsaLookupEnabled: boolean; nhtsaLookupProvider: string; nhtsaLookupCustomUrl: string | null; nhtsaLookupApiKeySet: boolean;
+  }>({
     queryKey: ["/api/system-settings"],
     enabled: systemAdmin,
   });
@@ -72,6 +80,18 @@ export default function Settings() {
       orgLogoUrl: orgInfoQ.data?.orgLogoUrl ?? "",
       diagnosticsOverlayEnabled: diagSettingsQ.data?.diagnosticsOverlayEnabled ?? false,
       auditLogRetentionDays: diagSettingsQ.data?.auditLogRetentionDays ?? null,
+      zipLookupEnabled: diagSettingsQ.data?.zipLookupEnabled ?? true,
+      zipLookupProvider: diagSettingsQ.data?.zipLookupProvider ?? "seeded",
+      zipLookupCustomUrl: diagSettingsQ.data?.zipLookupCustomUrl ?? "",
+      zipLookupApiKey: "", // write-only; GET never reflects the real value
+      geocodingEnabled: diagSettingsQ.data?.geocodingEnabled ?? true,
+      geocodingProvider: diagSettingsQ.data?.geocodingProvider ?? "seeded",
+      geocodingCustomUrl: diagSettingsQ.data?.geocodingCustomUrl ?? "",
+      geocodingApiKey: "",
+      nhtsaLookupEnabled: diagSettingsQ.data?.nhtsaLookupEnabled ?? true,
+      nhtsaLookupProvider: diagSettingsQ.data?.nhtsaLookupProvider ?? "seeded",
+      nhtsaLookupCustomUrl: diagSettingsQ.data?.nhtsaLookupCustomUrl ?? "",
+      nhtsaLookupApiKey: "",
     };
   }, [settingsQ.data, orgInfoQ.data, diagSettingsQ.data]);
 
@@ -86,6 +106,19 @@ export default function Settings() {
   const [diagnosticsOverlayEnabled, setDiagnosticsOverlayEnabled] = useState(false);
   // Raw text input — blank means "keep forever" (persisted as null).
   const [auditLogRetentionDaysInput, setAuditLogRetentionDaysInput] = useState("");
+
+  const [zipLookupEnabled, setZipLookupEnabled] = useState(true);
+  const [zipLookupProvider, setZipLookupProvider] = useState("seeded");
+  const [zipLookupCustomUrl, setZipLookupCustomUrl] = useState("");
+  const [zipLookupApiKeyInput, setZipLookupApiKeyInput] = useState("");
+  const [geocodingEnabled, setGeocodingEnabled] = useState(true);
+  const [geocodingProvider, setGeocodingProvider] = useState("seeded");
+  const [geocodingCustomUrl, setGeocodingCustomUrl] = useState("");
+  const [geocodingApiKeyInput, setGeocodingApiKeyInput] = useState("");
+  const [nhtsaLookupEnabled, setNhtsaLookupEnabled] = useState(true);
+  const [nhtsaLookupProvider, setNhtsaLookupProvider] = useState("seeded");
+  const [nhtsaLookupCustomUrl, setNhtsaLookupCustomUrl] = useState("");
+  const [nhtsaLookupApiKeyInput, setNhtsaLookupApiKeyInput] = useState("");
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -103,6 +136,18 @@ export default function Settings() {
     setOrgLogoUrl(persisted.orgLogoUrl);
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
     setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
+    setZipLookupEnabled(persisted.zipLookupEnabled);
+    setZipLookupProvider(persisted.zipLookupProvider);
+    setZipLookupCustomUrl(persisted.zipLookupCustomUrl);
+    setZipLookupApiKeyInput(persisted.zipLookupApiKey);
+    setGeocodingEnabled(persisted.geocodingEnabled);
+    setGeocodingProvider(persisted.geocodingProvider);
+    setGeocodingCustomUrl(persisted.geocodingCustomUrl);
+    setGeocodingApiKeyInput(persisted.geocodingApiKey);
+    setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
+    setNhtsaLookupProvider(persisted.nhtsaLookupProvider);
+    setNhtsaLookupCustomUrl(persisted.nhtsaLookupCustomUrl);
+    setNhtsaLookupApiKeyInput(persisted.nhtsaLookupApiKey);
   }, [persisted]);
 
   const auditLogRetentionDays = auditLogRetentionDaysInput.trim() === "" ? null : Number(auditLogRetentionDaysInput);
@@ -110,6 +155,9 @@ export default function Settings() {
   const draft = {
     themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl,
     diagnosticsOverlayEnabled, auditLogRetentionDays,
+    zipLookupEnabled, zipLookupProvider, zipLookupCustomUrl, zipLookupApiKey: zipLookupApiKeyInput,
+    geocodingEnabled, geocodingProvider, geocodingCustomUrl, geocodingApiKey: geocodingApiKeyInput,
+    nhtsaLookupEnabled, nhtsaLookupProvider, nhtsaLookupCustomUrl, nhtsaLookupApiKey: nhtsaLookupApiKeyInput,
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
@@ -129,13 +177,22 @@ export default function Settings() {
       await apiRequest("PATCH", "/api/system-settings", {
         orgName: orgName.trim(),
         orgLogoUrl: orgLogoUrl.trim(),
-        ...(systemAdmin ? { diagnosticsOverlayEnabled, auditLogRetentionDays } : {}),
+        ...(systemAdmin ? {
+          diagnosticsOverlayEnabled, auditLogRetentionDays,
+          zipLookupEnabled, zipLookupProvider, zipLookupCustomUrl: zipLookupCustomUrl.trim(),
+          ...(zipLookupApiKeyInput ? { zipLookupApiKey: zipLookupApiKeyInput } : {}),
+          geocodingEnabled, geocodingProvider, geocodingCustomUrl: geocodingCustomUrl.trim(),
+          ...(geocodingApiKeyInput ? { geocodingApiKey: geocodingApiKeyInput } : {}),
+          nhtsaLookupEnabled, nhtsaLookupProvider, nhtsaLookupCustomUrl: nhtsaLookupCustomUrl.trim(),
+          ...(nhtsaLookupApiKeyInput ? { nhtsaLookupApiKey: nhtsaLookupApiKeyInput } : {}),
+        } : {}),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/app-settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/org-info"] });
       queryClient.invalidateQueries({ queryKey: ["/api/system-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lookup-settings"] });
       toast({ title: "Settings saved" });
     },
     onError: (e: any) => toast({ title: "Save failed", description: String(e?.message ?? e), variant: "destructive" }),
@@ -152,6 +209,18 @@ export default function Settings() {
     setOrgLogoUrl(persisted.orgLogoUrl);
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
     setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
+    setZipLookupEnabled(persisted.zipLookupEnabled);
+    setZipLookupProvider(persisted.zipLookupProvider);
+    setZipLookupCustomUrl(persisted.zipLookupCustomUrl);
+    setZipLookupApiKeyInput(persisted.zipLookupApiKey);
+    setGeocodingEnabled(persisted.geocodingEnabled);
+    setGeocodingProvider(persisted.geocodingProvider);
+    setGeocodingCustomUrl(persisted.geocodingCustomUrl);
+    setGeocodingApiKeyInput(persisted.geocodingApiKey);
+    setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
+    setNhtsaLookupProvider(persisted.nhtsaLookupProvider);
+    setNhtsaLookupCustomUrl(persisted.nhtsaLookupCustomUrl);
+    setNhtsaLookupApiKeyInput(persisted.nhtsaLookupApiKey);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
     window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
@@ -190,12 +259,13 @@ export default function Settings() {
         />
 
         <Tabs value={activeTab} onValueChange={(v) => navigate(`/settings?tab=${v}`)} className="w-full">
-          <TabsList className={`grid w-full grid-cols-2 ${systemAdmin ? "sm:grid-cols-5" : "sm:grid-cols-4"} h-auto`} data-testid="tabs-settings">
+          <TabsList className={`grid w-full grid-cols-2 ${systemAdmin ? "sm:grid-cols-6" : "sm:grid-cols-4"} h-auto`} data-testid="tabs-settings">
             <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
             <TabsTrigger value="roles" data-testid="tab-roles">Roles & Permissions</TabsTrigger>
             <TabsTrigger value="auth" data-testid="tab-auth">Authentication</TabsTrigger>
             {systemAdmin && <TabsTrigger value="audit" data-testid="tab-audit">Audit Log</TabsTrigger>}
+            {systemAdmin && <TabsTrigger value="privacy" data-testid="tab-privacy">Privacy</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="mt-5 space-y-5">
@@ -388,9 +458,138 @@ export default function Settings() {
               <AuditLogSection />
             </TabsContent>
           )}
+
+          {systemAdmin && (
+            <TabsContent value="privacy" className="mt-5 space-y-5">
+              <LookupProviderCard
+                icon={MapPin}
+                title="ZIP Lookup"
+                description="Used to auto-fill city/state when entering a postal code on address fields."
+                testIdPrefix="zip-lookup"
+                enabled={zipLookupEnabled}
+                onEnabledChange={setZipLookupEnabled}
+                provider={zipLookupProvider}
+                onProviderChange={setZipLookupProvider}
+                customUrl={zipLookupCustomUrl}
+                onCustomUrlChange={setZipLookupCustomUrl}
+                apiKeyInput={zipLookupApiKeyInput}
+                onApiKeyInputChange={setZipLookupApiKeyInput}
+                apiKeySet={diagSettingsQ.data?.zipLookupApiKeySet ?? false}
+              />
+              <LookupProviderCard
+                icon={MapIcon}
+                title="Geocoding"
+                description="Used to convert fleet and service facility addresses into map coordinates."
+                testIdPrefix="geocoding"
+                enabled={geocodingEnabled}
+                onEnabledChange={setGeocodingEnabled}
+                provider={geocodingProvider}
+                onProviderChange={setGeocodingProvider}
+                customUrl={geocodingCustomUrl}
+                onCustomUrlChange={setGeocodingCustomUrl}
+                apiKeyInput={geocodingApiKeyInput}
+                onApiKeyInputChange={setGeocodingApiKeyInput}
+                apiKeySet={diagSettingsQ.data?.geocodingApiKeySet ?? false}
+              />
+              <LookupProviderCard
+                icon={Car}
+                title="NHTSA Vehicle Lookups"
+                description="Used to decode VINs and check for safety recalls."
+                testIdPrefix="nhtsa-lookup"
+                enabled={nhtsaLookupEnabled}
+                onEnabledChange={setNhtsaLookupEnabled}
+                provider={nhtsaLookupProvider}
+                onProviderChange={setNhtsaLookupProvider}
+                customUrl={nhtsaLookupCustomUrl}
+                onCustomUrlChange={setNhtsaLookupCustomUrl}
+                apiKeyInput={nhtsaLookupApiKeyInput}
+                onApiKeyInputChange={setNhtsaLookupApiKeyInput}
+                apiKeySet={diagSettingsQ.data?.nhtsaLookupApiKeySet ?? false}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppShell>
+  );
+}
+
+// One card per Privacy & Lookups category (ZIP Lookup / Geocoding / NHTSA).
+// The API key field follows the exact write-only pattern used for
+// oidcClientSecret in AuthenticationSection: masked input, a "set" indicator
+// in the placeholder, and blank means "leave unchanged" — there is no
+// explicit "clear" affordance because the OIDC pattern this was modeled on
+// doesn't have one either (blank silently no-ops server-side).
+function LookupProviderCard({
+  icon: Icon, title, description, testIdPrefix,
+  enabled, onEnabledChange,
+  provider, onProviderChange,
+  customUrl, onCustomUrlChange,
+  apiKeyInput, onApiKeyInputChange, apiKeySet,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  testIdPrefix: string;
+  enabled: boolean;
+  onEnabledChange: (v: boolean) => void;
+  provider: string;
+  onProviderChange: (v: string) => void;
+  customUrl: string;
+  onCustomUrlChange: (v: string) => void;
+  apiKeyInput: string;
+  onApiKeyInputChange: (v: string) => void;
+  apiKeySet: boolean;
+}) {
+  return (
+    <Card className="p-5 space-y-4" data-testid={`card-${testIdPrefix}`}>
+      <div className="flex items-start gap-3">
+        <Icon className="size-5 mt-0.5 text-[hsl(var(--primary))]" />
+        <div>
+          <h3 className="font-semibold">{title}</h3>
+          <p className="text-sm text-muted-foreground mt-1">{description}</p>
+        </div>
+      </div>
+      <label className="flex items-center gap-3">
+        <Switch checked={enabled} onCheckedChange={onEnabledChange} data-testid={`switch-${testIdPrefix}-enabled`} />
+        <span className="text-sm">{enabled ? "Enabled" : "Disabled"}</span>
+      </label>
+      {enabled && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-border">
+          <div>
+            <Label>Provider</Label>
+            <Select value={provider} onValueChange={onProviderChange}>
+              <SelectTrigger data-testid={`select-${testIdPrefix}-provider`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="seeded">Seeded (built-in default)</SelectItem>
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {provider === "custom" && (
+            <div>
+              <Label>Custom base URL</Label>
+              <Input
+                value={customUrl}
+                onChange={e => onCustomUrlChange(e.target.value)}
+                placeholder="https://mirror.example.com"
+                data-testid={`input-${testIdPrefix}-custom-url`}
+              />
+            </div>
+          )}
+          <div className="sm:col-span-2">
+            <Label>API Key</Label>
+            <Input
+              type="password"
+              value={apiKeyInput}
+              onChange={e => onApiKeyInputChange(e.target.value)}
+              placeholder={apiKeySet ? "•••• configured" : "Not set"}
+              data-testid={`input-${testIdPrefix}-api-key`}
+            />
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

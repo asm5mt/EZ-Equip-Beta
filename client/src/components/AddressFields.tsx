@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableColumnSelect } from "@/components/SearchableColumnSelect";
@@ -35,8 +36,15 @@ export function AddressFields({ value, onChange, idPrefix, disabled }: {
   const { toast } = useToast();
   const config = getCountryAddressConfig(value.country);
   const set = (patch: Partial<AddressFieldsValue>) => onChange({ ...value, ...patch });
+  // Instance-wide switch (Settings → Privacy) — defaults to true while
+  // loading so the field doesn't briefly behave as if lookups were off.
+  const lookupSettingsQ = useQuery<{ zipLookupEnabled: boolean; geocodingEnabled: boolean; nhtsaLookupEnabled: boolean }>({
+    queryKey: ["/api/lookup-settings"],
+  });
+  const zipLookupEnabled = lookupSettingsQ.data?.zipLookupEnabled ?? true;
 
   const handleZipBlur = async () => {
+    if (!zipLookupEnabled) return;
     const trimmed = value.zip.trim();
     if (trimmed.length < 3) return;
     try {

@@ -136,6 +136,13 @@ export default function AssetForm({ mode }: { mode: "new" | "edit" }) {
     [typesQ.data, selectedAssetType],
   );
   const vinFeaturesEnabled = Boolean(selectedType?.enableVinFeatures);
+  // Instance-wide switch (Settings → Privacy) — defaults to true while loading
+  // so the affordance doesn't flash-hide on first paint (the DB default is
+  // also true, so "unknown" and "on" should render identically).
+  const lookupSettingsQ = useQuery<{ zipLookupEnabled: boolean; geocodingEnabled: boolean; nhtsaLookupEnabled: boolean }>({
+    queryKey: ["/api/lookup-settings"],
+  });
+  const nhtsaLookupEnabled = lookupSettingsQ.data?.nhtsaLookupEnabled ?? true;
   const vinValue = cleanVin(String(form.watch("vin") ?? ""));
   const vinDecodedFieldsValue = String(form.watch("vinDecodedFields") ?? "[]");
   const vinSourceFields = useMemo(() => parseVinDecodedFields(vinDecodedFieldsValue), [vinDecodedFieldsValue]);
@@ -146,6 +153,7 @@ export default function AssetForm({ mode }: { mode: "new" | "edit" }) {
   };
 
   const decodeVin = async (vin = vinValue) => {
+    if (!nhtsaLookupEnabled) return;
     const cleaned = cleanVin(vin);
     form.setValue("vin", cleaned as any, { shouldDirty: true, shouldValidate: true });
     setVinSuccess(null);
@@ -306,19 +314,25 @@ export default function AssetForm({ mode }: { mode: "new" | "edit" }) {
                         />
                       </FormControl>
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-xs text-muted-foreground">Enter VIN to auto-fill asset details, or fill fields manually below.</p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="rounded-full"
-                          onClick={() => decodeVin(vinValue)}
-                          disabled={!canEdit || vinDecoding || save.isPending}
-                          data-testid="button-decode-vin-form"
-                        >
-                          {vinDecoding ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Search className="mr-1.5 size-3.5" />}
-                          Decode VIN
-                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          {nhtsaLookupEnabled
+                            ? "Enter VIN to auto-fill asset details, or fill fields manually below."
+                            : "VIN decode is currently disabled by your administrator. Enter the VIN and fill details manually below."}
+                        </p>
+                        {nhtsaLookupEnabled && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full"
+                            onClick={() => decodeVin(vinValue)}
+                            disabled={!canEdit || vinDecoding || save.isPending}
+                            data-testid="button-decode-vin-form"
+                          >
+                            {vinDecoding ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Search className="mr-1.5 size-3.5" />}
+                            Decode VIN
+                          </Button>
+                        )}
                       </div>
                       {vinError && <p className="text-xs font-medium text-[hsl(var(--status-overdue))]" data-testid="error-vin-decode">{vinError}</p>}
                       {vinSuccess && <p className="text-xs font-medium text-[hsl(var(--status-ok))]" data-testid="success-vin-decode">{vinSuccess}</p>}
