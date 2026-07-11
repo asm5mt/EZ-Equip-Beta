@@ -66,6 +66,7 @@ import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from 
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
 import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
+import { getSchemaVersion, readConfigTierTables } from "./backup";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -1258,6 +1259,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const offset = req.query.offset ? Math.max(Number(req.query.offset), 0) : 0;
     const result = await storage.listAuditLog({ fleetId, entityType, actorUserId, action, from, to, limit, offset });
     res.json(result);
+  });
+
+  // ---------- Backup & restore ----------
+  // Config tier only: instance/fleet configuration, no operational or
+  // business data, no secrets -- plain unencrypted JSON, safe to share
+  // outside the instance. No restore counterpart yet.
+  app.get("/api/backup/export-config", requireSystemAdmin, async (_req, res) => {
+    try {
+      const tables = await readConfigTierTables();
+      const payload = {
+        schemaVersion: getSchemaVersion(),
+        exportedAt: new Date().toISOString(),
+        tier: "config",
+        tables,
+      };
+      const date = new Date().toISOString().slice(0, 10);
+      res.attachment(`ez-equip-config-backup-${date}.json`);
+      res.json(payload);
+    } catch (err) { handleError(res, err); }
   });
 
   // ---------- Per-user auth provider management ----------
