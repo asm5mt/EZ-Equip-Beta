@@ -126,24 +126,53 @@ export const systemSettings = pgTable("system_settings", {
   auditLogRetentionDays: integer("audit_log_retention_days"),
 
   // ----- Privacy & Lookups: ZIP/postal, geocoding, NHTSA vehicle lookups -----
-  // Each category shares the same four-column shape: an on/off switch, which
-  // provider to use ('seeded' = the built-in default, 'custom' = self-hosted
-  // mirror), the custom base URL (only read when provider is 'custom'), and
-  // a write-only API key sent as `Authorization: Bearer <key>` when set.
+  // Each category has an on/off switch plus which saved lookupProviders row
+  // (if any) to use instead of the Built-in default. Null = Built-in.
   zipLookupEnabled: boolean("zip_lookup_enabled").notNull().default(true),
-  zipLookupProvider: text("zip_lookup_provider").notNull().default("seeded"), // 'seeded' | 'custom'
-  zipLookupCustomUrl: text("zip_lookup_custom_url"),
-  zipLookupApiKey: text("zip_lookup_api_key"),
+  zipLookupSelectedProviderId: integer("zip_lookup_selected_provider_id").references(() => lookupProviders.id),
 
   geocodingEnabled: boolean("geocoding_enabled").notNull().default(true),
-  geocodingProvider: text("geocoding_provider").notNull().default("seeded"), // 'seeded' | 'custom'
-  geocodingCustomUrl: text("geocoding_custom_url"),
-  geocodingApiKey: text("geocoding_api_key"),
+  geocodingSelectedProviderId: integer("geocoding_selected_provider_id").references(() => lookupProviders.id),
 
   nhtsaLookupEnabled: boolean("nhtsa_lookup_enabled").notNull().default(true),
-  nhtsaLookupProvider: text("nhtsa_lookup_provider").notNull().default("seeded"), // 'seeded' | 'custom'
-  nhtsaLookupCustomUrl: text("nhtsa_lookup_custom_url"),
-  nhtsaLookupApiKey: text("nhtsa_lookup_api_key"),
+  nhtsaLookupSelectedProviderId: integer("nhtsa_lookup_selected_provider_id").references(() => lookupProviders.id),
+});
+
+// ----- Lookup providers (Privacy & Lookups: saved custom providers) --------
+// One row per admin-configured custom provider for a category. A category's
+// systemSettings.*SelectedProviderId points at the row currently in use, or
+// stays null to keep using that category's Built-in default (Nominatim /
+// Zippopotam / api.nhtsa.gov+vpic.nhtsa.dot.gov) untouched by this table.
+export const lookupProviders = pgTable("lookup_providers", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(), // 'zip' | 'geocoding' | 'nhtsa'
+  name: text("name").notNull(),
+  baseUrl: text("base_url").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+
+  // Auth — applies to all three categories.
+  authMethod: text("auth_method").notNull().default("none"), // 'none'|'query'|'header'|'oauth2_client_credentials'
+  authParamName: text("auth_param_name"), // query param name or header name
+  authValue: text("auth_value"), // write-only/redacted — the static key
+  bearerPrefix: boolean("bearer_prefix").notNull().default(false), // header only: send as `Bearer <value>` vs raw
+  oauthTokenUrl: text("oauth_token_url"),
+  oauthClientId: text("oauth_client_id"), // not sensitive, stored plain
+  oauthClientSecret: text("oauth_client_secret"), // write-only/redacted
+  oauthScope: text("oauth_scope"),
+
+  // Response shape — only meaningful for category IN ('zip','geocoding').
+  // Unused/null for 'nhtsa': there's no alternate-shape NHTSA vendor, custom
+  // NHTSA providers are assumed to mirror the Built-in response shape.
+  responseShapePreset: text("response_shape_preset"), // UI convenience label only, e.g. 'nominatim'|'google'|'here'|'usps_v3'|'custom'
+  latPath: text("lat_path"),
+  lonPath: text("lon_path"),
+  // Alternative to latPath/lonPath for a single combined coordinate array
+  // (Mapbox-style [lon, lat]). coordinatesReversed=false reads [lon,lat]
+  // (index 0=lon, 1=lat, matching Mapbox/GeoJSON); true reads [lat,lon].
+  coordinatesArrayPath: text("coordinates_array_path"),
+  coordinatesReversed: boolean("coordinates_reversed").notNull().default(false),
+  cityPath: text("city_path"), // zip category
+  statePath: text("state_path"), // zip category
 });
 
 // ----- Audit log -------------------------------------------------------------
@@ -498,6 +527,13 @@ export type OidcGroupMapping = typeof oidcGroupMappings.$inferSelect;
 export const insertSystemSettingsSchema = createInsertSchema(systemSettings).omit({ id: true });
 export type InsertSystemSettings = z.infer<typeof insertSystemSettingsSchema>;
 export type SystemSettings = typeof systemSettings.$inferSelect;
+
+export const insertLookupProviderSchema = createInsertSchema(lookupProviders, {
+  category: z.enum(["zip", "geocoding", "nhtsa"]),
+  authMethod: z.enum(["none", "query", "header", "oauth2_client_credentials"]).default("none"),
+}).omit({ id: true, createdAt: true });
+export type InsertLookupProvider = z.infer<typeof insertLookupProviderSchema>;
+export type LookupProvider = typeof lookupProviders.$inferSelect;
 
 export const insertInventoryCategorySchema = createInsertSchema(inventoryCategories).omit({ id: true });
 export type InsertInventoryCategory = z.infer<typeof insertInventoryCategorySchema>;

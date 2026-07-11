@@ -60,10 +60,12 @@ import {
   insertAttachmentSchema,
   insertAppSettingSchema,
   insertOidcGroupMappingSchema,
+  insertLookupProviderSchema,
 } from "@shared/schema";
-import type { InsertSystemSettings, SystemSettings } from "@shared/schema";
+import type { InsertSystemSettings, LookupProvider, InsertLookupProvider } from "@shared/schema";
 import { PERMISSION_CATALOG } from "@shared/permissions";
 import type { PermissionKey } from "@shared/permissions";
+import { buildProviderRequest, resolveZipResult } from "./lookup-providers";
 import { z } from "zod";
 
 type HistoryKind = "service" | "meter";
@@ -332,20 +334,20 @@ function nhtsaModelCandidates(model: string) {
   return Array.from(new Set(candidates));
 }
 
-// NHTSA lookups span two real upstream hosts under the seeded defaults
+// NHTSA lookups span two real upstream hosts under the Built-in default
 // (api.nhtsa.gov for recalls/complaints, vpic.nhtsa.dot.gov for VIN decode).
-// A single admin-configured custom URL stands in for whichever host a given
-// call would otherwise use — same path shape, different base.
-function nhtsaBaseUrl(defaultBase: string, settings: SystemSettings): string {
-  if (settings.nhtsaLookupProvider === "custom" && settings.nhtsaLookupCustomUrl) {
-    return settings.nhtsaLookupCustomUrl.replace(/\/+$/, "");
-  }
-  return defaultBase;
-}
-function nhtsaHeaders(settings: SystemSettings): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (settings.nhtsaLookupApiKey) headers.Authorization = `Bearer ${settings.nhtsaLookupApiKey}`;
-  return headers;
+// A saved custom provider is assumed to mirror the Built-in response shape
+// (no shape mapping needed for NHTSA) — just a different base URL/auth,
+// applied via the same shared resolver used by ZIP/geocoding.
+async function nhtsaRequest(
+  provider: LookupProvider | null,
+  defaultBase: string,
+  path: string,
+  params: Record<string, string>,
+): Promise<{ url: string; headers: Record<string, string> }> {
+  if (provider) return buildProviderRequest(provider, params, path);
+  const qs = new URLSearchParams(params).toString();
+  return { url: `${defaultBase}${path}${qs ? `?${qs}` : ""}`, headers: { Accept: "application/json" } };
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -362,23 +364,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     const settings = await storage.getSystemSettings();
     if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
-    const base = nhtsaBaseUrl("https://api.nhtsa.gov", settings);
-    const headers = nhtsaHeaders(settings);
+    const provider = settings.nhtsaLookupSelectedProviderId != null
+      ? (await storage.getLookupProvider(settings.nhtsaLookupSelectedProviderId)) ?? null
+      : null;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       let lastStatuses: { recallsStatus?: number; complaintsStatus?: number; model?: string } = {};
       for (const lookupModel of exactModel ? [model] : nhtsaModelCandidates(model)) {
-        const params = new URLSearchParams({ make, model: lookupModel, modelYear });
+        const params = { make, model: lookupModel, modelYear };
+        const [recallsReq, complaintsReq] = await Promise.all([
+          nhtsaRequest(provider, "https://api.nhtsa.gov", "/recalls/recallsByVehicle", params),
+          nhtsaRequest(provider, "https://api.nhtsa.gov", "/complaints/complaintsByVehicle", params),
+        ]);
         const [recallsResponse, complaintsResponse] = await Promise.all([
-          fetch(`${base}/recalls/recallsByVehicle?${params.toString()}`, {
-            headers,
-            signal: controller.signal,
-          }),
-          fetch(`${base}/complaints/complaintsByVehicle?${params.toString()}`, {
-            headers,
-            signal: controller.signal,
-          }),
+          fetch(recallsReq.url, { headers: recallsReq.headers, signal: controller.signal }),
+          fetch(complaintsReq.url, { headers: complaintsReq.headers, signal: controller.signal }),
         ]);
         lastStatuses = {
           recallsStatus: recallsResponse.status,
@@ -433,16 +434,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     const settings = await storage.getSystemSettings();
     if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
-    const base = nhtsaBaseUrl("https://api.nhtsa.gov", settings);
-    const headers = nhtsaHeaders(settings);
+    const provider = settings.nhtsaLookupSelectedProviderId != null
+      ? (await storage.getLookupProvider(settings.nhtsaLookupSelectedProviderId)) ?? null
+      : null;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const params = new URLSearchParams({ make, model, modelYear });
-      const response = await fetch(`${base}/recalls/recallsByVehicle?${params.toString()}`, {
-        headers,
-        signal: controller.signal,
-      });
+      const { url, headers } = await nhtsaRequest(provider, "https://api.nhtsa.gov", "/recalls/recallsByVehicle", { make, model, modelYear });
+      const response = await fetch(url, { headers, signal: controller.signal });
       if (!response.ok) {
         return res.status(502).json({ error: "nhtsa_error", status: response.status });
       }
@@ -461,15 +460,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!vin) return res.status(400).json({ error: "missing_vin" });
     const settings = await storage.getSystemSettings();
     if (!settings.nhtsaLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
-    const base = nhtsaBaseUrl("https://vpic.nhtsa.dot.gov", settings);
-    const headers = nhtsaHeaders(settings);
+    const provider = settings.nhtsaLookupSelectedProviderId != null
+      ? (await storage.getLookupProvider(settings.nhtsaLookupSelectedProviderId)) ?? null
+      : null;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await fetch(`${base}/api/vehicles/decodevin/${encodeURIComponent(vin)}?format=json`, {
-        headers,
-        signal: controller.signal,
-      });
+      const { url, headers } = await nhtsaRequest(provider, "https://vpic.nhtsa.dot.gov", `/api/vehicles/decodevin/${encodeURIComponent(vin)}`, { format: "json" });
+      const response = await fetch(url, { headers, signal: controller.signal });
       if (!response.ok) {
         return res.status(502).json({ error: "nhtsa_error", status: response.status });
       }
@@ -488,16 +486,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!country || !zip) return res.status(400).json({ error: "missing_params" });
     const settings = await storage.getSystemSettings();
     if (!settings.zipLookupEnabled) return res.status(403).json({ error: "lookups_disabled" });
-    const base = settings.zipLookupProvider === "custom" && settings.zipLookupCustomUrl
-      ? settings.zipLookupCustomUrl.replace(/\/+$/, "")
-      : "https://api.zippopotam.us";
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (settings.zipLookupApiKey) headers.Authorization = `Bearer ${settings.zipLookupApiKey}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
     try {
-      const response = await fetch(`${base}/${country.toLowerCase()}/${encodeURIComponent(zip)}`, {
-        headers,
+      if (settings.zipLookupSelectedProviderId != null) {
+        const provider = await storage.getLookupProvider(settings.zipLookupSelectedProviderId);
+        if (provider) {
+          const { url, headers } = await buildProviderRequest(provider, { country: country.toLowerCase(), zip });
+          const response = await fetch(url, { headers, signal: controller.signal });
+          if (!response.ok) {
+            return res.status(502).json({ error: "zip_lookup_error", status: response.status });
+          }
+          const json = await response.json();
+          const { city, state } = resolveZipResult(json, provider);
+          return res.json({ places: [{ "place name": city, "state abbreviation": state }] });
+        }
+        // Defensive fallback: selected provider missing — fall through to Built-in.
+      }
+      const response = await fetch(`https://api.zippopotam.us/${country.toLowerCase()}/${encodeURIComponent(zip)}`, {
+        headers: { Accept: "application/json" },
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -1109,14 +1116,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ---------- System settings (auth mode + OIDC config) ----------
   app.get("/api/system-settings", requireSystemAdmin, async (_req, res) => {
     const settings = await storage.getSystemSettings();
-    const { oidcClientSecret, zipLookupApiKey, geocodingApiKey, nhtsaLookupApiKey, ...rest } = settings;
-    res.json({
-      ...rest,
-      oidcClientSecretSet: !!oidcClientSecret,
-      zipLookupApiKeySet: !!zipLookupApiKey,
-      geocodingApiKeySet: !!geocodingApiKey,
-      nhtsaLookupApiKeySet: !!nhtsaLookupApiKey,
-    });
+    const { oidcClientSecret, ...rest } = settings;
+    res.json({ ...rest, oidcClientSecretSet: !!oidcClientSecret });
   });
   // Narrow, non-admin-gated read of instance branding — used by the General
   // settings tab and the About dialog, both reachable by any authenticated
@@ -1149,36 +1150,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     diagnosticsOverlayEnabled: z.boolean().optional(),
     auditLogRetentionDays: z.coerce.number().int().min(1).nullable().optional(),
     zipLookupEnabled: z.boolean().optional(),
-    zipLookupProvider: z.enum(["seeded", "custom"]).optional(),
-    zipLookupCustomUrl: z.string().url().optional().or(z.literal("")),
-    zipLookupApiKey: z.string().optional(),
+    zipLookupSelectedProviderId: z.coerce.number().int().nullable().optional(),
     geocodingEnabled: z.boolean().optional(),
-    geocodingProvider: z.enum(["seeded", "custom"]).optional(),
-    geocodingCustomUrl: z.string().url().optional().or(z.literal("")),
-    geocodingApiKey: z.string().optional(),
+    geocodingSelectedProviderId: z.coerce.number().int().nullable().optional(),
     nhtsaLookupEnabled: z.boolean().optional(),
-    nhtsaLookupProvider: z.enum(["seeded", "custom"]).optional(),
-    nhtsaLookupCustomUrl: z.string().url().optional().or(z.literal("")),
-    nhtsaLookupApiKey: z.string().optional(),
+    nhtsaLookupSelectedProviderId: z.coerce.number().int().nullable().optional(),
   });
   app.patch("/api/system-settings", requireSystemAdmin, async (req, res) => {
     try {
-      const { oidcClientSecret, zipLookupApiKey, geocodingApiKey, nhtsaLookupApiKey, ...body } = systemSettingsPatchSchema.parse(req.body);
+      const { oidcClientSecret, ...body } = systemSettingsPatchSchema.parse(req.body);
       const patch: Partial<InsertSystemSettings> = { ...body };
-      // Write-only secrets: omit or blank means "leave the stored value alone".
+      // Write-only secret: omit or blank means "leave the stored value alone".
       if (oidcClientSecret) patch.oidcClientSecret = oidcClientSecret;
-      if (zipLookupApiKey) patch.zipLookupApiKey = zipLookupApiKey;
-      if (geocodingApiKey) patch.geocodingApiKey = geocodingApiKey;
-      if (nhtsaLookupApiKey) patch.nhtsaLookupApiKey = nhtsaLookupApiKey;
       const updated = await storage.updateSystemSettings(patch);
-      const { oidcClientSecret: _secret, zipLookupApiKey: _zipKey, geocodingApiKey: _geoKey, nhtsaLookupApiKey: _nhtsaKey, ...rest } = updated;
-      res.json({
-        ...rest,
-        oidcClientSecretSet: !!_secret,
-        zipLookupApiKeySet: !!_zipKey,
-        geocodingApiKeySet: !!_geoKey,
-        nhtsaLookupApiKeySet: !!_nhtsaKey,
-      });
+      const { oidcClientSecret: _secret, ...rest } = updated;
+      res.json({ ...rest, oidcClientSecretSet: !!_secret });
     } catch (err) { handleError(res, err); }
   });
   app.post("/api/system-settings/test-oidc-connection", requireSystemAdmin, async (req, res) => {
@@ -1198,6 +1184,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err) {
       res.json({ ok: false, error: String((err as Error)?.message ?? err) });
     }
+  });
+
+  // ---------- Lookup providers (Privacy & Lookups: saved custom providers) ----------
+  function serializeLookupProvider(row: LookupProvider) {
+    const { authValue, oauthClientSecret, ...rest } = row;
+    return { ...rest, authValueSet: !!authValue, oauthClientSecretSet: !!oauthClientSecret };
+  }
+  app.get("/api/lookup-providers", requireSystemAdmin, async (req, res) => {
+    const category = req.query.category ? String(req.query.category) : undefined;
+    const rows = await storage.listLookupProviders(category);
+    res.json(rows.map(serializeLookupProvider));
+  });
+  app.post("/api/lookup-providers", requireSystemAdmin, async (req, res) => {
+    try {
+      const row = await storage.createLookupProvider(insertLookupProviderSchema.parse(req.body));
+      res.json(serializeLookupProvider(row));
+    } catch (err) { handleError(res, err); }
+  });
+  app.patch("/api/lookup-providers/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const { authValue, oauthClientSecret, ...body } = insertLookupProviderSchema.partial().parse(req.body);
+      const patch: Partial<InsertLookupProvider> = { ...body };
+      // Write-only secrets: omit or blank means "leave the stored value alone".
+      if (authValue) patch.authValue = authValue;
+      if (oauthClientSecret) patch.oauthClientSecret = oauthClientSecret;
+      const updated = await storage.updateLookupProvider(Number(req.params.id), patch);
+      if (!updated) return res.status(404).json({ error: "not_found" });
+      res.json(serializeLookupProvider(updated));
+    } catch (err) { handleError(res, err); }
+  });
+  app.delete("/api/lookup-providers/:id", requireSystemAdmin, async (req, res) => {
+    try {
+      const ok = await storage.deleteLookupProvider(Number(req.params.id));
+      if (!ok) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true });
+    } catch (err) { handleError(res, err); }
   });
 
   // ---------- OIDC group -> fleet/role mappings ----------

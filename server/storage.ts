@@ -25,6 +25,7 @@ import {
   oidcGroupMappings,
   systemSettings,
   auditLog,
+  lookupProviders,
 } from "@shared/schema";
 import type {
   Fleet, InsertFleet,
@@ -52,6 +53,7 @@ import type {
   OidcGroupMapping, InsertOidcGroupMapping,
   SystemSettings, InsertSystemSettings,
   AuditLog,
+  LookupProvider, InsertLookupProvider,
 } from "@shared/schema";
 import type { PermissionKey } from "@shared/permissions";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -337,6 +339,13 @@ export interface IStorage {
 
   // audit log
   listAuditLog(filters: AuditLogFilters): Promise<{ rows: AuditLog[]; total: number }>;
+
+  // lookup providers (Privacy & Lookups)
+  listLookupProviders(category?: string): Promise<LookupProvider[]>;
+  getLookupProvider(id: number): Promise<LookupProvider | undefined>;
+  createLookupProvider(input: InsertLookupProvider): Promise<LookupProvider>;
+  updateLookupProvider(id: number, input: Partial<InsertLookupProvider>): Promise<LookupProvider | undefined>;
+  deleteLookupProvider(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1417,6 +1426,43 @@ export class DatabaseStorage implements IStorage {
       where ? countQuery.where(where) : countQuery,
     ]);
     return { rows, total: countRows[0]?.count ?? 0 };
+  }
+
+  // -- lookup providers (Privacy & Lookups) ----
+  async listLookupProviders(category?: string): Promise<LookupProvider[]> {
+    const q = db.select().from(lookupProviders).orderBy(lookupProviders.name);
+    return category ? await q.where(eq(lookupProviders.category, category)) : await q;
+  }
+  async getLookupProvider(id: number): Promise<LookupProvider | undefined> {
+    const [row] = await db.select().from(lookupProviders).where(eq(lookupProviders.id, id));
+    return row;
+  }
+  async createLookupProvider(input: InsertLookupProvider): Promise<LookupProvider> {
+    const [row] = await db.insert(lookupProviders).values(input).returning();
+    await recordAudit({ action: "create", entityType: "lookup_provider", entityId: row.id, entityLabel: row.name, fleetId: null, changes: redactSnapshot(row) });
+    return row;
+  }
+  async updateLookupProvider(id: number, input: Partial<InsertLookupProvider>): Promise<LookupProvider | undefined> {
+    const before = await this.getLookupProvider(id);
+    const [row] = await db.update(lookupProviders).set(input).where(eq(lookupProviders.id, id)).returning();
+    if (row && before) {
+      await recordAudit({ action: "update", entityType: "lookup_provider", entityId: row.id, entityLabel: row.name, fleetId: null, changes: diffChanges(before, row) });
+    }
+    return row;
+  }
+  async deleteLookupProvider(id: number): Promise<boolean> {
+    const existing = await this.getLookupProvider(id);
+    // Silent fallback to Built-in for whichever category had this provider
+    // selected — no "in use" block, per the earlier decision.
+    await db.update(systemSettings).set({ zipLookupSelectedProviderId: null }).where(eq(systemSettings.zipLookupSelectedProviderId, id));
+    await db.update(systemSettings).set({ geocodingSelectedProviderId: null }).where(eq(systemSettings.geocodingSelectedProviderId, id));
+    await db.update(systemSettings).set({ nhtsaLookupSelectedProviderId: null }).where(eq(systemSettings.nhtsaLookupSelectedProviderId, id));
+    const result = await db.delete(lookupProviders).where(eq(lookupProviders.id, id));
+    const removed = (result.rowCount ?? 0) > 0;
+    if (removed && existing) {
+      await recordAudit({ action: "delete", entityType: "lookup_provider", entityId: id, entityLabel: existing.name, fleetId: null, changes: redactSnapshot(existing) });
+    }
+    return removed;
   }
 }
 

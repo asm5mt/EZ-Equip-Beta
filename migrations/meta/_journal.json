@@ -127,6 +127,20 @@
       "when": 1783623532719,
       "tag": "0017_cheerful_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783745068562,
+      "tag": "0018_aromatic_zuras",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783745099083,
+      "tag": "0019_useful_fantastic_four",
+      "breakpoints": true
     }
   ]
 }

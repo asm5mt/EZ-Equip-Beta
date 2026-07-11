@@ -59,9 +59,9 @@ export default function Settings() {
   const diagSettingsQ = useQuery<{
     diagnosticsOverlayEnabled: boolean;
     auditLogRetentionDays: number | null;
-    zipLookupEnabled: boolean; zipLookupProvider: string; zipLookupCustomUrl: string | null; zipLookupApiKeySet: boolean;
-    geocodingEnabled: boolean; geocodingProvider: string; geocodingCustomUrl: string | null; geocodingApiKeySet: boolean;
-    nhtsaLookupEnabled: boolean; nhtsaLookupProvider: string; nhtsaLookupCustomUrl: string | null; nhtsaLookupApiKeySet: boolean;
+    zipLookupEnabled: boolean;
+    geocodingEnabled: boolean;
+    nhtsaLookupEnabled: boolean;
   }>({
     queryKey: ["/api/system-settings"],
     enabled: systemAdmin,
@@ -81,17 +81,8 @@ export default function Settings() {
       diagnosticsOverlayEnabled: diagSettingsQ.data?.diagnosticsOverlayEnabled ?? false,
       auditLogRetentionDays: diagSettingsQ.data?.auditLogRetentionDays ?? null,
       zipLookupEnabled: diagSettingsQ.data?.zipLookupEnabled ?? true,
-      zipLookupProvider: diagSettingsQ.data?.zipLookupProvider ?? "seeded",
-      zipLookupCustomUrl: diagSettingsQ.data?.zipLookupCustomUrl ?? "",
-      zipLookupApiKey: "", // write-only; GET never reflects the real value
       geocodingEnabled: diagSettingsQ.data?.geocodingEnabled ?? true,
-      geocodingProvider: diagSettingsQ.data?.geocodingProvider ?? "seeded",
-      geocodingCustomUrl: diagSettingsQ.data?.geocodingCustomUrl ?? "",
-      geocodingApiKey: "",
       nhtsaLookupEnabled: diagSettingsQ.data?.nhtsaLookupEnabled ?? true,
-      nhtsaLookupProvider: diagSettingsQ.data?.nhtsaLookupProvider ?? "seeded",
-      nhtsaLookupCustomUrl: diagSettingsQ.data?.nhtsaLookupCustomUrl ?? "",
-      nhtsaLookupApiKey: "",
     };
   }, [settingsQ.data, orgInfoQ.data, diagSettingsQ.data]);
 
@@ -108,17 +99,8 @@ export default function Settings() {
   const [auditLogRetentionDaysInput, setAuditLogRetentionDaysInput] = useState("");
 
   const [zipLookupEnabled, setZipLookupEnabled] = useState(true);
-  const [zipLookupProvider, setZipLookupProvider] = useState("seeded");
-  const [zipLookupCustomUrl, setZipLookupCustomUrl] = useState("");
-  const [zipLookupApiKeyInput, setZipLookupApiKeyInput] = useState("");
   const [geocodingEnabled, setGeocodingEnabled] = useState(true);
-  const [geocodingProvider, setGeocodingProvider] = useState("seeded");
-  const [geocodingCustomUrl, setGeocodingCustomUrl] = useState("");
-  const [geocodingApiKeyInput, setGeocodingApiKeyInput] = useState("");
   const [nhtsaLookupEnabled, setNhtsaLookupEnabled] = useState(true);
-  const [nhtsaLookupProvider, setNhtsaLookupProvider] = useState("seeded");
-  const [nhtsaLookupCustomUrl, setNhtsaLookupCustomUrl] = useState("");
-  const [nhtsaLookupApiKeyInput, setNhtsaLookupApiKeyInput] = useState("");
 
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
@@ -137,17 +119,8 @@ export default function Settings() {
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
     setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
     setZipLookupEnabled(persisted.zipLookupEnabled);
-    setZipLookupProvider(persisted.zipLookupProvider);
-    setZipLookupCustomUrl(persisted.zipLookupCustomUrl);
-    setZipLookupApiKeyInput(persisted.zipLookupApiKey);
     setGeocodingEnabled(persisted.geocodingEnabled);
-    setGeocodingProvider(persisted.geocodingProvider);
-    setGeocodingCustomUrl(persisted.geocodingCustomUrl);
-    setGeocodingApiKeyInput(persisted.geocodingApiKey);
     setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
-    setNhtsaLookupProvider(persisted.nhtsaLookupProvider);
-    setNhtsaLookupCustomUrl(persisted.nhtsaLookupCustomUrl);
-    setNhtsaLookupApiKeyInput(persisted.nhtsaLookupApiKey);
   }, [persisted]);
 
   const auditLogRetentionDays = auditLogRetentionDaysInput.trim() === "" ? null : Number(auditLogRetentionDaysInput);
@@ -155,9 +128,7 @@ export default function Settings() {
   const draft = {
     themeMode, themePack, unitSystem, distanceUnit, volumeUnit, defaultMeter, orgName, orgLogoUrl,
     diagnosticsOverlayEnabled, auditLogRetentionDays,
-    zipLookupEnabled, zipLookupProvider, zipLookupCustomUrl, zipLookupApiKey: zipLookupApiKeyInput,
-    geocodingEnabled, geocodingProvider, geocodingCustomUrl, geocodingApiKey: geocodingApiKeyInput,
-    nhtsaLookupEnabled, nhtsaLookupProvider, nhtsaLookupCustomUrl, nhtsaLookupApiKey: nhtsaLookupApiKeyInput,
+    zipLookupEnabled, geocodingEnabled, nhtsaLookupEnabled,
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(persisted);
 
@@ -177,15 +148,7 @@ export default function Settings() {
       await apiRequest("PATCH", "/api/system-settings", {
         orgName: orgName.trim(),
         orgLogoUrl: orgLogoUrl.trim(),
-        ...(systemAdmin ? {
-          diagnosticsOverlayEnabled, auditLogRetentionDays,
-          zipLookupEnabled, zipLookupProvider, zipLookupCustomUrl: zipLookupCustomUrl.trim(),
-          ...(zipLookupApiKeyInput ? { zipLookupApiKey: zipLookupApiKeyInput } : {}),
-          geocodingEnabled, geocodingProvider, geocodingCustomUrl: geocodingCustomUrl.trim(),
-          ...(geocodingApiKeyInput ? { geocodingApiKey: geocodingApiKeyInput } : {}),
-          nhtsaLookupEnabled, nhtsaLookupProvider, nhtsaLookupCustomUrl: nhtsaLookupCustomUrl.trim(),
-          ...(nhtsaLookupApiKeyInput ? { nhtsaLookupApiKey: nhtsaLookupApiKeyInput } : {}),
-        } : {}),
+        ...(systemAdmin ? { diagnosticsOverlayEnabled, auditLogRetentionDays, zipLookupEnabled, geocodingEnabled, nhtsaLookupEnabled } : {}),
       });
     },
     onSuccess: () => {
@@ -210,17 +173,8 @@ export default function Settings() {
     setDiagnosticsOverlayEnabled(persisted.diagnosticsOverlayEnabled);
     setAuditLogRetentionDaysInput(persisted.auditLogRetentionDays != null ? String(persisted.auditLogRetentionDays) : "");
     setZipLookupEnabled(persisted.zipLookupEnabled);
-    setZipLookupProvider(persisted.zipLookupProvider);
-    setZipLookupCustomUrl(persisted.zipLookupCustomUrl);
-    setZipLookupApiKeyInput(persisted.zipLookupApiKey);
     setGeocodingEnabled(persisted.geocodingEnabled);
-    setGeocodingProvider(persisted.geocodingProvider);
-    setGeocodingCustomUrl(persisted.geocodingCustomUrl);
-    setGeocodingApiKeyInput(persisted.geocodingApiKey);
     setNhtsaLookupEnabled(persisted.nhtsaLookupEnabled);
-    setNhtsaLookupProvider(persisted.nhtsaLookupProvider);
-    setNhtsaLookupCustomUrl(persisted.nhtsaLookupCustomUrl);
-    setNhtsaLookupApiKeyInput(persisted.nhtsaLookupApiKey);
     window.dispatchEvent(new CustomEvent("ez-equip-theme", { detail: persisted.themeMode }));
     window.dispatchEvent(new CustomEvent("ez-equip-theme-pack", { detail: persisted.themePack }));
   };
@@ -468,13 +422,6 @@ export default function Settings() {
                 testIdPrefix="zip-lookup"
                 enabled={zipLookupEnabled}
                 onEnabledChange={setZipLookupEnabled}
-                provider={zipLookupProvider}
-                onProviderChange={setZipLookupProvider}
-                customUrl={zipLookupCustomUrl}
-                onCustomUrlChange={setZipLookupCustomUrl}
-                apiKeyInput={zipLookupApiKeyInput}
-                onApiKeyInputChange={setZipLookupApiKeyInput}
-                apiKeySet={diagSettingsQ.data?.zipLookupApiKeySet ?? false}
               />
               <LookupProviderCard
                 icon={MapIcon}
@@ -483,13 +430,6 @@ export default function Settings() {
                 testIdPrefix="geocoding"
                 enabled={geocodingEnabled}
                 onEnabledChange={setGeocodingEnabled}
-                provider={geocodingProvider}
-                onProviderChange={setGeocodingProvider}
-                customUrl={geocodingCustomUrl}
-                onCustomUrlChange={setGeocodingCustomUrl}
-                apiKeyInput={geocodingApiKeyInput}
-                onApiKeyInputChange={setGeocodingApiKeyInput}
-                apiKeySet={diagSettingsQ.data?.geocodingApiKeySet ?? false}
               />
               <LookupProviderCard
                 icon={Car}
@@ -498,14 +438,10 @@ export default function Settings() {
                 testIdPrefix="nhtsa-lookup"
                 enabled={nhtsaLookupEnabled}
                 onEnabledChange={setNhtsaLookupEnabled}
-                provider={nhtsaLookupProvider}
-                onProviderChange={setNhtsaLookupProvider}
-                customUrl={nhtsaLookupCustomUrl}
-                onCustomUrlChange={setNhtsaLookupCustomUrl}
-                apiKeyInput={nhtsaLookupApiKeyInput}
-                onApiKeyInputChange={setNhtsaLookupApiKeyInput}
-                apiKeySet={diagSettingsQ.data?.nhtsaLookupApiKeySet ?? false}
               />
+              <p className="text-sm text-muted-foreground">
+                Custom provider management (per-provider auth, API keys, and response-shape mapping) is being redesigned and will land in a follow-up update.
+              </p>
             </TabsContent>
           )}
         </Tabs>
@@ -515,17 +451,13 @@ export default function Settings() {
 }
 
 // One card per Privacy & Lookups category (ZIP Lookup / Geocoding / NHTSA).
-// The API key field follows the exact write-only pattern used for
-// oidcClientSecret in AuthenticationSection: masked input, a "set" indicator
-// in the placeholder, and blank means "leave unchanged" — there is no
-// explicit "clear" affordance because the OIDC pattern this was modeled on
-// doesn't have one either (blank silently no-ops server-side).
+// Just the on/off switch for now — per-category custom provider selection
+// (auth, API keys, response-shape mapping) now lives in the lookupProviders
+// table and gets its own management UI in a follow-up; this card doesn't
+// try to render that yet.
 function LookupProviderCard({
   icon: Icon, title, description, testIdPrefix,
   enabled, onEnabledChange,
-  provider, onProviderChange,
-  customUrl, onCustomUrlChange,
-  apiKeyInput, onApiKeyInputChange, apiKeySet,
 }: {
   icon: LucideIcon;
   title: string;
@@ -533,13 +465,6 @@ function LookupProviderCard({
   testIdPrefix: string;
   enabled: boolean;
   onEnabledChange: (v: boolean) => void;
-  provider: string;
-  onProviderChange: (v: string) => void;
-  customUrl: string;
-  onCustomUrlChange: (v: string) => void;
-  apiKeyInput: string;
-  onApiKeyInputChange: (v: string) => void;
-  apiKeySet: boolean;
 }) {
   return (
     <Card className="p-5 space-y-4" data-testid={`card-${testIdPrefix}`}>
@@ -554,41 +479,6 @@ function LookupProviderCard({
         <Switch checked={enabled} onCheckedChange={onEnabledChange} data-testid={`switch-${testIdPrefix}-enabled`} />
         <span className="text-sm">{enabled ? "Enabled" : "Disabled"}</span>
       </label>
-      {enabled && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-border">
-          <div>
-            <Label>Provider</Label>
-            <Select value={provider} onValueChange={onProviderChange}>
-              <SelectTrigger data-testid={`select-${testIdPrefix}-provider`}><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="seeded">Seeded (built-in default)</SelectItem>
-                <SelectItem value="custom">Custom</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {provider === "custom" && (
-            <div>
-              <Label>Custom base URL</Label>
-              <Input
-                value={customUrl}
-                onChange={e => onCustomUrlChange(e.target.value)}
-                placeholder="https://mirror.example.com"
-                data-testid={`input-${testIdPrefix}-custom-url`}
-              />
-            </div>
-          )}
-          <div className="sm:col-span-2">
-            <Label>API Key</Label>
-            <Input
-              type="password"
-              value={apiKeyInput}
-              onChange={e => onApiKeyInputChange(e.target.value)}
-              placeholder={apiKeySet ? "•••• configured" : "Not set"}
-              data-testid={`input-${testIdPrefix}-api-key`}
-            />
-          </div>
-        </div>
-      )}
     </Card>
   );
 }

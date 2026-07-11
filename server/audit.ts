@@ -18,9 +18,8 @@ export const auditContext = new AsyncLocalStorage<AuditActor>();
 const REDACTED_FIELDS = new Set([
   "passwordHash",
   "oidcClientSecret",
-  "zipLookupApiKey",
-  "geocodingApiKey",
-  "nhtsaLookupApiKey",
+  "authValue",
+  "oauthClientSecret",
 ]);
 
 const REDACTED_MARKER = { changed: true } as const;
