@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, Car, Copy, Filter, Gauge, LayoutGrid, List, Package, Plus, Settings2, X } from "lucide-react";
+import { ArrowLeft, Copy, Filter, LayoutGrid, List, Plus, X } from "lucide-react";
 import type { Asset, FleetEquipmentType, FleetFuelType, MeterReading } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
 import { formatDate, formatNumber, meterFullLabel, meterUnitLabel } from "@/lib/format";
@@ -314,10 +314,16 @@ function AssetGridCard({
         )}
       </div>
       <div className="pt-4">
-        <div className="text-2xl font-semibold leading-none text-[hsl(var(--primary))]">
-          {hasMeter ? formatNumber(asset.currentMeter) : "—"} {hasMeter && <span className="text-xs font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>}
-        </div>
-        <div className="mt-1 text-[11px] text-muted-foreground">As of {hasMeter ? formatDate(asset.meterAsOf) : "—"}</div>
+        {hasMeter ? (
+          <>
+            <div className="text-2xl font-semibold leading-none text-[hsl(var(--primary))]">
+              {formatNumber(asset.currentMeter)} <span className="text-xs font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">As of {formatDate(asset.meterAsOf)}</div>
+          </>
+        ) : (
+          <div className="text-xs text-muted-foreground">No reading recorded</div>
+        )}
       </div>
     </Link>
   );
@@ -336,24 +342,19 @@ function AssetTypePill({ asset, configuredType }: { asset: Asset; configuredType
   );
 }
 
+// List-view row scanning is intentionally trimmed to just the fuel-type
+// pill -- drivetrain/transmission/GVWR and the (often long, e.g. a raw
+// engine code plus displacement) engine descriptor stay fully visible on
+// AssetDetail's spec pills instead of crowding every list row.
 function AssetTechPills({ asset, fuelTypes }: { asset: Asset; fuelTypes: FleetFuelType[] }) {
   const fuel = fuelTypeByName(fuelTypes, asset.fuelType);
-  const engine = enginePillValue(asset);
-  const pills: Array<{ key: string; label: string; icon: ReactNode; style?: CSSProperties }> = [];
-  if (asset.fuelType) pills.push({ key: "fuel", label: asset.fuelType, icon: <FuelTypeIcon icon={fuel?.icon} className="size-3.5" style={{ color: fuel?.color }} />, style: tintedFuelStyle(fuel?.color) });
-  if (engine) pills.push({ key: "engine", label: engine, icon: <Gauge className="size-3.5" /> });
-  if (asset.drivetrain) pills.push({ key: "drivetrain", label: asset.drivetrain, icon: <Car className="size-3.5" /> });
-  if (asset.transmission) pills.push({ key: "transmission", label: asset.transmission, icon: <Settings2 className="size-3.5" /> });
-  if (asset.gvwr) pills.push({ key: "gvwr", label: asset.gvwr, icon: <Package className="size-3.5" /> });
-  if (!pills.length) return null;
+  if (!asset.fuelType) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {pills.map(pill => (
-        <span key={pill.key} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/45 px-2 py-0.5 text-[11px] font-medium text-muted-foreground" style={pill.style}>
-          {pill.icon}
-          {pill.label}
-        </span>
-      ))}
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/45 px-2 py-0.5 text-[11px] font-medium text-muted-foreground" style={tintedFuelStyle(fuel?.color)}>
+        <FuelTypeIcon icon={fuel?.icon} className="size-3.5" style={{ color: fuel?.color }} />
+        {asset.fuelType}
+      </span>
     </div>
   );
 }
@@ -397,13 +398,23 @@ function IdentifierLine({ asset, onCopy }: { asset: Asset; onCopy: (value: strin
 
 function MeterBlock({ asset, latestReading }: { asset: Asset; latestReading?: MeterReading }) {
   const hasMeter = hasMeterReading(asset, latestReading);
-  return (
-    <div className="rounded-md border border-[hsl(var(--primary)/0.32)] bg-gradient-to-br from-[hsl(var(--primary)/0.10)] to-[hsl(var(--card))] p-3 text-right">
-      <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Current {meterFullLabel(asset.meterType, asset.meterLabel)}</div>
-      <div className="mt-2 text-3xl font-semibold leading-none text-[hsl(var(--primary))]">
-        {hasMeter ? formatNumber(asset.currentMeter) : "—"} {hasMeter && <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>}
+  if (!hasMeter) {
+    // No gradient/border box for empty state -- a row with nothing to show
+    // should visibly take up less space than one with a real reading.
+    return (
+      <div className="text-right text-xs text-muted-foreground">
+        No reading recorded
+        {asset.acquisitionDate && <div className="mt-1 text-[11px]">Acquired {formatDate(asset.acquisitionDate)}</div>}
       </div>
-      <div className="mt-1 text-[11px] text-muted-foreground">As of {hasMeter ? formatDate(asset.meterAsOf) : "—"}</div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-[hsl(var(--primary)/0.28)] p-3 text-right">
+      <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Current {meterFullLabel(asset.meterType, asset.meterLabel)}</div>
+      <div className="mt-2 text-2xl font-semibold leading-none text-[hsl(var(--primary))]">
+        {formatNumber(asset.currentMeter)} <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground">As of {formatDate(asset.meterAsOf)}</div>
       {asset.acquisitionDate && <div className="mt-1 text-[11px] text-muted-foreground">Acquired {formatDate(asset.acquisitionDate)}</div>}
     </div>
   );
@@ -488,29 +499,4 @@ function assetSubtitle(asset: Asset) {
 
 function hasMeterReading(asset: Asset, latestReading?: MeterReading) {
   return Boolean(latestReading) || Number(asset.currentMeter ?? 0) > 0;
-}
-
-function enginePillValue(asset: Asset) {
-  const descriptor = engineCylinderDescriptor(asset.engineConfiguration, asset.engineCylinders);
-  const parts = [
-    descriptor,
-    asset.engine,
-    asset.displacementLiters != null ? `${formatCompactNumber(asset.displacementLiters)}L` : "",
-  ].filter(Boolean);
-  return parts.join(" · ");
-}
-
-function engineCylinderDescriptor(configuration?: string | null, cylinders?: number | null) {
-  const config = String(configuration ?? "").toLowerCase();
-  if (config.includes("rotary")) return "Rotary";
-  if (config.includes("single")) return "Single-cylinder";
-  if (config.includes("inline")) return cylinders ? `I${cylinders}` : "Inline";
-  if (config === "v" || config.includes("v")) return cylinders ? `V${cylinders}` : "V";
-  if (config.includes("opposed") || config.includes("flat")) return cylinders ? `H${cylinders}` : "Flat";
-  if (config === "w" || config.includes("w")) return cylinders ? `W${cylinders}` : "W";
-  return cylinders ? `${cylinders}-cyl` : "";
-}
-
-function formatCompactNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 }
