@@ -87,8 +87,8 @@ export default function AssetDetail() {
   const [vinDecode, setVinDecode] = useState<VinDecodeState>({ loading: false, error: null, fields: [] });
   const [addScheduleOpen, setAddScheduleOpen] = useState(false);
   const [fleetPickerOpen, setFleetPickerOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
-  useEffect(() => { setActiveTab("overview"); }, [assetId]);
+  const [activeTab, setActiveTab] = useState("maintenance");
+  useEffect(() => { setActiveTab("maintenance"); }, [assetId]);
   const [pendingDeleteScheduleId, setPendingDeleteScheduleId] = useState<number | null>(null);
   const [pendingDeleteServiceId, setPendingDeleteServiceId] = useState<number | null>(null);
   const [pendingDeleteMeterId, setPendingDeleteMeterId] = useState<number | null>(null);
@@ -390,6 +390,14 @@ export default function AssetDetail() {
     );
   }
 
+  // AssetHeaderPills renders null when it has no spec pills to show -- calling
+  // it here (not just in JSX) lets us also skip the wrapping identity Card
+  // entirely when there are no pills AND no VIN/plate/serial, instead of
+  // showing an empty bordered box above the tabs.
+  const headerPills = AssetHeaderPills({ asset, fuelTypes: fuelTypesQ.data ?? [] });
+  const hasIdentityDetails = Boolean((vinFeaturesEnabled && asset.vin) || (vinFeaturesEnabled && asset.plateNumber) || asset.serial);
+  const showIdentityCard = headerPills !== null || hasIdentityDetails;
+
   return (
     <AppShell title={asset?.friendlyName ?? "Asset"} subtitle="Asset details, meter, service history, and maintenance rules">
       <div className="space-y-5">
@@ -436,6 +444,60 @@ export default function AssetDetail() {
           onClose={() => setVinDrawerOpen(false)}
         />
 
+        {showIdentityCard && (
+        <Card className="p-5">
+          {headerPills}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            {vinFeaturesEnabled && asset.vin && (
+              <div className="group/vin">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">VIN</div>
+                <div className="flex items-center gap-1.5">
+                  <VinDisplay vin={asset.vin} className="text-[15px]" testId="text-asset-vin" />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 opacity-0 transition-opacity group-hover/vin:opacity-100 focus:opacity-100"
+                    onClick={() => copyToClipboard(asset.vin!, "VIN")}
+                    aria-label="Copy VIN"
+                    data-testid="button-copy-asset-vin"
+                  >
+                    <Copy className="size-3" />
+                  </Button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {nhtsaLookupEnabled && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() => decodeVin(asset.vin!)}
+                      data-testid="button-decode-vin"
+                    >
+                      <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
+                    </Button>
+                  )}
+                  <RecallsComplaintsButton
+                    entry={safetyEntry}
+                    onClick={() => { setActiveTab("safety"); loadSafetyDetail(); }}
+                  />
+                </div>
+              </div>
+            )}
+            {vinFeaturesEnabled && asset.plateNumber && (
+              <div>
+                <LicensePlateDisplay jurisdiction={asset.plateJurisdiction} plateNumber={asset.plateNumber} />
+              </div>
+            )}
+            {asset.serial && (
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Serial</div>
+                <div className="font-mono text-sm" data-testid="text-asset-serial">{asset.serial}</div>
+              </div>
+            )}
+          </div>
+        </Card>
+        )}
+
         <Tabs
           value={activeTab}
           onValueChange={value => {
@@ -444,69 +506,11 @@ export default function AssetDetail() {
           }}
           className="w-full"
         >
-          <TabsList className="grid w-full grid-cols-4 h-auto" data-testid="tabs-asset-detail">
-            <TabsTrigger value="overview" data-testid="tab-asset-overview">Overview</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 h-auto" data-testid="tabs-asset-detail">
             <TabsTrigger value="maintenance" data-testid="tab-asset-maintenance">Maintenance</TabsTrigger>
             <TabsTrigger value="meters" data-testid="tab-asset-meters">Meters</TabsTrigger>
             <TabsTrigger value="safety" data-testid="tab-asset-safety">Safety</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="overview" className="mt-5">
-            <Card className="p-5">
-              {vinFeaturesEnabled && (
-                <div className="text-sm font-medium">{[asset.year, asset.make, asset.model, asset.trim].filter(Boolean).join(" ")}</div>
-              )}
-              <AssetHeaderPills asset={asset} fuelTypes={fuelTypesQ.data ?? []} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                {vinFeaturesEnabled && asset.vin && (
-                  <div className="group/vin">
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">VIN</div>
-                    <div className="flex items-center gap-1.5">
-                      <VinDisplay vin={asset.vin} className="text-[15px]" testId="text-asset-vin" />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 opacity-0 transition-opacity group-hover/vin:opacity-100 focus:opacity-100"
-                        onClick={() => copyToClipboard(asset.vin!, "VIN")}
-                        aria-label="Copy VIN"
-                        data-testid="button-copy-asset-vin"
-                      >
-                        <Copy className="size-3" />
-                      </Button>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {nhtsaLookupEnabled && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 rounded-full border-border bg-background/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                          onClick={() => decodeVin(asset.vin!)}
-                          data-testid="button-decode-vin"
-                        >
-                          <Search className="mr-1.5 size-3" /> Decode VIN <Info className="ml-1 size-3" />
-                        </Button>
-                      )}
-                      <RecallsComplaintsButton
-                        entry={safetyEntry}
-                        onClick={() => { setActiveTab("safety"); loadSafetyDetail(); }}
-                      />
-                    </div>
-                  </div>
-                )}
-                {vinFeaturesEnabled && asset.plateNumber && (
-                  <div>
-                    <LicensePlateDisplay jurisdiction={asset.plateJurisdiction} plateNumber={asset.plateNumber} />
-                  </div>
-                )}
-                {asset.serial && (
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Serial</div>
-                    <div className="font-mono text-sm" data-testid="text-asset-serial">{asset.serial}</div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="maintenance" className="mt-5 space-y-4">
             <div className="flex justify-end">
