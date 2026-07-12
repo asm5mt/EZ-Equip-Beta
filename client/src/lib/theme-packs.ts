@@ -4,7 +4,7 @@
 // Auto/Light/Dark mode toggle. The default "ezequip" pack applies no class
 // at all, so it is exactly today's existing palette.
 
-export type ThemePackId = "ezequip" | "neon" | "shop" | "forest" | "glass" | "winclassic";
+export type ThemePackId = "ezequip" | "neon" | "shop" | "forest" | "glass" | "winclassic" | "redtool";
 
 interface ThemePackSwatch {
   background: string;
@@ -73,11 +73,21 @@ export const THEME_PACKS: ThemePackDef[] = [
   {
     id: "winclassic",
     name: "Windows Classic",
-    description: "Squared corners and beveled 3D buttons, straight out of the 90s.",
+    description: "Beveled 3D chrome, Tahoma type, and navy title bars — Windows 2000, faithfully.",
     className: "theme-winclassic",
     swatch: {
       light: { background: "#c0c0c0", primary: "#000080" },
       dark: { background: "#333333", primary: "#1111d4" },
+    },
+  },
+  {
+    id: "redtool",
+    name: "Red Tool",
+    description: "Bold tool-case red and matte black, built for the shop.",
+    className: "theme-redtool",
+    swatch: {
+      light: { background: "#f3f2f1", primary: "#ab2138" },
+      dark: { background: "#0f0f0f", primary: "#dc182c" },
     },
   },
 ];

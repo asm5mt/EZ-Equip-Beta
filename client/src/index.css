@@ -623,42 +623,45 @@
   }
 }
 
-/* WINDOWS CLASSIC — light: classic silver-gray face, navy titlebar blue.
- * This is a shape pack as much as a color pack — see the structural rules
- * below (shared with the dark variant) for the squared corners and
- * beveled 3D borders that actually make this read as Windows Classic. */
+/* WINDOWS CLASSIC — light: Windows 2000 Professional's "Windows Standard"
+ * scheme. Button Face is a warm greige (#D4D0C8), not a neutral gray — that
+ * warmth is part of what reads as authentically Win2K rather than generic
+ * 90s silver. This is a shape pack as much as a color pack — see the
+ * structural rules below (shared with the dark variant) for the squared
+ * corners and beveled 3D borders that actually make this read as Windows
+ * Classic. */
 .theme-winclassic {
-  --background: 0 0% 75%;
+  --background: 40 9% 81%;
   --foreground: 0 0% 0%;
-  --border: 0 0% 40%;
-  --card: 0 0% 75%;
+  --border: 40 5% 35%;
+  --card: var(--winclassic-window);
   --card-foreground: 0 0% 0%;
-  --card-border: 0 0% 40%;
+  --card-border: 40 5% 35%;
 
   --sidebar: 240 100% 25%;
   --sidebar-foreground: 0 0% 100%;
   --sidebar-border: 240 60% 15%;
-  --sidebar-primary: 240 100% 32%;
+  --sidebar-primary: 0 0% 100%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 240 70% 20%;
   --sidebar-accent-foreground: 0 0% 100%;
   --sidebar-ring: 240 100% 32%;
 
-  --popover: 0 0% 75%;
+  --popover: var(--winclassic-window);
   --popover-foreground: 0 0% 0%;
-  --popover-border: 0 0% 40%;
+  --popover-border: 40 5% 35%;
 
   --primary: 240 100% 25%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 82%;
+  --secondary: 40 9% 81%;
   --secondary-foreground: 0 0% 0%;
-  --muted: 0 0% 82%;
+  --muted: 40 6% 85%;
   --muted-foreground: 0 0% 25%;
-  --accent: 240 60% 85%;
-  --accent-foreground: 240 100% 20%;
+  --accent: 231 83% 23%;
+  --accent-foreground: 0 0% 100%;
   --destructive: 0 70% 35%;
   --destructive-foreground: 0 0% 100%;
-  --input: 0 0% 40%;
+  --input: 40 5% 35%;
   --ring: 240 100% 32%;
 
   --chart-1: 240 60% 40%;
@@ -674,30 +677,37 @@
   --status-warn: 45 80% 40%;
   --status-overdue: 0 70% 35%;
 
-  --winclassic-face: 0 0% 75%;
+  --winclassic-face: 40 9% 81%;
   --winclassic-highlight: 0 0% 100%;
-  --winclassic-shadow: 0 0% 25%;
+  --winclassic-shadow: 0 0% 45%;
+  /* Windows 2000's actual content-pane white — distinct from --winclassic-face
+   * (the gray chrome tone), so cards/popovers/inputs read as "paper" sitting
+   * on top of the gray window/dialog frame, matching real Win32 apps. */
+  --winclassic-window: 0 0% 100%;
 }
 
-/* WINDOWS CLASSIC — dark: same shape language, darker gunmetal face */
+/* WINDOWS CLASSIC — dark: same shape language, darker gunmetal face. Not a
+ * real Win2K scheme (Win2K predates OS-level dark mode) — an original spin
+ * for this app's dark toggle, so it isn't held to the screenshot as tightly
+ * as the light variant above. */
 .dark.theme-winclassic {
   --background: 0 0% 20%;
   --foreground: 0 0% 92%;
   --border: 0 0% 8%;
-  --card: 0 0% 20%;
+  --card: var(--winclassic-window);
   --card-foreground: 0 0% 92%;
   --card-border: 0 0% 8%;
 
   --sidebar: 240 60% 12%;
   --sidebar-foreground: 0 0% 95%;
   --sidebar-border: 240 50% 6%;
-  --sidebar-primary: 240 90% 40%;
+  --sidebar-primary: 0 0% 100%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 240 40% 20%;
   --sidebar-accent-foreground: 0 0% 95%;
   --sidebar-ring: 240 90% 45%;
 
-  --popover: 0 0% 20%;
+  --popover: var(--winclassic-window);
   --popover-foreground: 0 0% 92%;
   --popover-border: 0 0% 8%;
 
@@ -707,8 +717,8 @@
   --secondary-foreground: 0 0% 92%;
   --muted: 0 0% 26%;
   --muted-foreground: 0 0% 68%;
-  --accent: 240 45% 26%;
-  --accent-foreground: 210 80% 85%;
+  --accent: 225 70% 38%;
+  --accent-foreground: 0 0% 100%;
   --destructive: 0 70% 45%;
   --destructive-foreground: 0 0% 100%;
   --input: 0 0% 8%;
@@ -730,6 +740,11 @@
   --winclassic-face: 0 0% 20%;
   --winclassic-highlight: 0 0% 55%;
   --winclassic-shadow: 0 0% 4%;
+  /* Distinctly lighter than the 20%-lightness chrome above, so cards/popovers/
+   * inputs still read as a separate "content" layer -- not literal Win2K
+   * white, since Win2K never had a real dark mode and pure white would be
+   * harsh against the rest of this dark palette. */
+  --winclassic-window: 0 0% 32%;
 }
 
 /* Windows Classic structural shape rules — shared by light/dark since they
@@ -737,8 +752,30 @@
  * the part that actually makes it read as "Windows Classic": squared
  * corners everywhere, plus raised buttons / sunken fields via hard 3D
  * bevel borders instead of soft shadows. */
-.theme-winclassic [class*="rounded"] {
+.theme-winclassic {
+  /* Tahoma was Win2K's defining UI font, replacing the old bitmap MS Sans
+   * Serif almost everywhere. Falls back to MS Sans Serif, then the app's
+   * normal sans stack on platforms with neither installed. */
+  --font-sans: 'Tahoma', 'MS Sans Serif', ui-sans-serif, sans-serif;
+}
+.theme-winclassic [class*="rounded"]:not([role="radio"]):not([role="switch"]) {
   border-radius: 0 !important;
+}
+/* Radio buttons and toggle switches are excluded from the blanket squaring
+ * above — real Windows radio buttons are circular (always have been, even
+ * in 9x/2000), and a toggle switch has no Windows 2000 analog at all (that
+ * control didn't exist until touch-era mobile OSes). Squaring a switch's
+ * pill track and thumb just produces a broken-looking rectangle, not
+ * anything more authentic, so it's left as a rounded pill riding inside an
+ * otherwise-square theme rather than forced into a shape Windows 2000 never
+ * had. Reshaping it into a classic checkbox would change the interaction
+ * model app-wide, which is a bigger call than this pass is tuning. */
+.theme-winclassic [role="radio"] {
+  border-radius: 9999px !important;
+}
+.theme-winclassic [role="switch"],
+.theme-winclassic [role="switch"] span {
+  border-radius: 9999px !important;
 }
 .theme-winclassic button:not(.border-transparent):not([role="combobox"]) {
   border-style: solid;
@@ -750,6 +787,27 @@
 .theme-winclassic button:not(.border-transparent):not([role="combobox"]):active {
   border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
 }
+/* Windows 2000 toolbar buttons are flat 2D and only show their 3D bevel on
+ * hover — a departure from 95/98's always-3D toolbar buttons. The app's
+ * "ghost" icon-only buttons already carry a literal `border-transparent`
+ * class (used elsewhere so a later-toggled border doesn't shift layout),
+ * which conveniently already opts them out of the always-3D rule above —
+ * so this reuses that same hook to add the hover-only bevel instead of
+ * introducing a new toolbar-specific class. */
+.theme-winclassic button.border-transparent {
+  border-style: solid;
+  border-width: 2px;
+  border-color: transparent;
+  background-image: none;
+}
+.theme-winclassic button.border-transparent:hover {
+  border-color: hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight));
+  background-color: hsl(var(--winclassic-face));
+}
+.theme-winclassic button.border-transparent:active {
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+  background-color: hsl(var(--winclassic-face));
+}
 .theme-winclassic input,
 .theme-winclassic textarea,
 .theme-winclassic [role="combobox"] {
@@ -757,12 +815,235 @@
   border-width: 2px;
   border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
   box-shadow: none;
+  /* Win2K text fields are a "paper" field distinct from the gray chrome --
+   * routed through --winclassic-window (true white in light, a lighter gray
+   * than the chrome in dark) rather than hardcoded, so dark mode gets the
+   * same content-vs-chrome separation without literal white. Text color is
+   * left to inherit --foreground, which already tracks each variant. */
+  background-color: hsl(var(--winclassic-window));
+}
+.theme-winclassic input::placeholder,
+.theme-winclassic textarea::placeholder {
+  color: hsl(0 0% 45%);
+}
+/* Checkboxes and radio buttons get the same sunken bevel as text fields,
+ * plus the fixed white fill — Windows never fills these with a solid
+ * accent color the way modern checkbox components default to; the box/
+ * circle stays white and just gains a black glyph when checked. */
+.theme-winclassic [role="checkbox"],
+.theme-winclassic [role="radio"] {
+  border-style: solid;
+  border-width: 2px;
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+  background-color: hsl(0 0% 100%);
+}
+.theme-winclassic [role="checkbox"][data-state="checked"] {
+  background-color: hsl(0 0% 100%) !important;
+  color: hsl(0 0% 0%) !important;
+}
+.theme-winclassic [role="radio"] {
+  color: hsl(0 0% 0%);
 }
 .theme-winclassic .shadcn-card,
 .theme-winclassic .bg-popover,
 .theme-winclassic [role="dialog"],
 .theme-winclassic [role="alertdialog"] {
   box-shadow: 2px 2px 0 0 hsl(var(--winclassic-shadow) / 0.6);
+}
+/* Windows 2000's active title bars are a left-to-right navy-to-blue
+ * gradient, not a flat color — applied to the sidebar's brand header (the
+ * app's own "title bar") and to dialog/alert-dialog/sheet headers, since
+ * those read as windows in their own right under this theme. DialogHeader /
+ * AlertDialogHeader / SheetHeader are always the first child of their
+ * Content element in this codebase's usage, so that structural position is
+ * what's targeted here rather than a class name.
+ *
+ * Radix's Popover.Content also renders role="dialog" (an a11y quirk, not a
+ * real modal dialog), so `[role="dialog"]` alone would wrongly paint every
+ * filter/select popover as a title bar too. `.bg-background` is the
+ * reliable discriminator — Dialog/AlertDialog/Sheet content all carry it,
+ * Popover content carries `.bg-popover` instead. */
+.theme-winclassic [data-testid="nav-sidebar"] > div:first-child {
+  background-image: linear-gradient(to right, hsl(240 88% 22%), hsl(215 75% 55%));
+}
+.theme-winclassic [role="dialog"].bg-background > div:first-child,
+.theme-winclassic [role="alertdialog"].bg-background > div:first-child {
+  margin: -24px -24px 4px;
+  padding: 10px 24px;
+  background-image: linear-gradient(to right, hsl(240 88% 22%), hsl(215 75% 55%));
+}
+.theme-winclassic [role="dialog"].bg-background > div:first-child h2,
+.theme-winclassic [role="alertdialog"].bg-background > div:first-child h2,
+.theme-winclassic [role="dialog"].bg-background > div:first-child p,
+.theme-winclassic [role="alertdialog"].bg-background > div:first-child p {
+  color: hsl(0 0% 100%);
+}
+/* Beveled scrollbars — WebKit-only (::-webkit-scrollbar has no Firefox
+ * equivalent API), so Firefox falls back to its native scrollbar under this
+ * theme. That's an accepted limitation, not something worth working around. */
+.theme-winclassic ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+.theme-winclassic ::-webkit-scrollbar-track {
+  background-color: hsl(var(--winclassic-face));
+}
+.theme-winclassic ::-webkit-scrollbar-corner {
+  background-color: hsl(var(--winclassic-face));
+}
+.theme-winclassic ::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--winclassic-face));
+  border-style: solid;
+  border-width: 2px;
+  border-color: hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight));
+}
+.theme-winclassic ::-webkit-scrollbar-thumb:active {
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+}
+.theme-winclassic ::-webkit-scrollbar-button {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-color: hsl(var(--winclassic-face));
+  background-repeat: no-repeat;
+  background-position: center;
+  border-style: solid;
+  border-width: 2px;
+  border-color: hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight));
+}
+.theme-winclassic ::-webkit-scrollbar-button:active {
+  border-color: hsl(var(--winclassic-shadow)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-highlight)) hsl(var(--winclassic-shadow));
+}
+.theme-winclassic ::-webkit-scrollbar-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='5,2 1,7 9,7' fill='%23000000'/%3E%3C/svg%3E");
+  background-size: 8px 8px;
+}
+.theme-winclassic ::-webkit-scrollbar-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='5,8 1,3 9,3' fill='%23000000'/%3E%3C/svg%3E");
+  background-size: 8px 8px;
+}
+.theme-winclassic ::-webkit-scrollbar-button:horizontal:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='2,5 7,1 7,9' fill='%23000000'/%3E%3C/svg%3E");
+  background-size: 8px 8px;
+}
+.theme-winclassic ::-webkit-scrollbar-button:horizontal:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='8,5 3,1 3,9' fill='%23000000'/%3E%3C/svg%3E");
+  background-size: 8px 8px;
+}
+.dark.theme-winclassic ::-webkit-scrollbar-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='5,2 1,7 9,7' fill='%23cccccc'/%3E%3C/svg%3E");
+}
+.dark.theme-winclassic ::-webkit-scrollbar-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='5,8 1,3 9,3' fill='%23cccccc'/%3E%3C/svg%3E");
+}
+.dark.theme-winclassic ::-webkit-scrollbar-button:horizontal:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='2,5 7,1 7,9' fill='%23cccccc'/%3E%3C/svg%3E");
+}
+.dark.theme-winclassic ::-webkit-scrollbar-button:horizontal:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpolygon points='8,5 3,1 3,9' fill='%23cccccc'/%3E%3C/svg%3E");
+}
+
+/* RED TOOL — light: a clean, warm-neutral workshop background (not stark
+ * white) with the same bold tool-case red carrying through as the accent.
+ * Deliberately higher-contrast and more black than Shop Floor's yellow/
+ * gray palette — this is meant to read as "premium tool case", not
+ * "caution tape". */
+.theme-redtool {
+  --background: 20 8% 95%;
+  --foreground: 20 10% 10%;
+  --border: 20 6% 80%;
+  --card: 0 0% 99%;
+  --card-foreground: 20 10% 10%;
+  --card-border: 20 6% 82%;
+
+  --sidebar: 20 10% 8%;
+  --sidebar-foreground: 20 8% 92%;
+  --sidebar-border: 20 8% 14%;
+  --sidebar-primary: 350 68% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 20 8% 16%;
+  --sidebar-accent-foreground: 20 8% 92%;
+  --sidebar-ring: 350 68% 42%;
+
+  --popover: 0 0% 99%;
+  --popover-foreground: 20 10% 10%;
+  --popover-border: 20 6% 82%;
+
+  --primary: 350 68% 40%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 20 6% 88%;
+  --secondary-foreground: 20 10% 10%;
+  --muted: 20 6% 90%;
+  --muted-foreground: 20 6% 38%;
+  --accent: 20 8% 88%;
+  --accent-foreground: 350 70% 28%;
+  --destructive: 8 78% 46%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 20 6% 78%;
+  --ring: 350 68% 42%;
+
+  --chart-1: 350 68% 45%;
+  --chart-2: 20 10% 30%;
+  --chart-3: 30 60% 45%;
+  --chart-4: 210 15% 45%;
+  --chart-5: 45 40% 40%;
+
+  --status-ok: 145 45% 32%;
+  --status-ok-foreground: 0 0% 100%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
+  --status-warn: 38 90% 42%;
+  --status-overdue: 8 78% 44%;
+}
+
+/* RED TOOL — dark: the more iconic variant, near-black matte-black
+ * background with the bold red carrying the accent role. */
+.dark.theme-redtool {
+  --background: 0 0% 6%;
+  --foreground: 0 0% 92%;
+  --border: 0 0% 16%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 92%;
+  --card-border: 0 0% 18%;
+
+  --sidebar: 0 0% 4%;
+  --sidebar-foreground: 0 0% 92%;
+  --sidebar-border: 0 0% 12%;
+  --sidebar-primary: 354 85% 52%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 14%;
+  --sidebar-accent-foreground: 0 0% 92%;
+  --sidebar-ring: 354 85% 52%;
+
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 92%;
+  --popover-border: 0 0% 18%;
+
+  --primary: 354 80% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 16%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 354 85% 70%;
+  --destructive: 8 85% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 0 0% 18%;
+  --ring: 354 85% 52%;
+
+  --chart-1: 354 80% 55%;
+  --chart-2: 0 0% 60%;
+  --chart-3: 30 65% 55%;
+  --chart-4: 210 20% 55%;
+  --chart-5: 45 45% 50%;
+
+  --status-ok: 145 45% 45%;
+  --status-ok-foreground: 0 0% 10%;
+  --status-warn-foreground: 0 0% 10%;
+  --status-overdue-foreground: 0 0% 100%;
+  --status-warn: 38 90% 52%;
+  --status-overdue: 8 80% 52%;
 }
 
 @layer base {

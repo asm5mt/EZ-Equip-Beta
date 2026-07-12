@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, Save, X, AlertTriangle, Pencil } from "lucide-react";
+import { ArrowLeft, Save, X, AlertTriangle, Pencil, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -154,24 +155,40 @@ export function EditablePageActions({
             )
           ) : (
             <>
-              <Button
-                type="button"
-                variant="cancel"
-                onClick={() => confirmOrRun(onCancel)}
-                disabled={isSaving}
-                data-testid="button-cancel"
-              >
-                <X className="size-4 mr-1.5" /> Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="success"
-                onClick={onSave}
-                disabled={!canSave || isSaving}
-                data-testid="button-save"
-              >
-                <Save className="size-4 mr-1.5" /> {isSaving ? savePendingLabel : saveLabel}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="cancel"
+                    size="icon"
+                    className="size-10"
+                    onClick={() => confirmOrRun(onCancel)}
+                    disabled={isSaving}
+                    aria-label="Cancel"
+                    data-testid="button-cancel"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Cancel</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="success"
+                    size="icon"
+                    className="size-10"
+                    onClick={onSave}
+                    disabled={!canSave || isSaving}
+                    aria-label={isSaving ? savePendingLabel : saveLabel}
+                    data-testid="button-save"
+                  >
+                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{saveLabel}</TooltipContent>
+              </Tooltip>
             </>
           )}
         </div>
