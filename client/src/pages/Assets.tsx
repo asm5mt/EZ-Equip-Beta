@@ -10,8 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Copy, Filter, LayoutGrid, List, Plus, X } from "lucide-react";
-import type { Asset, FleetEquipmentType, FleetFuelType, MeterReading } from "@shared/schema";
+import type { Asset, FleetEquipmentType, FleetFuelType, MeterReading, MaintenanceSchedule, MaintenanceScheduleAssignment, ServiceEvent } from "@shared/schema";
 import { useAppContext } from "@/lib/app-context";
+import { expandScheduleEvaluations, worstStatus, sortByUrgency } from "@/lib/schedule";
 import { formatDate, formatNumber, meterFullLabel, meterUnitLabel } from "@/lib/format";
 import { assetTypeBadgeClass, tintedBadgeStyle } from "@/lib/badges";
 import { EquipmentTypeIcon, normalizeEquipmentIcon } from "@/lib/equipment-icons";
@@ -22,6 +23,15 @@ import { VinDisplay } from "@/components/VinDisplay";
 
 export type ViewMode = "list" | "grid";
 type StatusFilter = "active" | "inactive" | "all";
+// Per-asset service-schedule status, reduced from schedule.ts's evaluation
+// primitives (see scheduleStatusByAsset below) -- "no-status" covers both
+// "nothing applies to this asset" and "applies but nothing meaningfully
+// trackable" (schedule.ts's "no-history"), since neither should read as
+// green/"ok" when nothing is actually being tracked.
+interface AssetScheduleStatus {
+  status: "ok" | "due-soon" | "overdue" | "no-status";
+  scheduleName?: string;
+}
 type SortKey =
   | "name-asc"
   | "name-desc"
@@ -66,10 +76,15 @@ export default function Assets() {
   const typesQ = useQuery<FleetEquipmentType[]>({ queryKey: ["/api/fleet-equipment-types", { fleetId }], enabled: !!fleetId });
   const fuelTypesQ = useQuery<FleetFuelType[]>({ queryKey: ["/api/fleet-fuel-types", { fleetId }], enabled: !!fleetId });
   const readingsQ = useQuery<MeterReading[]>({ queryKey: ["/api/meter-readings", { fleetId }], enabled: !!fleetId });
+  const schedulesQ = useQuery<MaintenanceSchedule[]>({ queryKey: ["/api/schedules", { fleetId }], enabled: !!fleetId });
+  const assignmentsQ = useQuery<MaintenanceScheduleAssignment[]>({ queryKey: ["/api/schedule-assignments", { fleetId }], enabled: !!fleetId });
+  const eventsQ = useQuery<ServiceEvent[]>({ queryKey: ["/api/service-events", { fleetId }], enabled: !!fleetId });
 
   const assets = assetsQ.data ?? [];
   const assetTypes = typesQ.data ?? [];
   const fuelTypes = fuelTypesQ.data ?? [];
+  const schedules = schedulesQ.data ?? [];
+  const assignments = assignmentsQ.data ?? [];
   const typeConfig = new Map(assetTypes.map(t => [t.name, t]));
   const latestReadingByAsset = useMemo(() => {
     const map = new Map<number, MeterReading>();
@@ -81,6 +96,41 @@ export default function Assets() {
     }
     return map;
   }, [readingsQ.data]);
+
+  // Same schedule-evaluation pattern Dashboard.tsx uses (expandScheduleEvaluations
+  // + worstStatus + sortByUrgency), just grouped per asset instead of flattened
+  // into one fleet-wide "upcoming" list.
+  const fleetAssetIds = useMemo(() => new Set(assets.map(a => a.id)), [assets]);
+  const fleetEvents = useMemo(() => (eventsQ.data ?? []).filter(e => fleetAssetIds.has(e.assetId)), [eventsQ.data, fleetAssetIds]);
+  const scheduleStatusByAsset = useMemo(() => {
+    const evaluations = expandScheduleEvaluations(schedules, assignments, assets, fleetEvents);
+    const byAsset = new Map<number, typeof evaluations>();
+    for (const row of evaluations) {
+      const arr = byAsset.get(row.asset.id) ?? [];
+      arr.push(row);
+      byAsset.set(row.asset.id, arr);
+    }
+    const result = new Map<number, AssetScheduleStatus>();
+    for (const asset of assets) {
+      const rows = byAsset.get(asset.id) ?? [];
+      if (rows.length === 0) {
+        result.set(asset.id, { status: "no-status" });
+        continue;
+      }
+      const worst = worstStatus(rows.map(r => r.evaluation.status));
+      if (worst === "due-soon" || worst === "overdue") {
+        result.set(asset.id, { status: worst, scheduleName: sortByUrgency(rows)[0].schedule.name });
+      } else if (worst === "ok") {
+        result.set(asset.id, { status: "ok" });
+      } else {
+        // "no-history" -- schedules exist but nothing meaningfully trackable
+        // (no interval and no completions). Treat the same as no schedules
+        // rather than defaulting to green.
+        result.set(asset.id, { status: "no-status" });
+      }
+    }
+    return result;
+  }, [schedules, assignments, assets, fleetEvents]);
 
   const filteredAssets = useMemo(() => {
     return [...assets]
@@ -227,6 +277,7 @@ export default function Assets() {
                   configuredType={typeConfig.get(asset.assetType)}
                   fuelTypes={fuelTypes}
                   latestReading={latestReadingByAsset.get(asset.id)}
+                  scheduleStatus={scheduleStatusByAsset.get(asset.id)}
                   onCopy={copyValue}
                 />
               ))}
@@ -240,6 +291,7 @@ export default function Assets() {
                   configuredType={typeConfig.get(asset.assetType)}
                   fuelTypes={fuelTypes}
                   latestReading={latestReadingByAsset.get(asset.id)}
+                  scheduleStatus={scheduleStatusByAsset.get(asset.id)}
                 />
               ))}
             </div>
@@ -255,19 +307,25 @@ function AssetListCard({
   configuredType,
   fuelTypes,
   latestReading,
+  scheduleStatus,
   onCopy,
 }: {
   asset: Asset;
   configuredType?: FleetEquipmentType;
   fuelTypes: FleetFuelType[];
   latestReading?: MeterReading;
+  scheduleStatus?: AssetScheduleStatus;
   onCopy: (value: string, key: string) => void;
 }) {
   const inactive = asset.isActive === false;
   return (
-    <Link href={`/assets/${asset.id}`} className="block rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`card-asset-${asset.id}`}>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_240px] lg:items-start">
-        <div className="min-w-0 space-y-2">
+    <Link
+      href={`/assets/${asset.id}`}
+      className={`block rounded-xl border border-border ${scheduleStatusBorderClass(scheduleStatus?.status)} border-l-4 bg-card p-4 transition-colors hover:border-y-[hsl(var(--primary)/0.45)] hover:border-r-[hsl(var(--primary)/0.45)] hover:bg-muted/25`}
+      data-testid={`card-asset-${asset.id}`}
+    >
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_240px] lg:items-stretch">
+        <div className="min-w-0 space-y-2 lg:self-start">
           <div className="flex flex-wrap items-center gap-2">
             <AssetTypePill asset={asset} configuredType={configuredType} />
             <div className="text-lg font-semibold leading-tight" data-testid={`text-asset-name-${asset.id}`}>{asset.friendlyName}</div>
@@ -278,7 +336,7 @@ function AssetListCard({
           <IdentifierLine asset={asset} onCopy={onCopy} />
           {inactive && asset.inactiveReason && <div className="text-xs text-muted-foreground">Inactive reason: {asset.inactiveReason}</div>}
         </div>
-        <MeterBlock asset={asset} latestReading={latestReading} />
+        <MeterBlock asset={asset} latestReading={latestReading} scheduleStatus={scheduleStatus} />
       </div>
     </Link>
   );
@@ -289,16 +347,22 @@ function AssetGridCard({
   configuredType,
   fuelTypes,
   latestReading,
+  scheduleStatus,
 }: {
   asset: Asset;
   configuredType?: FleetEquipmentType;
   fuelTypes: FleetFuelType[];
   latestReading?: MeterReading;
+  scheduleStatus?: AssetScheduleStatus;
 }) {
   const fuel = asset.fuelType ? fuelTypeByName(fuelTypes, asset.fuelType) : undefined;
   const hasMeter = hasMeterReading(asset, latestReading);
   return (
-    <Link href={`/assets/${asset.id}`} className="flex min-h-[220px] flex-col justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:border-[hsl(var(--primary)/0.45)] hover:bg-muted/25" data-testid={`grid-card-asset-${asset.id}`}>
+    <Link
+      href={`/assets/${asset.id}`}
+      className={`flex min-h-[220px] flex-col justify-between rounded-xl border border-border ${scheduleStatusBorderClass(scheduleStatus?.status)} border-l-4 bg-card p-4 transition-colors hover:border-y-[hsl(var(--primary)/0.45)] hover:border-r-[hsl(var(--primary)/0.45)] hover:bg-muted/25`}
+      data-testid={`grid-card-asset-${asset.id}`}
+    >
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <AssetTypePill asset={asset} configuredType={configuredType} />
@@ -314,9 +378,12 @@ function AssetGridCard({
         )}
       </div>
       <div className="pt-4">
+        <div className="mb-1.5">
+          <ScheduleStatusIndicator status={scheduleStatus} assetId={asset.id} />
+        </div>
         {hasMeter ? (
           <>
-            <div className="text-2xl font-semibold leading-none text-[hsl(var(--primary))]">
+            <div className="text-xl font-semibold leading-none text-[hsl(var(--primary))]">
               {formatNumber(asset.currentMeter)} <span className="text-xs font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">As of {formatDate(asset.meterAsOf)}</div>
@@ -373,7 +440,7 @@ function IdentifierLine({ asset, onCopy }: { asset: Asset; onCopy: (value: strin
   ].filter(Boolean) as Array<{ label: string; value: string; displayValue: string; key: string }>;
   if (!identifiers.length) return null;
   return (
-    <div className="group/ids flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
+    <div className="group/ids flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
       {identifiers.map((item, index) => (
         <span key={item.key} className={`inline-flex items-center gap-1 ${index > 0 ? "ml-1" : ""}`}>
           {item.label === "VIN" ? <VinDisplay vin={item.displayValue} /> : <span>{item.displayValue}</span>}
@@ -396,27 +463,72 @@ function IdentifierLine({ asset, onCopy }: { asset: Asset; onCopy: (value: strin
   );
 }
 
-function MeterBlock({ asset, latestReading }: { asset: Asset; latestReading?: MeterReading }) {
+function MeterBlock({ asset, latestReading, scheduleStatus }: { asset: Asset; latestReading?: MeterReading; scheduleStatus?: AssetScheduleStatus }) {
   const hasMeter = hasMeterReading(asset, latestReading);
-  if (!hasMeter) {
-    // No gradient/border box for empty state -- a row with nothing to show
-    // should visibly take up less space than one with a real reading.
-    return (
-      <div className="text-right text-xs text-muted-foreground">
-        No reading recorded
-        {asset.acquisitionDate && <div className="mt-1 text-[11px]">Acquired {formatDate(asset.acquisitionDate)}</div>}
-      </div>
-    );
-  }
   return (
-    <div className="rounded-md border border-[hsl(var(--primary)/0.28)] p-3 text-right">
-      <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Current {meterFullLabel(asset.meterType, asset.meterLabel)}</div>
-      <div className="mt-2 text-2xl font-semibold leading-none text-[hsl(var(--primary))]">
-        {formatNumber(asset.currentMeter)} <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
-      </div>
-      <div className="mt-1 text-[11px] text-muted-foreground">As of {formatDate(asset.meterAsOf)}</div>
-      {asset.acquisitionDate && <div className="mt-1 text-[11px] text-muted-foreground">Acquired {formatDate(asset.acquisitionDate)}</div>}
+    <div className="flex h-full flex-col items-center justify-center text-center">
+      <ScheduleStatusIndicator status={scheduleStatus} assetId={asset.id} />
+      {hasMeter ? (
+        <div className="mt-3">
+          <div className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Current {meterFullLabel(asset.meterType, asset.meterLabel)}</div>
+          <div className="mt-1 text-xl font-semibold leading-none text-[hsl(var(--primary))]">
+            {formatNumber(asset.currentMeter)} <span className="text-sm font-normal">{meterUnitLabel(asset.meterType, asset.meterLabel)}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">As of {formatDate(asset.meterAsOf)}</div>
+        </div>
+      ) : (
+        <div className="mt-3 text-xs text-muted-foreground">No reading recorded</div>
+      )}
     </div>
+  );
+}
+
+// Same border-l-4 + status-color convention AssetDetail.tsx already uses for
+// its maintenance-schedule cards (scheduleStatusBorderClass there) -- reused
+// here so the Assets list/grid cards get a scannable left accent without
+// inventing a second color convention for the same four states.
+function scheduleStatusBorderClass(status?: AssetScheduleStatus["status"]) {
+  switch (status) {
+    case "overdue": return "border-l-[hsl(var(--status-overdue))]";
+    case "due-soon": return "border-l-[hsl(var(--status-warn))]";
+    case "ok": return "border-l-[hsl(var(--status-ok))]";
+    default: return "border-l-border";
+  }
+}
+
+// Service-status pill, reused by both list (MeterBlock) and grid
+// (AssetGridCard) views. Deliberately plain `inline-flex` (not full-width) so
+// the parent controls alignment: MeterBlock's centered container centers it,
+// AssetGridCard's left-flowing card leaves it left-aligned -- same
+// component, no layout variant needed. Colors come straight from the
+// status-ok/status-warn/status-overdue classes (already set
+// background+border+text together); "no-status" reuses InactiveBadge's
+// muted convention since there's no fourth status color to invent.
+function ScheduleStatusIndicator({ status, assetId }: { status?: AssetScheduleStatus; assetId: number }) {
+  const info = status ?? { status: "no-status" as const };
+  const pillClass =
+    info.status === "overdue" ? "status-overdue"
+    : info.status === "due-soon" ? "status-warn"
+    : info.status === "ok" ? "status-ok"
+    : "border-border bg-muted/60 text-muted-foreground";
+  const dotClass =
+    info.status === "overdue" ? "bg-[hsl(var(--status-overdue))]"
+    : info.status === "due-soon" ? "bg-[hsl(var(--status-warn))]"
+    : info.status === "ok" ? "bg-[hsl(var(--status-ok))]"
+    : "bg-muted-foreground/60";
+  const label =
+    info.status === "overdue" ? `Overdue: ${info.scheduleName}`
+    : info.status === "due-soon" ? `Due Soon: ${info.scheduleName}`
+    : info.status === "ok" ? "Up to Date"
+    : "No Status";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${pillClass}`}
+      data-testid={`schedule-status-${assetId}`}
+    >
+      <span className={`size-1.5 shrink-0 rounded-full ${dotClass}`} />
+      {label}
+    </span>
   );
 }
 
